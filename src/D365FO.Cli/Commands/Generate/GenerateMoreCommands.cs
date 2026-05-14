@@ -558,11 +558,11 @@ public sealed class GenerateReportCommand : Command<GenerateReportCommand.Settin
         [System.ComponentModel.Description("Tablix column field name (repeatable). Generates header + data rows in the tablix.")]
         public string[]? Fields { get; init; }
 
-        [CommandOption("--parameter <NAME[:TYPE]>")]
+        [CommandOption("--parameter <SPEC>")]
         [System.ComponentModel.Description("Report parameter (repeatable). Format: Name or Name:Type. Type: String (default), Integer, DateTime, Boolean, Decimal.")]
         public string[]? Parameters { get; init; }
 
-        [CommandOption("--extra-dataset <NAME:DPCLASS>")]
+        [CommandOption("--extra-dataset <SPEC>")]
         [System.ComponentModel.Description("Additional dataset (repeatable). Format: DatasetName:DPClassName. Each produces its own tablix in the design.")]
         public string[]? ExtraDatasets { get; init; }
 
