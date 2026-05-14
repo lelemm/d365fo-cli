@@ -3,6 +3,7 @@
 // </copyright>
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -20,6 +21,13 @@ public static class LabelInliner
     private static readonly Regex TokenRegex = new(
         @"@([A-Za-z]+)(\d+)",
         RegexOptions.Compiled);
+
+    /// <summary>
+    /// Cross-call label resolution cache. Bounded to prevent unbounded growth
+    /// in long-lived daemon processes. Thread-safe via ConcurrentDictionary.
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, string?> s_globalCache = new(StringComparer.OrdinalIgnoreCase);
+    private const int MaxGlobalCacheSize = 2048;
 
     /// <summary>
     /// Walk <paramref name="node"/> in place and rewrite every
@@ -85,22 +93,37 @@ public static class LabelInliner
             var token = match.Value;
             if (!cache.TryGetValue(token, out var text))
             {
-                var matches = repo.ResolveLabel(token, languages);
-                text = null;
-                foreach (var lang in languages)
+                // Check the cross-call global cache first to avoid DB round-trips.
+                if (s_globalCache.TryGetValue(token, out text))
                 {
-                    foreach (var hit in matches)
-                    {
-                        if (string.Equals(hit.Language, lang, StringComparison.OrdinalIgnoreCase))
-                        {
-                            text = hit.Value;
-                            break;
-                        }
-                    }
-                    if (text is not null) break;
+                    cache[token] = text;
                 }
-                if (text is null && matches.Count > 0) text = matches[0].Value;
-                cache[token] = text;
+                else
+                {
+                    var matches = repo.ResolveLabel(token, languages);
+                    text = null;
+                    foreach (var lang in languages)
+                    {
+                        foreach (var hit in matches)
+                        {
+                            if (string.Equals(hit.Language, lang, StringComparison.OrdinalIgnoreCase))
+                            {
+                                text = hit.Value;
+                                break;
+                            }
+                        }
+                        if (text is not null) break;
+                    }
+                    if (text is null && matches.Count > 0) text = matches[0].Value;
+                    cache[token] = text;
+
+                    // Populate the global cache (bounded eviction: clear when full).
+                    if (s_globalCache.Count >= MaxGlobalCacheSize)
+                    {
+                        s_globalCache.Clear();
+                    }
+                    s_globalCache[token] = text;
+                }
             }
             return string.IsNullOrEmpty(text) ? token : $"{text} [[{token}]]";
         });

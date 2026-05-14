@@ -171,12 +171,21 @@ public sealed class BridgeClient : IDisposable
         {
             writer.WriteLine(line);
             writer.Flush();
+
+            // ReadLine is blocking; run on a thread-pool thread and
+            // enforce the configured timeout via Task.WhenAny.
+            var readTask = Task.Run(() => reader.ReadLine(), CancellationToken.None);
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancel);
             cts.CancelAfter(options.RequestTimeout);
+            var timeoutTask = Task.Delay(Timeout.InfiniteTimeSpan, cts.Token);
+            var completed = Task.WhenAny(readTask, timeoutTask).GetAwaiter().GetResult();
+            if (completed != readTask)
+            {
+                throw new BridgeException(
+                    $"Bridge did not respond within {options.RequestTimeout.TotalSeconds:F0}s (method: {method}).");
+            }
 
-            // ReadLine on a process's StandardOutput is blocking and not
-            // cancellable — accept the timeout as a hard upper bound.
-            responseLine = reader.ReadLine();
+            responseLine = readTask.GetAwaiter().GetResult();
         }
 
         if (responseLine is null)
@@ -221,42 +230,57 @@ public sealed class BridgeClient : IDisposable
             return;
         }
 
-        if (options.UseInProcessStreams)
+        // Synchronize startup so concurrent callers don't spawn duplicates.
+        lock (gate)
         {
-            // Test mode — streams must have been supplied via ctor.
-            return;
-        }
+            // Double-check after acquiring the lock.
+            if (writer is not null && reader is not null)
+            {
+                return;
+            }
 
-        var exe = BridgeOptions.ResolveExecutable(options.ExecutablePath);
-        if (exe is null)
-        {
-            return;
-        }
+            if (options.UseInProcessStreams)
+            {
+                // Test mode — streams must have been supplied via ctor.
+                return;
+            }
 
-        var psi = new ProcessStartInfo
-        {
-            FileName = exe,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardInputEncoding = new UTF8Encoding(false),
-            StandardOutputEncoding = new UTF8Encoding(false),
-        };
-        if (!string.IsNullOrWhiteSpace(options.MetadataBinPath))
-        {
-            psi.Environment["D365FO_BIN_PATH"] = options.MetadataBinPath;
-        }
+            var exe = BridgeOptions.ResolveExecutable(options.ExecutablePath);
+            if (exe is null)
+            {
+                return;
+            }
 
-        process = Process.Start(psi);
-        if (process is null)
-        {
-            return;
-        }
+            var psi = new ProcessStartInfo
+            {
+                FileName = exe,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                StandardInputEncoding = new UTF8Encoding(false),
+                StandardOutputEncoding = new UTF8Encoding(false),
+            };
+            if (!string.IsNullOrWhiteSpace(options.MetadataBinPath))
+            {
+                psi.Environment["D365FO_BIN_PATH"] = options.MetadataBinPath;
+            }
 
-        writer = process.StandardInput;
-        reader = process.StandardOutput;
+            process = Process.Start(psi);
+            if (process is null)
+            {
+                return;
+            }
+
+            // Drain stderr asynchronously to prevent child process deadlock
+            // when the OS pipe buffer fills up.
+            process.ErrorDataReceived += (_, e) => { /* discard stderr output */ };
+            process.BeginErrorReadLine();
+
+            writer = process.StandardInput;
+            reader = process.StandardOutput;
+        }
     }
 
     /// <inheritdoc/>

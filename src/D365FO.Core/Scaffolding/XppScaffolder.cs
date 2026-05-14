@@ -741,16 +741,36 @@ public static class ScaffoldFileWriter
         }
 
         var tmp = full + ".tmp";
-        if (declarationOnSaveFromXDoc && doc is not null)
+        try
         {
-            using var fs = File.Create(tmp);
-            doc.Save(fs);
+            if (declarationOnSaveFromXDoc && doc is not null)
+            {
+                using var fs = File.Create(tmp);
+                doc.Save(fs);
+            }
+            else
+            {
+                File.WriteAllText(tmp, xml);
+            }
+
+            File.Move(tmp, full);
         }
-        else
+        catch
         {
-            File.WriteAllText(tmp, xml);
+            // Rollback: restore original from backup if the final move failed.
+            if (backup is not null && File.Exists(backup) && !File.Exists(full))
+            {
+                try { File.Move(backup, full); }
+                catch { /* best-effort restore */ }
+            }
+
+            // Clean up temp file if it was left behind.
+            try { if (File.Exists(tmp)) File.Delete(tmp); }
+            catch { /* best-effort cleanup */ }
+
+            throw;
         }
-        File.Move(tmp, full);
+
         var bytes = new FileInfo(full).Length;
         return new WriteResult(full, bytes, backup);
     }

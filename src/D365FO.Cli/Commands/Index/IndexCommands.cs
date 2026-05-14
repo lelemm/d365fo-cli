@@ -57,6 +57,7 @@ public sealed class IndexStatusCommand : Command<IndexStatusCommand.Settings>
         var exists = File.Exists(cfg.DatabasePath);
         long sizeBytes = exists ? new FileInfo(cfg.DatabasePath).Length : 0;
         ExtractCounts? counts = null;
+        string? statusWarning = null;
         if (exists)
         {
             try
@@ -64,7 +65,10 @@ public sealed class IndexStatusCommand : Command<IndexStatusCommand.Settings>
                 var repo = RepoFactory.Create();
                 counts = repo.CountAll();
             }
-            catch { /* swallow — status must not fail */ }
+            catch (Exception ex)
+            {
+                statusWarning = $"Could not read index: {ex.Message}";
+            }
         }
 
         var result = ToolResult<object>.Success(new
@@ -77,6 +81,7 @@ public sealed class IndexStatusCommand : Command<IndexStatusCommand.Settings>
             customModels = cfg.CustomModels,
             labelLanguages = cfg.LabelLanguages,
             counts,
+            warning = statusWarning,
         });
         return RenderHelpers.Render(kind, result);
     }
