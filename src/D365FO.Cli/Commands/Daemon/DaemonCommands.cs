@@ -80,18 +80,34 @@ public sealed class DaemonStartCommand : AsyncCommand<DaemonStartCommand.Setting
     public override async Task<int> ExecuteAsync(CommandContext ctx, Settings settings)
     {
         var kind = OutputMode.Resolve(settings.Output);
-        if (File.Exists(DaemonEndpoint.PidFilePath))
+        // Atomic PID file creation — CreateNew fails if the file already exists,
+        // preventing race between two concurrent daemon starts.
+        FileStream? pidLock = null;
+        try
         {
+            pidLock = new FileStream(
+                DaemonEndpoint.PidFilePath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.Read);
+        }
+        catch (IOException)
+        {
+            pidLock?.Dispose();
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(
                 "DAEMON_ALREADY_RUNNING",
                 $"Pid file exists at {DaemonEndpoint.PidFilePath}.",
                 "Run 'd365fo daemon stop' first, or delete the stale pid file."));
         }
 
+        using (pidLock)
+        {
+            using var sw = new StreamWriter(pidLock, leaveOpen: false);
+            sw.Write(Environment.ProcessId.ToString());
+        }
+
         // Warm the repository once so all connections share the same FS layout.
         var dispatcher = StdioDispatcher.CreateDefault(settings.DatabasePath);
-
-        File.WriteAllText(DaemonEndpoint.PidFilePath, Environment.ProcessId.ToString());
         using var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 
@@ -153,9 +169,14 @@ public sealed class DaemonStartCommand : AsyncCommand<DaemonStartCommand.Setting
                     existing.Change(debounceMs, Timeout.Infinite);
                     return;
                 }
-                pending[modelName] = new Timer(_ =>
+                pending[modelName] = new Timer(state =>
                 {
-                    lock (@lock) { pending.Remove(modelName); }
+                    Timer? self;
+                    lock (@lock)
+                    {
+                        pending.Remove(modelName, out self);
+                    }
+                    self?.Dispose();
                     if (ct.IsCancellationRequested) return;
                     // Fire-and-forget incremental extract for this model only.
                     try
@@ -180,11 +201,14 @@ public sealed class DaemonStartCommand : AsyncCommand<DaemonStartCommand.Setting
 
         void OnChanged(object _, FileSystemEventArgs e)
         {
-            // Identify model: packagesPath/<model>/<model>/Ax*/*.xml
+            // D365FO layout: packagesPath/<package>/<model>/Ax*/*.xml
+            // parts[0] = package name, parts[1] = model name.
+            // In the common case where package == model, parts[0] works too,
+            // but we must use parts[1] for ISV models where they differ.
             var rel = Path.GetRelativePath(packagesPath, e.FullPath);
             var parts = rel.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length < 1) return;
-            ScheduleRefresh(parts[0]);
+            if (parts.Length < 2) return;
+            ScheduleRefresh(parts[1]);
         }
 
         var fsw = new FileSystemWatcher(packagesPath)

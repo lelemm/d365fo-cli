@@ -317,7 +317,15 @@ public sealed class MetadataRepository
         {
             // Either FTS5 is absent or the query string isn't valid FTS syntax
             // — degrade to LIKE so callers always get *some* results.
-            return SearchLabels(query, languages, limit);
+            var results = SearchLabels(query, languages, limit);
+            // Attach a sentinel so callers can detect the fallback occurred.
+            if (results is List<LabelMatch> list)
+            {
+                list.Insert(0, new LabelMatch(
+                    "__warning__", "", "FTS_FALLBACK",
+                    "FTS5 unavailable or invalid query syntax; results may be incomplete (fell back to LIKE)."));
+            }
+            return results;
         }
     }
 
@@ -1352,10 +1360,27 @@ public sealed class MetadataRepository
                          new { tc = coc.TargetClass, tm = coc.TargetMethod, ec = coc.ExtensionClass, m = modelId }, tx);
         }
 
-        foreach (var l in batch.Labels)
+        // Labels are the highest-volume insert (100k+ for large models).
+        // Use a prepared SqliteCommand with parameter rebinding for ~3-5x
+        // throughput vs Dapper's per-row anonymous-object reflection.
+        if (batch.Labels.Count > 0)
         {
-            conn.Execute(@"INSERT INTO Labels(LabelFile, Language, Key, Value) VALUES(@f, @lg, @k, @v)",
-                         new { f = l.File, lg = l.Language, k = l.Key, v = l.Value }, tx);
+            using var labelCmd = conn.CreateCommand();
+            labelCmd.Transaction = (Microsoft.Data.Sqlite.SqliteTransaction)tx;
+            labelCmd.CommandText = "INSERT INTO Labels(LabelFile, Language, Key, Value) VALUES($f, $lg, $k, $v)";
+            var pFile = labelCmd.Parameters.Add("$f", Microsoft.Data.Sqlite.SqliteType.Text);
+            var pLang = labelCmd.Parameters.Add("$lg", Microsoft.Data.Sqlite.SqliteType.Text);
+            var pKey = labelCmd.Parameters.Add("$k", Microsoft.Data.Sqlite.SqliteType.Text);
+            var pVal = labelCmd.Parameters.Add("$v", Microsoft.Data.Sqlite.SqliteType.Text);
+            labelCmd.Prepare();
+            foreach (var l in batch.Labels)
+            {
+                pFile.Value = l.File;
+                pLang.Value = l.Language;
+                pKey.Value = l.Key;
+                pVal.Value = (object?)l.Value ?? DBNull.Value;
+                labelCmd.ExecuteNonQuery();
+            }
         }
 
         foreach (var f in batch.Forms)
@@ -1582,16 +1607,25 @@ public sealed class MetadataRepository
 
         var perModel = conn.Query<PerModelStat>(@"
             SELECT m.Name AS Model, m.IsCustom AS IsCustom,
-                   (SELECT COUNT(*) FROM Tables t WHERE t.ModelId = m.ModelId) AS Tables,
-                   (SELECT COUNT(*) FROM Classes c WHERE c.ModelId = m.ModelId) AS Classes,
-                   (SELECT COUNT(*) FROM Edts e WHERE e.ModelId = m.ModelId) AS Edts,
-                   (SELECT COUNT(*) FROM Enums en WHERE en.ModelId = m.ModelId) AS Enums,
-                   (SELECT COUNT(*) FROM MenuItems mi WHERE mi.ModelId = m.ModelId) AS MenuItems,
-                   (SELECT COUNT(*) FROM Forms f WHERE f.ModelId = m.ModelId) AS Forms,
-                   (SELECT COUNT(*) FROM ObjectExtensions ox WHERE ox.ModelId = m.ModelId) AS Extensions,
-                   (SELECT COUNT(*) FROM CocExtensions cx WHERE cx.ModelId = m.ModelId) AS Coc,
-                   (SELECT COUNT(*) FROM Labels l WHERE l.ModelId = m.ModelId) AS Labels
+                   COALESCE(t.Cnt, 0) AS Tables,
+                   COALESCE(c.Cnt, 0) AS Classes,
+                   COALESCE(e.Cnt, 0) AS Edts,
+                   COALESCE(en.Cnt, 0) AS Enums,
+                   COALESCE(mi.Cnt, 0) AS MenuItems,
+                   COALESCE(f.Cnt, 0) AS Forms,
+                   COALESCE(ox.Cnt, 0) AS Extensions,
+                   COALESCE(cx.Cnt, 0) AS Coc,
+                   COALESCE(lb.Cnt, 0) AS Labels
             FROM Models m
+            LEFT JOIN (SELECT ModelId, COUNT(*) AS Cnt FROM Tables GROUP BY ModelId) t ON t.ModelId = m.ModelId
+            LEFT JOIN (SELECT ModelId, COUNT(*) AS Cnt FROM Classes GROUP BY ModelId) c ON c.ModelId = m.ModelId
+            LEFT JOIN (SELECT ModelId, COUNT(*) AS Cnt FROM Edts GROUP BY ModelId) e ON e.ModelId = m.ModelId
+            LEFT JOIN (SELECT ModelId, COUNT(*) AS Cnt FROM Enums GROUP BY ModelId) en ON en.ModelId = m.ModelId
+            LEFT JOIN (SELECT ModelId, COUNT(*) AS Cnt FROM MenuItems GROUP BY ModelId) mi ON mi.ModelId = m.ModelId
+            LEFT JOIN (SELECT ModelId, COUNT(*) AS Cnt FROM Forms GROUP BY ModelId) f ON f.ModelId = m.ModelId
+            LEFT JOIN (SELECT ModelId, COUNT(*) AS Cnt FROM ObjectExtensions GROUP BY ModelId) ox ON ox.ModelId = m.ModelId
+            LEFT JOIN (SELECT ModelId, COUNT(*) AS Cnt FROM CocExtensions GROUP BY ModelId) cx ON cx.ModelId = m.ModelId
+            LEFT JOIN (SELECT ModelId, COUNT(*) AS Cnt FROM Labels GROUP BY ModelId) lb ON lb.ModelId = m.ModelId
             ORDER BY m.Name").ToList();
 
         var topTables = conn.Query<TopTableStat>(@"
