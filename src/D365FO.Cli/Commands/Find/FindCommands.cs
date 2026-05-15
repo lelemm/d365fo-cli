@@ -341,7 +341,7 @@ public sealed class FindRelatedCommand : Command<FindRelatedCommand.Settings>
     public sealed class Settings : D365OutputSettings
     {
         [CommandArgument(0, "<RELATION>")]
-        [System.ComponentModel.Description("usages|refs|table-relations|coc|security|extensions|handlers|table-methods|table-indexes|table-delete-actions")]
+        [System.ComponentModel.Description("name-search|refs|table-relations|coc|security|extensions|handlers|table-methods|table-indexes|table-delete-actions")]
         public string Relation { get; init; } = "";
 
         [CommandArgument(1, "<NAME>")]
@@ -366,9 +366,9 @@ public sealed class FindRelatedCommand : Command<FindRelatedCommand.Settings>
             return RenderHelpers.Render(output, ToolResult<object>.Fail("BAD_INPUT", "Relation and name are required."));
 
         var repo = RepoFactory.Create();
-        return Normalize(settings.Relation) switch
+        return RenderHelpers.NormalizeKind(settings.Relation) switch
         {
-            "usages" => RenderUsages(output, repo, settings.Name, settings.Limit),
+            "namesearch" or "name-search" => RenderUsages(output, repo, settings.Name, settings.Limit),
             "refs" or "references" => RenderRefs(output, repo, settings.Name, settings.Kind, settings.Limit),
             "tablerelations" or "relations" => RenderItems(output, repo.GetTableRelations(settings.Name)),
             "coc" => RenderItems(output, repo.FindCocExtensions(settings.Name, settings.Method)),
@@ -383,7 +383,7 @@ public sealed class FindRelatedCommand : Command<FindRelatedCommand.Settings>
             _ => RenderHelpers.Render(output, ToolResult<object>.Fail(
                 "BAD_INPUT",
                 $"Unsupported relation '{settings.Relation}'.",
-                "Use usages, refs, table-relations, coc, security, extensions, handlers, table-methods, table-indexes, or table-delete-actions.")),
+                "Use name-search, refs, table-relations, coc, security, extensions, handlers, table-methods, table-indexes, or table-delete-actions.")),
         };
     }
 
@@ -439,7 +439,4 @@ public sealed class FindRelatedCommand : Command<FindRelatedCommand.Settings>
 
     private static int RenderItems<T>(OutputMode.Kind output, IReadOnlyList<T> items)
         => RenderHelpers.Render(output, ToolResult<object>.Success(new { count = items.Count, items }));
-
-    private static string Normalize(string value)
-        => new(value.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
 }

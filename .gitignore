@@ -12,3 +12,4 @@ coverage/
 *.trx
 .DS_Store
 *.log
+*.lscache

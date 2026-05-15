@@ -304,7 +304,7 @@ public sealed class SearchBatchCommand : Command<SearchBatchCommand.Settings>
 
     public override int Execute(CommandContext ctx, Settings settings)
     {
-        var kind = OutputMode.Resolve(settings.Output);
+        var output = OutputMode.Resolve(settings.Output);
         var queries = settings.Queries
             .Where(q => !string.IsNullOrWhiteSpace(q))
             .Select(q => q.Trim())
@@ -312,7 +312,7 @@ public sealed class SearchBatchCommand : Command<SearchBatchCommand.Settings>
             .ToArray();
 
         if (queries.Length == 0)
-            return RenderHelpers.Render(kind, ToolResult<object>.Fail("BAD_INPUT", "At least one query is required."));
+            return RenderHelpers.Render(output, ToolResult<object>.Fail("BAD_INPUT", "At least one query is required."));
 
         var repo = RepoFactory.Create();
         var results = queries.Select(q =>
@@ -324,7 +324,7 @@ public sealed class SearchBatchCommand : Command<SearchBatchCommand.Settings>
             return new { query = q, count = hits.Count, byKind, items = hits };
         }).ToList();
 
-        return RenderHelpers.Render(kind, ToolResult<object>.Success(new
+        return RenderHelpers.Render(output, ToolResult<object>.Success(new
         {
             count = results.Count,
             limit = settings.Limit,

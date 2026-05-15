@@ -84,6 +84,11 @@ When the user just wants to *understand* code, never edit:
 | Find inbound/outbound table relations | `d365fo find relations <Table> --output json` |
 | Resolve a label token | `d365fo resolve label @SYS12345 --lang en-us,cs` |
 | Trace security coverage | `d365fo get security <Object> --type <Kind>` |
+| Discover CLI surface (compact agent manifest) | `d365fo schema --output json` |
+| Discover CLI surface (full parity catalog) | `d365fo schema --full --output json` |
+| Search multiple names at once | `d365fo search batch <q1> <q2> … --output json` |
+| Generic object fetch (agent shortcut) | `d365fo get object <kind> <name> --output json` |
+| Generic relation lookup (agent shortcut) | `d365fo find related <relation> <name> --output json` |
 
 > **`--output json` is mandatory** in agent contexts. Without it the CLI may render rich console output that wastes tokens.
 

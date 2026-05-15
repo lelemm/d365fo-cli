@@ -504,7 +504,7 @@ public sealed class GetObjectCommand : Command<GetObjectCommand.Settings>
             return RenderHelpers.Render(output, ToolResult<object>.Fail("BAD_INPUT", "Kind and name are required."));
 
         var repo = RepoFactory.Create();
-        return Normalize(settings.Kind) switch
+        return RenderHelpers.NormalizeKind(settings.Kind) switch
         {
             "class" => Render(output, repo.GetClassDetails(settings.Name), "CLASS_NOT_FOUND", $"Class '{settings.Name}' not found."),
             "table" => RenderTable(output, repo.GetTableDetails(settings.Name), settings.Name),
@@ -546,7 +546,4 @@ public sealed class GetObjectCommand : Command<GetObjectCommand.Settings>
                 indexes = details.Indexes,
                 deleteActions = details.DeleteActions,
             }));
-
-    private static string Normalize(string value)
-        => new(value.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
 }

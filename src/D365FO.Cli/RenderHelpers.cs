@@ -8,6 +8,14 @@ namespace D365FO.Cli;
 
 public static class RenderHelpers
 {
+    /// <summary>
+    /// Strips non-alphanumeric characters and lower-cases the result so that
+    /// CLI argument values like "table-relations", "tableRelations", and
+    /// "tablerelations" all compare equal in command switch expressions.
+    /// </summary>
+    public static string NormalizeKind(string value)
+        => new(value.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
+
     private static readonly System.Threading.AsyncLocal<bool> _resolveLabels = new();
 
     /// <summary>
