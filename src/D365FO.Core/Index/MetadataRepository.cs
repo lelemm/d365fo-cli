@@ -972,7 +972,12 @@ public sealed class MetadataRepository
     }
 
     private sealed record EnumHeaderRow(long EnumId, string Name, string Model, string? Label);
-    private sealed record UsageRow(string Kind, string Name, string Model);
+    private sealed class UsageRow
+    {
+        public string Kind { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string Model { get; set; } = "";
+    }
 
     public LabelMatch? GetLabel(string file, string language, string key)
     {
@@ -1696,4 +1701,3 @@ public sealed class MetadataRepository
         return r.ReadToEnd();
     }
 }
-

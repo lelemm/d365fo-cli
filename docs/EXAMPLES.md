@@ -526,6 +526,26 @@ Drop `skills/anthropic/` into the project or `~/.claude/skills/`. Each `SKILL.md
 
 Paste the output of `d365fo agent-prompt` into the session system prompt, or reference it from `AGENTS.md`.
 
+Use the compact manifest when the agent needs to discover the CLI surface:
+
+```sh
+d365fo schema
+```
+
+Use the complete manifest only when needed:
+
+```sh
+d365fo schema --full
+```
+
+CLI-first shortcuts replace common MCP multi-call workflows:
+
+```sh
+d365fo search batch CustTable SalesTable CustAccount --output json
+d365fo get object table CustTable --output json
+d365fo find related coc CustTable --method validateWrite --output json
+```
+
 ### MCP server (`d365fo-mcp`)
 
 Standalone JSON-RPC 2.0 server (protocol `2024-11-05`) that shares the CLI's index. Config sample for Claude Desktop:

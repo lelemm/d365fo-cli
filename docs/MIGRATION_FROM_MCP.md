@@ -103,6 +103,10 @@ If upstream `d365fo-mcp-server` updates its rule canon, sync this repo's [`.gith
 
 | MCP tool | CLI command |
 |---|---|
+| `search` / `search_any` | `d365fo search any <q>` |
+| `batch_search` | `d365fo search batch <q1> <q2> ...` |
+| `get_*` family | `d365fo get object <kind> <name>` or the dedicated `d365fo get <kind> <name>` |
+| `find_*` relation family | `d365fo find related <relation> <name>` or the dedicated `d365fo find ...` command |
 | `search_classes` | `d365fo search class <q>` |
 | `get_table_details` | `d365fo get table <name>` *(now also includes indexes, methods, delete actions)* |
 | `get_edt_details` | `d365fo get edt <name>` |
@@ -117,6 +121,10 @@ If upstream `d365fo-mcp-server` updates its rule canon, sync this repo's [`.gith
 
 | Command | Purpose |
 |---|---|
+| `d365fo schema` / `d365fo schema --full` | Compact agent-first manifest or complete CLI parity catalog. |
+| `d365fo search batch <q1> <q2> ...` | Batch scope-agnostic discovery in one process, replacing repeated MCP calls. |
+| `d365fo get object <kind> <name>` | Generic object fetch for agents; dedicated `get` commands remain available. |
+| `d365fo find related <relation> <name>` | Generic relation lookup for agents; dedicated `find` commands remain available. |
 | `d365fo search query\|view\|entity\|report\|service\|workflow` | Index queries, views, data entities (by name or OData `PublicEntityName`/`PublicCollectionName`), SSRS/RDL reports, SOAP services, workflow types. |
 | `d365fo get form\|role\|duty\|privilege\|query\|view\|entity\|report\|service\|service-group` | Full details for each object type. |
 | `d365fo find extensions <Target>` | Enumerate Table / Form / Edt / Enum extensions targeting an object. |

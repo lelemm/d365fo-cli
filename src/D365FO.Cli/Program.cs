@@ -40,6 +40,7 @@ app.Configure(cfg =>
         b.AddCommand<SearchServiceCommand>("service").WithDescription("Find SOAP services.");
         b.AddCommand<SearchWorkflowCommand>("workflow").WithDescription("Find workflow types.");
         b.AddCommand<SearchAnyCommand>("any").WithDescription("Scope-agnostic search across every indexed kind.");
+        b.AddCommand<SearchBatchCommand>("batch").WithDescription("Run several scope-agnostic searches in one CLI call.");
     });
 
     cfg.AddBranch("get", b =>
@@ -62,6 +63,7 @@ app.Configure(cfg =>
         b.AddCommand<GetReportCommand>("report").WithDescription("Report: datasets + queries/RDP.");
         b.AddCommand<GetServiceCommand>("service").WithDescription("SOAP service: operations.");
         b.AddCommand<GetServiceGroupCommand>("service-group").WithDescription("Service group: members.");
+        b.AddCommand<GetObjectCommand>("object").WithDescription("Generic get by kind/name for agent workflows.");
     });
 
     cfg.AddBranch("find", b =>
@@ -74,6 +76,7 @@ app.Configure(cfg =>
         b.AddCommand<FindHandlersCommand>("handlers").WithDescription("Find event handlers subscribed to a form/table/delegate.");
         b.AddCommand<FindRefsCommand>("refs").WithDescription("Regex scan of indexed X++ source for reverse references to a symbol.");
         b.AddCommand<FindFormPatternsCommand>("form-patterns").WithDescription("Analyse indexed forms by Microsoft pattern / primary table / similarity to a reference form.");
+        b.AddCommand<FindRelatedCommand>("related").WithDescription("Generic relation lookup by relation/name for agent workflows.");
     });
 
     cfg.AddBranch("resolve", b =>
@@ -199,4 +202,3 @@ catch (Exception ex)
         D365FO.Core.ToolResult<object>.Fail("UNHANDLED", ex.Message, ex.GetType().FullName)));
     return 2;
 }
-

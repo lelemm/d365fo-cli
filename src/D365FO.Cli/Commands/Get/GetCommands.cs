@@ -484,3 +484,66 @@ public sealed class GetServiceGroupCommand : Command<GetServiceGroupCommand.Sett
             : ToolResult<object>.Success(g));
     }
 }
+
+public sealed class GetObjectCommand : Command<GetObjectCommand.Settings>
+{
+    public sealed class Settings : D365OutputSettings
+    {
+        [CommandArgument(0, "<KIND>")]
+        [System.ComponentModel.Description("class|table|edt|enum|form|menu-item|query|view|entity|report|service|service-group|role|duty|privilege")]
+        public string Kind { get; init; } = "";
+
+        [CommandArgument(1, "<NAME>")]
+        public string Name { get; init; } = "";
+    }
+
+    public override int Execute(CommandContext ctx, Settings settings)
+    {
+        var output = OutputMode.Resolve(settings.Output);
+        if (string.IsNullOrWhiteSpace(settings.Kind) || string.IsNullOrWhiteSpace(settings.Name))
+            return RenderHelpers.Render(output, ToolResult<object>.Fail("BAD_INPUT", "Kind and name are required."));
+
+        var repo = RepoFactory.Create();
+        return RenderHelpers.NormalizeKind(settings.Kind) switch
+        {
+            "class" => Render(output, repo.GetClassDetails(settings.Name), "CLASS_NOT_FOUND", $"Class '{settings.Name}' not found."),
+            "table" => RenderTable(output, repo.GetTableDetails(settings.Name), settings.Name),
+            "edt" => Render(output, repo.GetEdt(settings.Name), "EDT_NOT_FOUND", $"EDT '{settings.Name}' not found."),
+            "enum" => Render(output, repo.GetEnum(settings.Name), "ENUM_NOT_FOUND", $"Enum '{settings.Name}' not found."),
+            "form" => Render(output, repo.GetForm(settings.Name), "FORM_NOT_FOUND", $"Form '{settings.Name}' not found."),
+            "menuitem" => Render(output, repo.GetMenuItem(settings.Name), "MENU_ITEM_NOT_FOUND", $"Menu item '{settings.Name}' not found."),
+            "query" => Render(output, repo.GetQuery(settings.Name), "QUERY_NOT_FOUND", $"Query '{settings.Name}' not found."),
+            "view" => Render(output, repo.GetView(settings.Name), "VIEW_NOT_FOUND", $"View '{settings.Name}' not found."),
+            "entity" or "dataentity" => Render(output, repo.GetDataEntity(settings.Name), "ENTITY_NOT_FOUND", $"Data entity '{settings.Name}' not found."),
+            "report" => Render(output, repo.GetReport(settings.Name), "REPORT_NOT_FOUND", $"Report '{settings.Name}' not found."),
+            "service" => Render(output, repo.GetService(settings.Name), "SERVICE_NOT_FOUND", $"Service '{settings.Name}' not found."),
+            "servicegroup" => Render(output, repo.GetServiceGroup(settings.Name), "SERVICE_GROUP_NOT_FOUND", $"Service group '{settings.Name}' not found."),
+            "role" => Render(output, repo.GetSecurityRole(settings.Name), "ROLE_NOT_FOUND", $"Role '{settings.Name}' not found."),
+            "duty" => Render(output, repo.GetSecurityDuty(settings.Name), "DUTY_NOT_FOUND", $"Duty '{settings.Name}' not found."),
+            "privilege" => Render(output, repo.GetSecurityPrivilege(settings.Name), "PRIVILEGE_NOT_FOUND", $"Privilege '{settings.Name}' not found."),
+            _ => RenderHelpers.Render(output, ToolResult<object>.Fail(
+                "BAD_INPUT",
+                $"Unsupported object kind '{settings.Kind}'.",
+                "Use class, table, edt, enum, form, menu-item, query, view, entity, report, service, service-group, role, duty, or privilege.")),
+        };
+    }
+
+    private static int Render<T>(OutputMode.Kind output, T? data, string code, string message)
+        where T : class
+        => RenderHelpers.Render(output, data is null
+            ? ToolResult<object>.Fail(code, message)
+            : ToolResult<object>.Success(data));
+
+    private static int RenderTable(OutputMode.Kind output, TableDetails? details, string name)
+        => RenderHelpers.Render(output, details is null
+            ? ToolResult<object>.Fail("TABLE_NOT_FOUND", $"Table '{name}' not found in index.")
+            : ToolResult<object>.Success(new
+            {
+                table = details.Table,
+                fields = details.Fields,
+                relations = details.Relations,
+                methods = details.Methods,
+                indexes = details.Indexes,
+                deleteActions = details.DeleteActions,
+            }));
+}

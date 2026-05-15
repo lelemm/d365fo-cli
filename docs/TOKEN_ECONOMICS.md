@@ -29,7 +29,11 @@ There's also a hidden cost: MCP encourages multi-step discovery (`find_type` →
 - The agent sees **one** tool: the shell / `bash` tool (~100 tokens).
 - At session start the harness enumerates available skills and loads **only** their YAML frontmatter (`name`, `description`, `applies_when`). Each skill costs ~30–60 tokens until it is actually triggered.
 - When a skill fires, its body (Markdown instructions + CLI invocations) is loaded on demand.
-- Agent discovery happens through `d365fo --help` and `d365fo schema --full` — again, on demand.
+- Agent discovery happens through `d365fo schema` (compact, agent-first) and
+  `d365fo schema --full` (complete parity catalog) — again, on demand.
+- Common MCP multi-tool flows collapse into one CLI process:
+  `d365fo search batch ...`, `d365fo get object <kind> <name>`, and
+  `d365fo find related <relation> <name>`.
 
 ## Expected savings
 
@@ -42,7 +46,9 @@ Using the same per-turn accounting:
 | 15 | ~44,000 | ~4,000 | ~91% |
 | 20 | ~58,000 | ~4,500 | ~92% |
 
-Real workflows save more, because MCP also pays for extra discovery round-trips (often 5–15 kT per workflow) that the CLI eliminates via `d365fo get table <Name>` in a single call.
+Real workflows save more, because MCP also pays for extra discovery round-trips
+(often 5–15 kT per workflow) that the CLI eliminates via single calls such as
+`d365fo get object table <Name>` or `d365fo search batch <A> <B> <C>`.
 
 ## When the saving does *not* apply
 

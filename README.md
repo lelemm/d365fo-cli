@@ -40,6 +40,7 @@ The CLI sits between your AI agent and the D365FO metadata layer. It exposes a s
 - **Scaffold X++ objects** — pattern-validated XML for tables, classes, CoC extensions, and AxForms (all 9 D365FO patterns: `SimpleList`, `SimpleListDetails`, `DetailsMaster`, `DetailsTransaction`, `Dialog`, `TableOfContents`, `Lookup`, `ListPage`, `Workspace`)
 - **Understand the code** — trace CoC targets, inbound/outbound relations, event handlers, label translations, and cross-references across your workspace
 - **AI-ready JSON** — every command returns a stable `{ ok, data, warnings }` envelope; agents parse once, never re-adapt
+- **Agent-first command shortcuts** — `search batch`, `get object`, and `find related` collapse common MCP multi-tool workflows into one CLI process
 - **15 lazy-loaded Skills** — full X++/CoC/BP rule canon (database queries, class rules, statement types, best practices) loaded only when relevant; ~90% fewer tokens per workflow than MCP
 - **Daemon mode** — warm-cache named-pipe server with file-system watcher; auto-refreshes index on AOT XML changes (debounce configurable)
 - **CI / pipeline ready** — runs in PowerShell, bash/zsh, GitHub Actions, Azure DevOps; no GUI required
@@ -223,9 +224,9 @@ See [`docs/TOKEN_ECONOMICS.md`](docs/TOKEN_ECONOMICS.md) for the full analysis a
 | Group | Commands |
 |---|---|
 | **Index** | `index build`, `index extract`, `index refresh`, `index status` |
-| **Discover** | `search class\|table\|edt\|enum\|form\|query\|view\|entity\|report\|service\|workflow\|label` |
-| **Get** | `get table\|class\|edt\|enum\|form\|menu-item\|security\|label\|role\|duty\|privilege\|query\|view\|entity\|report\|service` |
-| **Find** | `find coc`, `find relations`, `find usages`, `find extensions`, `find handlers`, `find refs`, `find form-patterns` |
+| **Discover** | `search any`, `search batch`, `search class\|table\|edt\|enum\|form\|query\|view\|entity\|report\|service\|workflow\|label` |
+| **Get** | `get object`, `get table\|class\|edt\|enum\|form\|menu-item\|security\|label\|role\|duty\|privilege\|query\|view\|entity\|report\|service` |
+| **Find** | `find related`, `find coc`, `find relations`, `find usages`, `find extensions`, `find handlers`, `find refs`, `find form-patterns` |
 | **Read** | `read class`, `read table`, `read form` |
 | **Resolve** | `resolve label` |
 | **Generate** | `generate table\|class\|coc\|form\|entity\|extension\|event-handler\|privilege\|duty\|role` |

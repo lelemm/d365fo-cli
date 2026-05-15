@@ -289,4 +289,47 @@ public sealed class SearchAnyCommand : Command<SearchAnyCommand.Settings>
     }
 }
 
+public sealed class SearchBatchCommand : Command<SearchBatchCommand.Settings>
+{
+    public sealed class Settings : D365OutputSettings
+    {
+        [CommandArgument(0, "<QUERY>")]
+        [System.ComponentModel.Description("One or more substrings to look up across every indexed kind.")]
+        public string[] Queries { get; init; } = Array.Empty<string>();
+
+        [CommandOption("-l|--limit <N>")]
+        [System.ComponentModel.Description("Maximum hits per query.")]
+        public int Limit { get; init; } = 50;
+    }
+
+    public override int Execute(CommandContext ctx, Settings settings)
+    {
+        var output = OutputMode.Resolve(settings.Output);
+        var queries = settings.Queries
+            .Where(q => !string.IsNullOrWhiteSpace(q))
+            .Select(q => q.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (queries.Length == 0)
+            return RenderHelpers.Render(output, ToolResult<object>.Fail("BAD_INPUT", "At least one query is required."));
+
+        var repo = RepoFactory.Create();
+        var results = queries.Select(q =>
+        {
+            var hits = repo.FindUsages(q, settings.Limit)
+                .Select(t => new { kind = t.Kind, name = t.Name, model = t.Model })
+                .ToList();
+            var byKind = hits.GroupBy(h => h.kind).ToDictionary(g => g.Key, g => g.Count());
+            return new { query = q, count = hits.Count, byKind, items = hits };
+        }).ToList();
+
+        return RenderHelpers.Render(output, ToolResult<object>.Success(new
+        {
+            count = results.Count,
+            limit = settings.Limit,
+            results,
+        }));
+    }
+}
 

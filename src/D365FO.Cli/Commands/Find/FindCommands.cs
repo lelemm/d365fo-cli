@@ -335,3 +335,108 @@ public sealed class FindFormPatternsCommand : Command<FindFormPatternsCommand.Se
         }));
     }
 }
+
+public sealed class FindRelatedCommand : Command<FindRelatedCommand.Settings>
+{
+    public sealed class Settings : D365OutputSettings
+    {
+        [CommandArgument(0, "<RELATION>")]
+        [System.ComponentModel.Description("name-search|refs|table-relations|coc|security|extensions|handlers|table-methods|table-indexes|table-delete-actions")]
+        public string Relation { get; init; } = "";
+
+        [CommandArgument(1, "<NAME>")]
+        public string Name { get; init; } = "";
+
+        [CommandOption("--kind <KIND>")]
+        [System.ComponentModel.Description("Optional kind filter or security object type.")]
+        public string? Kind { get; init; }
+
+        [CommandOption("--method <NAME>")]
+        [System.ComponentModel.Description("Method filter for relation=coc.")]
+        public string? Method { get; init; }
+
+        [CommandOption("-l|--limit <N>")]
+        public int Limit { get; init; } = 100;
+    }
+
+    public override int Execute(CommandContext ctx, Settings settings)
+    {
+        var output = OutputMode.Resolve(settings.Output);
+        if (string.IsNullOrWhiteSpace(settings.Relation) || string.IsNullOrWhiteSpace(settings.Name))
+            return RenderHelpers.Render(output, ToolResult<object>.Fail("BAD_INPUT", "Relation and name are required."));
+
+        var repo = RepoFactory.Create();
+        return RenderHelpers.NormalizeKind(settings.Relation) switch
+        {
+            "namesearch" or "name-search" => RenderUsages(output, repo, settings.Name, settings.Limit),
+            "refs" or "references" => RenderRefs(output, repo, settings.Name, settings.Kind, settings.Limit),
+            "tablerelations" or "relations" => RenderItems(output, repo.GetTableRelations(settings.Name)),
+            "coc" => RenderItems(output, repo.FindCocExtensions(settings.Name, settings.Method)),
+            "security" => RenderHelpers.Render(output, ToolResult<object>.Success(repo.GetSecurityCoverage(
+                settings.Name,
+                string.IsNullOrWhiteSpace(settings.Kind) ? "Menuitem" : settings.Kind))),
+            "extensions" => RenderItems(output, repo.FindExtensions(settings.Name, settings.Kind)),
+            "handlers" or "eventhandlers" => RenderItems(output, repo.FindEventSubscribers(settings.Name, settings.Kind)),
+            "tablemethods" => RenderItems(output, repo.GetTableMethods(settings.Name)),
+            "tableindexes" => RenderItems(output, repo.GetTableIndexes(settings.Name)),
+            "tabledeleteactions" => RenderItems(output, repo.GetTableDeleteActions(settings.Name)),
+            _ => RenderHelpers.Render(output, ToolResult<object>.Fail(
+                "BAD_INPUT",
+                $"Unsupported relation '{settings.Relation}'.",
+                "Use name-search, refs, table-relations, coc, security, extensions, handlers, table-methods, table-indexes, or table-delete-actions.")),
+        };
+    }
+
+    private static int RenderUsages(OutputMode.Kind output, D365FO.Core.Index.MetadataRepository repo, string name, int limit)
+    {
+        var items = repo.FindUsages(name, limit)
+            .Select(t => new { kind = t.Kind, name = t.Name, model = t.Model })
+            .ToList();
+        return RenderHelpers.Render(output, ToolResult<object>.Success(new { count = items.Count, items }));
+    }
+
+    private static int RenderRefs(OutputMode.Kind output, D365FO.Core.Index.MetadataRepository repo, string name, string? kind, int limit)
+    {
+        var sources = repo.EnumerateSourcePaths();
+        if (!string.IsNullOrWhiteSpace(kind))
+            sources = sources.Where(s => string.Equals(s.Kind, kind, StringComparison.OrdinalIgnoreCase)).ToList();
+
+        var rx = new System.Text.RegularExpressions.Regex(
+            $@"\b{System.Text.RegularExpressions.Regex.Escape(name)}\b",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        var hits = new List<object>();
+        var scanned = 0;
+
+        foreach (var row in sources)
+        {
+            if (hits.Count >= limit) break;
+            scanned++;
+            var src = XppSourceReader.Read(row.SourcePath);
+            if (src is null) continue;
+            foreach (var method in src.Methods)
+            {
+                if (!rx.IsMatch(method.Body)) continue;
+                hits.Add(new
+                {
+                    kind = row.Kind,
+                    name = row.Name,
+                    model = row.Model,
+                    method = method.Name,
+                    path = row.SourcePath,
+                });
+                if (hits.Count >= limit) break;
+            }
+        }
+
+        return RenderHelpers.Render(output, ToolResult<object>.Success(new
+        {
+            needle = name,
+            filesScanned = scanned,
+            count = hits.Count,
+            items = hits,
+        }));
+    }
+
+    private static int RenderItems<T>(OutputMode.Kind output, IReadOnlyList<T> items)
+        => RenderHelpers.Render(output, ToolResult<object>.Success(new { count = items.Count, items }));
+}
