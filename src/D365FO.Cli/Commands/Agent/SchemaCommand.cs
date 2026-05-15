@@ -61,7 +61,7 @@ public sealed class SchemaCommand : Command<SchemaCommand.Settings>
             {
                 "d365fo search any <name> --output json",
                 "d365fo get object <kind> <name> --output json",
-                "d365fo find related usages <name> --output json",
+                "d365fo find related name-search <name> --output json",
             },
         },
         new
