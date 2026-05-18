@@ -282,14 +282,28 @@ public sealed class MetadataRepository
         using var conn = OpenReadOnly();
         var like = $"%{query}%";
         var langsLower = languages?.Select(l => l.ToLowerInvariant()).ToList();
-        var sql = @"
+        string sql;
+        if (langsLower is null || langsLower.Count == 0)
+        {
+            sql = @"
             SELECT LabelFile AS File, Language, Key, Value
             FROM Labels
             WHERE (Value LIKE @like OR Key LIKE @like)
-              AND (@langs IS NULL OR LOWER(Language) IN @langs)
             ORDER BY LabelFile, Key
             LIMIT @limit";
-        return conn.Query<LabelMatch>(sql, new { like, langs = langsLower, limit }).ToList();
+            return conn.Query<LabelMatch>(sql, new { like, limit }).ToList();
+        }
+        else
+        {
+            sql = @"
+            SELECT LabelFile AS File, Language, Key, Value
+            FROM Labels
+            WHERE (Value LIKE @like OR Key LIKE @like)
+              AND LOWER(Language) IN @langs
+            ORDER BY LabelFile, Key
+            LIMIT @limit";
+            return conn.Query<LabelMatch>(sql, new { like, langs = langsLower, limit }).ToList();
+        }
     }
 
     /// <summary>
@@ -304,14 +318,28 @@ public sealed class MetadataRepository
         var langsLower = languages?.Select(l => l.ToLowerInvariant()).ToList();
         try
         {
-            var sql = @"
+            string sql;
+            if (langsLower is null || langsLower.Count == 0)
+            {
+                sql = @"
                 SELECT LabelFile AS File, Language, Key, Value
                 FROM LabelFts
                 WHERE LabelFts MATCH @q
-                  AND (@langs IS NULL OR LOWER(Language) IN @langs)
                 ORDER BY rank
                 LIMIT @limit";
-            return conn.Query<LabelMatch>(sql, new { q = query, langs = langsLower, limit }).ToList();
+                return conn.Query<LabelMatch>(sql, new { q = query, limit }).ToList();
+            }
+            else
+            {
+                sql = @"
+                SELECT LabelFile AS File, Language, Key, Value
+                FROM LabelFts
+                WHERE LabelFts MATCH @q
+                  AND LOWER(Language) IN @langs
+                ORDER BY rank
+                LIMIT @limit";
+                return conn.Query<LabelMatch>(sql, new { q = query, langs = langsLower, limit }).ToList();
+            }
         }
         catch (Microsoft.Data.Sqlite.SqliteException)
         {
@@ -1015,16 +1043,34 @@ public sealed class MetadataRepository
         // Try two shapes: Key == raw (e.g. "SYS12345") in file=prefix,
         // or Key == suffix (e.g. "12345") in file=prefix. Fall back to
         // exact key match across all files for odd prefixes.
-        var sql = @"
+        //
+        // NOTE: Dapper's list expansion rewrites "IN @langs" to "IN (@langs0, @langs1, ...)"
+        // which breaks a combined "@langs IS NULL" check (SQLite: "row value misused").
+        // We branch the SQL in C# instead.
+        string sql;
+        if (langsLower is null || langsLower.Count == 0)
+        {
+            sql = @"
             SELECT LabelFile AS File, Language, Key, Value
             FROM Labels
-            WHERE (@langs IS NULL OR LOWER(Language) IN @langs)
+            WHERE (LabelFile = @prefix AND Key IN (@raw, @suffix))
+               OR Key = @raw
+            ORDER BY LabelFile, Language";
+            return conn.Query<LabelMatch>(sql, new { prefix, raw, suffix }).ToList();
+        }
+        else
+        {
+            sql = @"
+            SELECT LabelFile AS File, Language, Key, Value
+            FROM Labels
+            WHERE LOWER(Language) IN @langs
               AND (
                     (LabelFile = @prefix AND Key IN (@raw, @suffix))
                  OR Key = @raw
               )
             ORDER BY LabelFile, Language";
-        return conn.Query<LabelMatch>(sql, new { langs = langsLower, prefix, raw, suffix }).ToList();
+            return conn.Query<LabelMatch>(sql, new { langs = langsLower, prefix, raw, suffix }).ToList();
+        }
     }
 
     /// <summary>
