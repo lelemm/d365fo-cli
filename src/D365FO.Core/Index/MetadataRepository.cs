@@ -18,6 +18,7 @@ public sealed class MetadataRepository
 
     private static readonly Lazy<string> SchemaSql = new(LoadEmbeddedSchema);
 
+    private readonly string _databasePath;
     private readonly string _connectionString;
     /// <summary>
     /// Read-only connection string used by all query-only methods. Using
@@ -38,6 +39,8 @@ public sealed class MetadataRepository
     {
         if (string.IsNullOrWhiteSpace(databasePath))
             throw new ArgumentException("Database path must be provided.", nameof(databasePath));
+
+        _databasePath = Path.GetFullPath(databasePath);
 
         _connectionString = new SqliteConnectionStringBuilder
         {
@@ -61,6 +64,9 @@ public sealed class MetadataRepository
     }
 
     public string ConnectionString => _connectionString;
+
+    /// <summary>Absolute path to the SQLite database file.</summary>
+    public string DatabasePath => _databasePath;
 
     /// <summary>
     /// Ensure schema is applied. Skips the CREATE script when PRAGMA
@@ -183,14 +189,23 @@ public sealed class MetadataRepository
         // virtual table inside a transaction can cause subtle lock contention on
         // some SQLite builds. A crash here leaves the FTS5 shadow tables in an
         // out-of-sync state that the next EnsureSchema() run will fix via rebuild.
-        try
+        //
+        // v6 added the FTS5 table + INSERT/DELETE/UPDATE triggers that keep it
+        // in lock-step with Labels incrementally. Databases at v6+ never need a
+        // full rebuild on schema upgrade — the triggers have kept the index current.
+        // Only pre-v6 databases require a one-time backfill because they have
+        // existing Labels rows that predate the triggers.
+        if (current < 6)
         {
-            conn.Execute("INSERT INTO LabelFts(LabelFts) VALUES('rebuild')");
-        }
-        catch (Microsoft.Data.Sqlite.SqliteException)
-        {
-            // Host SQLite build lacks FTS5 — degrade gracefully; SearchLabels()
-            // stays on the LIKE fallback path.
+            try
+            {
+                conn.Execute("INSERT INTO LabelFts(LabelFts) VALUES('rebuild')");
+            }
+            catch (Microsoft.Data.Sqlite.SqliteException)
+            {
+                // Host SQLite build lacks FTS5 — degrade gracefully; SearchLabels()
+                // stays on the LIKE fallback path.
+            }
         }
         return true;
     }
@@ -1869,5 +1884,62 @@ public sealed class MetadataRepository
         using var s = asm.GetManifestResourceStream(resName)!;
         using var r = new StreamReader(s);
         return r.ReadToEnd();
+    }
+
+    // ---- Index maintenance ----
+
+    /// <summary>
+    /// Runs <c>PRAGMA wal_checkpoint(TRUNCATE)</c>, <c>VACUUM</c>, and
+    /// <c>ANALYZE</c> on the index database. VACUUM reclaims space freed by
+    /// DELETE-heavy ApplyExtract cycles; ANALYZE refreshes query-planner
+    /// statistics so FTS5 and multi-table JOINs stay fast.
+    /// Returns the file sizes before and after VACUUM and elapsed time.
+    /// </summary>
+    public OptimizeResult Optimize()
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        long sizeBefore = File.Exists(_databasePath) ? new FileInfo(_databasePath).Length : 0;
+        using var conn = Open();
+        conn.Execute("PRAGMA wal_checkpoint(TRUNCATE)");
+        conn.Execute("VACUUM");
+        conn.Execute("ANALYZE");
+        sw.Stop();
+        long sizeAfter = File.Exists(_databasePath) ? new FileInfo(_databasePath).Length : 0;
+        return new OptimizeResult(sizeBefore, sizeAfter, sw.ElapsedMilliseconds);
+    }
+
+    /// <summary>
+    /// Checkpoints the WAL and writes a clean defragmented copy of the index
+    /// to <paramref name="destinationPath"/> using SQLite's
+    /// <c>VACUUM INTO</c> command (requires SQLite 3.27+; bundled version is
+    /// sufficient). The source DB is not modified or locked beyond the normal
+    /// checkpoint.
+    /// </summary>
+    public void VacuumInto(string destinationPath)
+    {
+        using var conn = Open();
+        conn.Execute("PRAGMA wal_checkpoint(TRUNCATE)");
+        conn.Execute($"VACUUM INTO '{destinationPath.Replace("'", "''")}'");
+    }
+
+    /// <summary>
+    /// Pre-warms the SQLite page cache by issuing a <c>SELECT count(*)</c> on
+    /// each major table. Counts are cheap (B-tree root page only) but force
+    /// the OS page cache to load the most-accessed index pages so subsequent
+    /// queries complete without cold-start I/O latency.
+    /// </summary>
+    public WarmupResult Warmup()
+    {
+        using var conn = OpenReadOnly();
+        return new WarmupResult(
+            Tables:    conn.ExecuteScalar<long>("SELECT count(*) FROM Tables"),
+            Classes:   conn.ExecuteScalar<long>("SELECT count(*) FROM Classes"),
+            Methods:   conn.ExecuteScalar<long>("SELECT count(*) FROM Methods"),
+            Edts:      conn.ExecuteScalar<long>("SELECT count(*) FROM Edts"),
+            Enums:     conn.ExecuteScalar<long>("SELECT count(*) FROM Enums"),
+            Labels:    conn.ExecuteScalar<long>("SELECT count(*) FROM Labels"),
+            Forms:     conn.ExecuteScalar<long>("SELECT count(*) FROM Forms"),
+            CocExtensions: conn.ExecuteScalar<long>("SELECT count(*) FROM CocExtensions"),
+            DataEntities: conn.ExecuteScalar<long>("SELECT count(*) FROM DataEntities"));
     }
 }

@@ -104,6 +104,10 @@ public sealed class IndexExtractCommand : Command<IndexExtractCommand.Settings>
         [CommandOption("--since <ISO8601>")]
         [System.ComponentModel.Description("Skip models whose newest XML mtime is older than this timestamp. Enables mtime-based incremental refresh.")]
         public string? Since { get; init; }
+
+        [CommandOption("--parallelism <N>")]
+        [System.ComponentModel.Description("Number of models to parse in parallel. Defaults to half the CPU core count. SQLite writes are always serialized.")]
+        public int? Parallelism { get; init; }
     }
 
     public override int Execute(CommandContext ctx, Settings settings)
@@ -112,7 +116,8 @@ public sealed class IndexExtractCommand : Command<IndexExtractCommand.Settings>
             settings.PackagesPath,
             settings.DatabasePath,
             settings.OnlyModel,
-            settings.Since);
+            settings.Since,
+            parallelism: settings.Parallelism);
 
     internal static int ExtractCore(
         OutputMode.Kind kind,
@@ -120,7 +125,8 @@ public sealed class IndexExtractCommand : Command<IndexExtractCommand.Settings>
         string? databaseOverride,
         string? onlyModel,
         string? sinceIso,
-        IReadOnlyDictionary<string, string?>? fingerprintsByModel = null)
+        IReadOnlyDictionary<string, string?>? fingerprintsByModel = null,
+        int? parallelism = null)
     {
         var cfg = D365FoSettings.FromEnvironment(databaseOverride);
         var root = packagesOverride ?? cfg.PackagesPath;
@@ -158,6 +164,13 @@ public sealed class IndexExtractCommand : Command<IndexExtractCommand.Settings>
         var per = new List<object>();
         var runSw = System.Diagnostics.Stopwatch.StartNew();
 
+        // Effective model-level parallelism: default = half the CPU core count.
+        // SQLite writes (ApplyExtract) are always serialized by the consumer
+        // thread — only XML parsing runs in parallel.
+        int effectiveParallelism = parallelism is > 0
+            ? parallelism.Value
+            : Math.Max(1, Environment.ProcessorCount / 2);
+
         // Pre-enumerate candidate model folders so we can report progress
         // *before* each model is parsed (useful when a single model like
         // ApplicationSuite takes many minutes).
@@ -172,48 +185,63 @@ public sealed class IndexExtractCommand : Command<IndexExtractCommand.Settings>
 
         void ProcessAll(Action<string>? onStart, Action<string, ExtractBatch, long>? onDone)
         {
-            // Producer-consumer pipeline: producer thread parses models while the
-            // consumer (this thread) writes to SQLite. This overlaps the CPU-intensive
-            // XML parse of model N+1 with the I/O-intensive ApplyExtract of model N —
-            // hiding parse latency behind write latency for large models.
-            // Bounded capacity = 2 limits peak RAM to ~2 parsed batches at a time.
+            // Producer-consumer pipeline: one or more producer threads parse model XML
+            // while the single consumer (this thread) writes to SQLite. This overlaps
+            // CPU-intensive XML parsing with I/O-intensive ApplyExtract calls.
+            // Bounded capacity = effectiveParallelism + 1 limits peak RAM to roughly
+            // (parallelism + 1) parsed batches at a time, capping memory usage while
+            // keeping the consumer fed.
             var queue = new System.Collections.Concurrent.BlockingCollection<(
-                ExtractBatch Batch, string Fp, DateTime StartedUtc, long ParseMs)>(boundedCapacity: 2);
+                ExtractBatch Batch, string Fp, DateTime StartedUtc, long ParseMs)>(
+                boundedCapacity: effectiveParallelism + 1);
             var cts = new System.Threading.CancellationTokenSource();
 
             var producer = System.Threading.Tasks.Task.Run(() =>
             {
                 try
                 {
-                    foreach (var modelDir in modelDirs)
-                    {
-                        var model = Path.GetFileName(modelDir)!;
-                        var fp = ComputeFingerprint(modelDir, cfg.LabelLanguages);
-                        if (since.HasValue && NewestMtime(modelDir) is { } newest && newest < since.Value)
+                    // Parallel.ForEach over model directories: each iteration parses one
+                    // model's XML fully before handing the ExtractBatch to the write queue.
+                    // ExtractModel is itself parallel-internally (Parallel.Invoke over
+                    // artifact kinds), so we avoid unbounded thread proliferation by using
+                    // a degree capped to effectiveParallelism at the model level.
+                    System.Threading.Tasks.Parallel.ForEach(
+                        modelDirs,
+                        new System.Threading.Tasks.ParallelOptions
                         {
-                            skippedCount++;
-                            continue;
-                        }
-                        if (dbFingerprints.TryGetValue(model, out var stored)
-                            && !string.IsNullOrEmpty(stored)
-                            && string.Equals(stored, fp, StringComparison.Ordinal))
+                            MaxDegreeOfParallelism = effectiveParallelism,
+                            CancellationToken = cts.Token,
+                        },
+                        modelDir =>
                         {
-                            skippedCount++;
-                            continue;
-                        }
-                        var startedUtc = DateTime.UtcNow;
-                        var parseSw = System.Diagnostics.Stopwatch.StartNew();
-                        ExtractBatch batch;
-                        try
-                        {
-                            batch = extractor.ExtractModel(modelDir, model, cfg.LabelLanguages, matcher.IsMatch(model));
-                        }
-                        catch { continue; }
-                        parseSw.Stop();
-                        try { queue.Add((batch, fp, startedUtc, parseSw.ElapsedMilliseconds), cts.Token); }
-                        catch (OperationCanceledException) { break; }
-                    }
+                            var model = Path.GetFileName(modelDir)!;
+                            var fp = ComputeFingerprint(modelDir, cfg.LabelLanguages);
+                            if (since.HasValue && NewestMtime(modelDir) is { } newest && newest < since.Value)
+                            {
+                                System.Threading.Interlocked.Increment(ref skippedCount);
+                                return;
+                            }
+                            if (dbFingerprints.TryGetValue(model, out var stored)
+                                && !string.IsNullOrEmpty(stored)
+                                && string.Equals(stored, fp, StringComparison.Ordinal))
+                            {
+                                System.Threading.Interlocked.Increment(ref skippedCount);
+                                return;
+                            }
+                            var startedUtc = DateTime.UtcNow;
+                            var parseSw = System.Diagnostics.Stopwatch.StartNew();
+                            ExtractBatch batch;
+                            try
+                            {
+                                batch = extractor.ExtractModel(modelDir, model, cfg.LabelLanguages, matcher.IsMatch(model));
+                            }
+                            catch { return; }
+                            parseSw.Stop();
+                            try { queue.Add((batch, fp, startedUtc, parseSw.ElapsedMilliseconds), cts.Token); }
+                            catch (OperationCanceledException) { /* consumer cancelled; stop */ }
+                        });
                 }
+                catch (OperationCanceledException) { /* consumer cancelled; normal exit */ }
                 finally { queue.CompleteAdding(); }
             });
 
@@ -422,6 +450,10 @@ public sealed class IndexRefreshCommand : Command<IndexRefreshCommand.Settings>
         [CommandOption("--force")]
         [System.ComponentModel.Description("Ignore any computed threshold and re-extract every model.")]
         public bool Force { get; init; }
+
+        [CommandOption("--parallelism <N>")]
+        [System.ComponentModel.Description("Number of models to parse in parallel. Defaults to half the CPU core count.")]
+        public int? Parallelism { get; init; }
     }
 
     public override int Execute(CommandContext ctx, Settings settings)
@@ -458,7 +490,8 @@ public sealed class IndexRefreshCommand : Command<IndexRefreshCommand.Settings>
             settings.DatabasePath,
             settings.OnlyModel,
             since,
-            fingerprints);
+            fingerprints,
+            parallelism: settings.Parallelism);
     }
 }
 
@@ -506,5 +539,194 @@ public sealed class IndexHistoryCommand : Command<IndexHistoryCommand.Settings>
                 isCustom = r.IsCustom,
             }),
         }));
+    }
+}
+
+/// <summary>
+/// Runs VACUUM + ANALYZE on the SQLite index to reclaim space and refresh
+/// query-planner statistics. Useful after large-scale re-extractions that
+/// delete and re-insert many rows.
+/// </summary>
+public sealed class IndexOptimizeCommand : Command<IndexOptimizeCommand.Settings>
+{
+    public sealed class Settings : D365OutputSettings
+    {
+        [CommandOption("--db <PATH>")]
+        public string? DatabasePath { get; init; }
+    }
+
+    public override int Execute(CommandContext ctx, Settings settings)
+    {
+        var kind = OutputMode.Resolve(settings.Output);
+        var repo = RepoFactory.Create(settings.DatabasePath);
+        var r = repo.Optimize();
+        return RenderHelpers.Render(kind, ToolResult<object>.Success(new
+        {
+            sizeBeforeBytes = r.SizeBeforeBytes,
+            sizeAfterBytes  = r.SizeAfterBytes,
+            savedBytes      = r.SizeBeforeBytes - r.SizeAfterBytes,
+            elapsedMs       = r.ElapsedMs,
+        }), _ =>
+        {
+            long saved = r.SizeBeforeBytes - r.SizeAfterBytes;
+            AnsiConsole.MarkupLine(
+                $"[green]OK[/] VACUUM+ANALYZE complete in {r.ElapsedMs}ms " +
+                $"(saved {saved / 1024.0:F1} KB)");
+        });
+    }
+}
+
+/// <summary>
+/// Exports the index database as a GZip-compressed SQLite snapshot for
+/// team sharing or CI artifact caching.
+/// Usage: <c>d365fo index export --out index.gz</c>
+/// </summary>
+public sealed class IndexExportCommand : Command<IndexExportCommand.Settings>
+{
+    public sealed class Settings : D365OutputSettings
+    {
+        [CommandOption("--db <PATH>")]
+        public string? DatabasePath { get; init; }
+
+        [CommandOption("--out <PATH>")]
+        [System.ComponentModel.Description("Destination .gz file path.")]
+        public string? OutPath { get; init; }
+    }
+
+    public override int Execute(CommandContext ctx, Settings settings)
+    {
+        var kind = OutputMode.Resolve(settings.Output);
+        var cfg = D365FoSettings.FromEnvironment(settings.DatabasePath);
+        if (!File.Exists(cfg.DatabasePath))
+        {
+            return RenderHelpers.Render(kind, ToolResult<object>.Fail(
+                "INDEX_NOT_FOUND",
+                $"Index not found at: {cfg.DatabasePath}",
+                "Run 'd365fo index extract' first."));
+        }
+
+        var outPath = settings.OutPath
+            ?? Path.ChangeExtension(cfg.DatabasePath, ".gz");
+        outPath = Path.GetFullPath(outPath);
+        var outDir = Path.GetDirectoryName(outPath);
+        if (!string.IsNullOrEmpty(outDir)) Directory.CreateDirectory(outDir);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        // VACUUM INTO writes a clean, wal-checkpointed copy to a temp file so
+        // the source DB stays open and consistent during the export.
+        var tmpPath = outPath + ".tmp.sqlite";
+        try
+        {
+            // Checkpoint + clean copy via VACUUM INTO (SQLite 3.27+), via Core.
+            var repo = new D365FO.Core.Index.MetadataRepository(cfg.DatabasePath);
+            repo.VacuumInto(tmpPath);
+
+            // GZip compress the clean copy.
+            using (var inStream  = File.OpenRead(tmpPath))
+            using (var outStream = File.Create(outPath))
+            using (var gz = new System.IO.Compression.GZipStream(
+                outStream, System.IO.Compression.CompressionLevel.Optimal))
+            {
+                inStream.CopyTo(gz);
+            }
+        }
+        finally
+        {
+            if (File.Exists(tmpPath)) try { File.Delete(tmpPath); } catch { }
+        }
+
+        sw.Stop();
+        var sizeBytes = new FileInfo(outPath).Length;
+        return RenderHelpers.Render(kind, ToolResult<object>.Success(new
+        {
+            source      = cfg.DatabasePath,
+            output      = outPath,
+            sizeBytes,
+            elapsedMs   = sw.ElapsedMilliseconds,
+        }), _ => AnsiConsole.MarkupLine(
+            $"[green]OK[/] exported {sizeBytes / 1024.0:F1} KB → {Markup.Escape(outPath)} ({sw.ElapsedMilliseconds}ms)"));
+    }
+}
+
+/// <summary>
+/// Imports a previously exported GZip-compressed index snapshot.
+/// Usage: <c>d365fo index import --from index.gz</c>
+/// </summary>
+public sealed class IndexImportCommand : Command<IndexImportCommand.Settings>
+{
+    public sealed class Settings : D365OutputSettings
+    {
+        [CommandOption("--db <PATH>")]
+        public string? DatabasePath { get; init; }
+
+        [CommandOption("--from <PATH>")]
+        [System.ComponentModel.Description("Source .gz file exported by 'd365fo index export'.")]
+        public string? FromPath { get; init; }
+    }
+
+    // SQLite magic header: "SQLite format 3\0" (16 bytes).
+    private static readonly byte[] SqliteMagic =
+        System.Text.Encoding.ASCII.GetBytes("SQLite format 3\0");
+
+    public override int Execute(CommandContext ctx, Settings settings)
+    {
+        var kind = OutputMode.Resolve(settings.Output);
+        if (string.IsNullOrEmpty(settings.FromPath))
+        {
+            return RenderHelpers.Render(kind, ToolResult<object>.Fail(
+                "MISSING_ARGUMENT",
+                "Required option --from <PATH> was not provided."));
+        }
+        if (!File.Exists(settings.FromPath))
+        {
+            return RenderHelpers.Render(kind, ToolResult<object>.Fail(
+                "FILE_NOT_FOUND",
+                $"Import file not found: {settings.FromPath}"));
+        }
+
+        var cfg = D365FoSettings.FromEnvironment(settings.DatabasePath);
+        var dir = Path.GetDirectoryName(Path.GetFullPath(cfg.DatabasePath));
+        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var tmpPath = cfg.DatabasePath + ".import.tmp";
+        try
+        {
+            using (var inStream  = File.OpenRead(settings.FromPath!))
+            using (var gz        = new System.IO.Compression.GZipStream(inStream, System.IO.Compression.CompressionMode.Decompress))
+            using (var outStream = File.Create(tmpPath))
+            {
+                gz.CopyTo(outStream);
+            }
+
+            // Validate the decompressed file is a real SQLite DB via magic bytes.
+            var header = new byte[16];
+            using (var fs = File.OpenRead(tmpPath))
+            {
+                if (fs.Read(header, 0, 16) < 16 || !header.SequenceEqual(SqliteMagic))
+                    throw new InvalidDataException("Imported file does not appear to be a valid SQLite database.");
+            }
+
+            // Atomic replace: move existing to .bak, move import to final path.
+            if (File.Exists(cfg.DatabasePath))
+                File.Move(cfg.DatabasePath, cfg.DatabasePath + ".bak", overwrite: true);
+            File.Move(tmpPath, cfg.DatabasePath, overwrite: false);
+        }
+        catch
+        {
+            if (File.Exists(tmpPath)) try { File.Delete(tmpPath); } catch { }
+            throw;
+        }
+
+        sw.Stop();
+        var sizeBytes = new FileInfo(cfg.DatabasePath).Length;
+        return RenderHelpers.Render(kind, ToolResult<object>.Success(new
+        {
+            source    = settings.FromPath,
+            target    = cfg.DatabasePath,
+            sizeBytes,
+            elapsedMs = sw.ElapsedMilliseconds,
+        }), _ => AnsiConsole.MarkupLine(
+            $"[green]OK[/] imported {sizeBytes / 1024.0:F1} KB → {Markup.Escape(cfg.DatabasePath)} ({sw.ElapsedMilliseconds}ms)"));
     }
 }

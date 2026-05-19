@@ -229,3 +229,20 @@ public sealed record MapFieldInfo(string Name, string? Type, string? EdtName, st
 
 /// <summary>Full detail of an AxMap including fields and mapped tables.</summary>
 public sealed record MapDetails(MapInfo Map, IReadOnlyList<MapFieldInfo> Fields, IReadOnlyList<string> MappedTables);
+
+// ---- Index maintenance DTOs ----------------------------------------------
+
+/// <summary>Result of <c>d365fo index optimize</c> (VACUUM + ANALYZE).</summary>
+public sealed record OptimizeResult(long SizeBeforeBytes, long SizeAfterBytes, long ElapsedMs);
+
+/// <summary>Row counts returned by <c>d365fo daemon warmup</c>.</summary>
+public sealed record WarmupResult(
+    long Tables,
+    long Classes,
+    long Methods,
+    long Edts,
+    long Enums,
+    long Labels,
+    long Forms,
+    long CocExtensions,
+    long DataEntities);

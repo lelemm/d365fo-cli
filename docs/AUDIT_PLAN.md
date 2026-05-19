@@ -6,38 +6,38 @@ Full audit of the d365fo-cli solution identifying incomplete functionality, miss
 
 ---
 
-## Phase 1: Index & Performance Optimizations
+## Phase 1: Index & Performance Optimizations ✅
 
 Extraction and index operations are the heaviest workloads. These improvements reduce wall-clock time and resource consumption.
 
-### 1.1 Parallel model extraction
+### 1.1 Parallel model extraction ✅
 
 Currently models are extracted sequentially (per-file parallelism exists inside each model). Add `Parallel.ForEach` over models with configurable `--parallelism N` (default: `Environment.ProcessorCount / 2`). Guard the SQLite write path with a per-model commit lock.
 
 - File: `src/D365FO.Core/Extract/MetadataExtractor.cs`
 - File: `src/D365FO.Cli/Commands/Index/IndexCommands.cs` (ExtractCore method)
 
-### 1.2 Index VACUUM / ANALYZE command
+### 1.2 Index VACUUM / ANALYZE command ✅
 
 After large extractions, SQLite benefits from `VACUUM` (reclaims space) and `ANALYZE` (updates query planner stats). Add `d365fo index optimize` command.
 
 - File: `src/D365FO.Core/Index/MetadataRepository.cs` — new `Optimize()` method
 - File: `src/D365FO.Cli/Commands/Index/IndexCommands.cs` — new `IndexOptimizeCommand`
 
-### 1.3 Incremental FTS5 updates
+### 1.3 Incremental FTS5 updates ✅
 
 Current FTS5 rebuild is full (`INSERT INTO LabelFts(LabelFts) VALUES('rebuild')`). Switch to incremental content-sync triggers or per-model FTS row delete + re-insert during `ApplyExtract`.
 
 - File: `src/D365FO.Core/Index/Schema.sql`
 - File: `src/D365FO.Core/Index/MetadataRepository.cs` (ApplyExtract label section)
 
-### 1.4 Index export/import for team sharing
+### 1.4 Index export/import for team sharing ✅
 
 Add `d365fo index export --out index.tar.gz` and `d365fo index import --from index.tar.gz` to share pre-built indexes across team (CI artifact).
 
 - New command files under `src/D365FO.Cli/Commands/Index/`
 
-### 1.5 Daemon warm-up command
+### 1.5 Daemon warm-up command ✅
 
 `d365fo daemon warmup` pre-loads frequently-queried tables/classes into SQLite page cache (single `SELECT count(*) FROM ...` per major table).
 

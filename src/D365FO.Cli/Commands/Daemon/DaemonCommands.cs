@@ -348,3 +348,45 @@ public sealed class DaemonStatusCommand : Command<DaemonStatusCommand.Settings>
         }));
     }
 }
+
+/// <summary>
+/// Pre-warms the SQLite page cache by issuing lightweight count queries on
+/// the major index tables. Speeds up the first real query after a cold start
+/// (e.g., after booting the daemon) by loading frequently-accessed B-tree
+/// pages into the OS page cache before any user request arrives.
+/// </summary>
+public sealed class DaemonWarmupCommand : Command<DaemonWarmupCommand.Settings>
+{
+    public sealed class Settings : D365OutputSettings
+    {
+        [CommandOption("--db <PATH>")]
+        public string? DatabasePath { get; init; }
+    }
+
+    public override int Execute(CommandContext ctx, Settings settings)
+    {
+        var kind = OutputMode.Resolve(settings.Output);
+        var repo = RepoFactory.Create(settings.DatabasePath);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var counts = repo.Warmup();
+        sw.Stop();
+        return RenderHelpers.Render(kind, ToolResult<object>.Success(new
+        {
+            elapsedMs = sw.ElapsedMilliseconds,
+            counts = new
+            {
+                tables       = counts.Tables,
+                classes      = counts.Classes,
+                methods      = counts.Methods,
+                edts         = counts.Edts,
+                enums        = counts.Enums,
+                labels       = counts.Labels,
+                forms        = counts.Forms,
+                cocExtensions = counts.CocExtensions,
+                dataEntities = counts.DataEntities,
+            },
+        }), _ => Spectre.Console.AnsiConsole.MarkupLine(
+            $"[green]OK[/] warm-up complete in {sw.ElapsedMilliseconds}ms " +
+            $"(tables={counts.Tables} classes={counts.Classes} labels={counts.Labels})"));
+    }
+}

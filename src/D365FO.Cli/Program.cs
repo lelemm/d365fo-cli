@@ -122,6 +122,9 @@ app.Configure(cfg =>
         b.AddCommand<IndexExtractCommand>("extract").WithDescription("Walk PACKAGES_PATH and ingest AOT metadata.");
         b.AddCommand<IndexRefreshCommand>("refresh").WithDescription("Incremental extract — skip models whose XMLs haven't changed since last extract.");
         b.AddCommand<IndexHistoryCommand>("history").WithDescription("Show recent ExtractionRuns (per-model timings persisted across runs).");
+        b.AddCommand<IndexOptimizeCommand>("optimize").WithDescription("VACUUM + ANALYZE the index (reclaim space, refresh query-planner stats).");
+        b.AddCommand<IndexExportCommand>("export").WithDescription("Export index as a GZip-compressed snapshot for sharing or CI caching.");
+        b.AddCommand<IndexImportCommand>("import").WithDescription("Import a GZip-compressed index snapshot.");
     });
 
     cfg.AddBranch("models", b =>
@@ -179,6 +182,7 @@ app.Configure(cfg =>
         b.AddCommand<DaemonStartCommand>("start").WithDescription("Start the daemon (foreground).");
         b.AddCommand<DaemonStopCommand>("stop").WithDescription("Stop the running daemon.");
         b.AddCommand<DaemonStatusCommand>("status").WithDescription("Report daemon status.");
+        b.AddCommand<DaemonWarmupCommand>("warmup").WithDescription("Pre-warm the SQLite page cache for faster first queries.");
     });
 
     cfg.AddCommand<BuildCommand>("build").WithDescription("Invoke MSBuild (Windows VM).");
