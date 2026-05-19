@@ -172,57 +172,86 @@ public sealed class IndexExtractCommand : Command<IndexExtractCommand.Settings>
 
         void ProcessAll(Action<string>? onStart, Action<string, ExtractBatch, long>? onDone)
         {
-            foreach (var modelDir in modelDirs)
+            // Producer-consumer pipeline: producer thread parses models while the
+            // consumer (this thread) writes to SQLite. This overlaps the CPU-intensive
+            // XML parse of model N+1 with the I/O-intensive ApplyExtract of model N —
+            // hiding parse latency behind write latency for large models.
+            // Bounded capacity = 2 limits peak RAM to ~2 parsed batches at a time.
+            var queue = new System.Collections.Concurrent.BlockingCollection<(
+                ExtractBatch Batch, string Fp, DateTime StartedUtc, long ParseMs)>(boundedCapacity: 2);
+            var cts = new System.Threading.CancellationTokenSource();
+
+            var producer = System.Threading.Tasks.Task.Run(() =>
             {
-                var model = Path.GetFileName(modelDir)!;
-                var fp = ComputeFingerprint(modelDir, cfg.LabelLanguages);
-                if (since.HasValue && NewestMtime(modelDir) is { } newest && newest < since.Value)
-                {
-                    skippedCount++;
-                    continue;
-                }
-                if (dbFingerprints.TryGetValue(model, out var stored)
-                    && !string.IsNullOrEmpty(stored)
-                    && string.Equals(stored, fp, StringComparison.Ordinal))
-                {
-                    skippedCount++;
-                    continue;
-                }
-                onStart?.Invoke(model);
-                var startedUtc = DateTime.UtcNow;
-                var sw = System.Diagnostics.Stopwatch.StartNew();
-                ExtractBatch batch;
                 try
                 {
-                    batch = extractor.ExtractModel(modelDir, model, cfg.LabelLanguages, matcher.IsMatch(model));
+                    foreach (var modelDir in modelDirs)
+                    {
+                        var model = Path.GetFileName(modelDir)!;
+                        var fp = ComputeFingerprint(modelDir, cfg.LabelLanguages);
+                        if (since.HasValue && NewestMtime(modelDir) is { } newest && newest < since.Value)
+                        {
+                            skippedCount++;
+                            continue;
+                        }
+                        if (dbFingerprints.TryGetValue(model, out var stored)
+                            && !string.IsNullOrEmpty(stored)
+                            && string.Equals(stored, fp, StringComparison.Ordinal))
+                        {
+                            skippedCount++;
+                            continue;
+                        }
+                        var startedUtc = DateTime.UtcNow;
+                        var parseSw = System.Diagnostics.Stopwatch.StartNew();
+                        ExtractBatch batch;
+                        try
+                        {
+                            batch = extractor.ExtractModel(modelDir, model, cfg.LabelLanguages, matcher.IsMatch(model));
+                        }
+                        catch { continue; }
+                        parseSw.Stop();
+                        try { queue.Add((batch, fp, startedUtc, parseSw.ElapsedMilliseconds), cts.Token); }
+                        catch (OperationCanceledException) { break; }
+                    }
                 }
-                catch
+                finally { queue.CompleteAdding(); }
+            });
+
+            try
+            {
+                foreach (var (batch, fp, startedUtc, parseMs) in queue.GetConsumingEnumerable())
                 {
-                    continue;
+                    onStart?.Invoke(batch.Model);
+                    var writeSw = System.Diagnostics.Stopwatch.StartNew();
+                    repo.ApplyExtract(batch, fp);
+                    writeSw.Stop();
+                    var elapsedMs = parseMs + writeSw.ElapsedMilliseconds;
+                    repo.RecordExtractionRun(batch.Model, startedUtc, elapsedMs,
+                        batch.Tables.Count, batch.Classes.Count, batch.Edts.Count,
+                        batch.Enums.Count, batch.Labels.Count, batch.IsCustom);
+                    modelCount++;
+                    if (batch.IsCustom) customCount++;
+                    per.Add(new
+                    {
+                        model = batch.Model,
+                        isCustom = batch.IsCustom,
+                        tables = batch.Tables.Count,
+                        classes = batch.Classes.Count,
+                        edts = batch.Edts.Count,
+                        enums = batch.Enums.Count,
+                        menuItems = batch.MenuItems.Count,
+                        coc = batch.CocExtensions.Count,
+                        labels = batch.Labels.Count,
+                        elapsedMs,
+                    });
+                    onDone?.Invoke(batch.Model, batch, elapsedMs);
                 }
-                repo.ApplyExtract(batch, fp);
-                sw.Stop();
-                var elapsedMs = sw.ElapsedMilliseconds;
-                repo.RecordExtractionRun(batch.Model, startedUtc, elapsedMs,
-                    batch.Tables.Count, batch.Classes.Count, batch.Edts.Count,
-                    batch.Enums.Count, batch.Labels.Count, batch.IsCustom);
-                modelCount++;
-                if (batch.IsCustom) customCount++;
-                per.Add(new
-                {
-                    model = batch.Model,
-                    isCustom = batch.IsCustom,
-                    tables = batch.Tables.Count,
-                    classes = batch.Classes.Count,
-                    edts = batch.Edts.Count,
-                    enums = batch.Enums.Count,
-                    menuItems = batch.MenuItems.Count,
-                    coc = batch.CocExtensions.Count,
-                    labels = batch.Labels.Count,
-                    elapsedMs,
-                });
-                onDone?.Invoke(model, batch, elapsedMs);
             }
+            finally
+            {
+                cts.Cancel(); // unblock producer if consumer exits early (exception or normal)
+            }
+            producer.GetAwaiter().GetResult(); // re-throw any unexpected producer exception
         }
 
         if (showProgress)
