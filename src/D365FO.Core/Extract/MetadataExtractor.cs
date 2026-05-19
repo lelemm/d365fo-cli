@@ -107,73 +107,119 @@ public sealed class MetadataExtractor
         IReadOnlyCollection<string>? labelLanguages = null,
         bool isCustom = false)
     {
-        var tables = ReadAll(Path.Combine(modelRoot, "AxTable"), ParseTable);
-        var classes = ReadAll(Path.Combine(modelRoot, "AxClass"), ParseClass);
-        var edts = ReadAll(Path.Combine(modelRoot, "AxEdt"), ParseEdt);
-        var enums = ReadAll(Path.Combine(modelRoot, "AxEnum"), ParseEnum);
-        var forms = ReadAll(Path.Combine(modelRoot, "AxForm"), ParseForm);
-        var menuItems = new List<ExtractedMenuItem>();
-        foreach (var kind in new[] { "AxMenuItemDisplay", "AxMenuItemAction", "AxMenuItemOutput" })
-            menuItems.AddRange(ReadAll(Path.Combine(modelRoot, kind), (doc, path) => ParseMenuItem(doc, path, kind)));
+        // Run all independent type reads concurrently. The ThreadPool handles
+        // nested parallelism — ReadAll itself uses Parallel.ForEach internally.
+        // coc/subscribers are derived from classes and must run after this block.
+        List<ExtractedTable>             tables        = null!;
+        List<ExtractedClass>             classes       = null!;
+        List<ExtractedEdt>               edts          = null!;
+        List<ExtractedEnum>              enums         = null!;
+        List<ExtractedForm>              forms         = null!;
+        List<ExtractedMenuItem>          menuItems     = null!;
+        List<ExtractedObjectExtension>   extensions    = null!;
+        List<ExtractedLabel>             labels        = null!;
+        List<ExtractedSecurityRole>      roles         = null!;
+        List<ExtractedSecurityDuty>      duties        = null!;
+        List<ExtractedSecurityPrivilege> privileges    = null!;
+        List<ExtractedQuery>             queries       = null!;
+        List<ExtractedView>              views         = null!;
+        List<ExtractedDataEntity>        dataEntities  = null!;
+        List<ExtractedReport>            reports       = null!;
+        List<ExtractedService>           services      = null!;
+        List<ExtractedServiceGroup>      serviceGroups = null!;
+        List<ExtractedWorkflowType>      workflowTypes = null!;
+        List<ExtractedMap>               maps          = null!;
 
-        // Object extensions: each AxXxxExtension/*.xml represents one extension
-        // whose root element name is e.g. "CustTable.FleetExtension" (Name element).
-        var extensions = new List<ExtractedObjectExtension>();
-        foreach (var (dir, kind) in new[] {
-            ("AxTableExtension", "Table"),
-            ("AxFormExtension", "Form"),
-            ("AxEdtExtension", "Edt"),
-            ("AxEnumExtension", "Enum"),
-            ("AxViewExtension", "View"),
-            ("AxMapExtension", "Map"),
-        })
-        {
-            var extDir = Path.Combine(modelRoot, dir);
-            if (!Directory.Exists(extDir)) continue;
-            foreach (var f in Directory.EnumerateFiles(extDir, "*.xml", SearchOption.TopDirectoryOnly))
+        Parallel.Invoke(
+            () => tables       = ReadAll(Path.Combine(modelRoot, "AxTable"), ParseTable),
+            () => classes      = ReadAll(Path.Combine(modelRoot, "AxClass"), ParseClass),
+            () => edts         = ReadAll(Path.Combine(modelRoot, "AxEdt"), ParseEdt),
+            () => enums        = ReadAll(Path.Combine(modelRoot, "AxEnum"), ParseEnum),
+            () => forms        = ReadAll(Path.Combine(modelRoot, "AxForm"), ParseForm),
+            () =>
             {
-                var ext = ParseObjectExtension(kind, f);
-                if (ext is not null) extensions.Add(ext);
-            }
-        }
-
-        var labels = new List<ExtractedLabel>();
-        var labelsDir = Path.Combine(modelRoot, "AxLabelFile");
-        if (Directory.Exists(labelsDir))
-        {
-            // Modern D365 layout: AxLabelFile/LabelResources/<lang>/<Name>.<lang>.label.txt
-            // (the AxLabelFile/*.xml manifests only declare supported languages).
-            // Legacy layout kept the .label.txt next to the manifest.
-            foreach (var txt in Directory.EnumerateFiles(labelsDir, "*.label.txt", SearchOption.AllDirectories))
+                var mi = new List<ExtractedMenuItem>();
+                foreach (var kind in new[] { "AxMenuItemDisplay", "AxMenuItemAction", "AxMenuItemOutput" })
+                    mi.AddRange(ReadAll(Path.Combine(modelRoot, kind), (doc, path) => ParseMenuItem(doc, path, kind)));
+                menuItems = mi;
+            },
+            () =>
             {
-                foreach (var entry in ReadLabelTxtFromPath(txt, labelLanguages))
-                    labels.Add(entry);
-            }
-
-            // Inline <AxLabel> entries inside the XML manifest (rare).
-            foreach (var manifest in Directory.EnumerateFiles(labelsDir, "*.xml", SearchOption.TopDirectoryOnly))
-                labels.AddRange(ParseLabelManifestInline(manifest, labelLanguages));
-        }
+                // Object extensions: each AxXxxExtension/*.xml represents one extension
+                // whose root element name is e.g. "CustTable.FleetExtension" (Name element).
+                var exts = new List<ExtractedObjectExtension>();
+                foreach (var (dir, kind) in new[] {
+                    ("AxTableExtension", "Table"),
+                    ("AxFormExtension",  "Form"),
+                    ("AxEdtExtension",   "Edt"),
+                    ("AxEnumExtension",  "Enum"),
+                    ("AxViewExtension",  "View"),
+                    ("AxMapExtension",   "Map"),
+                })
+                {
+                    var extDir = Path.Combine(modelRoot, dir);
+                    if (!Directory.Exists(extDir)) continue;
+                    foreach (var f in Directory.EnumerateFiles(extDir, "*.xml", SearchOption.TopDirectoryOnly))
+                    {
+                        var ext = ParseObjectExtension(kind, f);
+                        if (ext is not null) exts.Add(ext);
+                    }
+                }
+                extensions = exts;
+            },
+            () =>
+            {
+                // Label files: parallelize across individual *.label.txt files since
+                // each can be several MB and the files are fully independent.
+                var lbls = new List<ExtractedLabel>();
+                var labelsDir = Path.Combine(modelRoot, "AxLabelFile");
+                if (Directory.Exists(labelsDir))
+                {
+                    // Modern D365 layout: AxLabelFile/LabelResources/<lang>/<Name>.<lang>.label.txt
+                    // (the AxLabelFile/*.xml manifests only declare supported languages).
+                    // Legacy layout kept the .label.txt next to the manifest.
+                    var labelTxts = Directory.EnumerateFiles(labelsDir, "*.label.txt", SearchOption.AllDirectories).ToArray();
+                    if (labelTxts.Length > 0)
+                    {
+                        var labelBag = new System.Collections.Concurrent.ConcurrentBag<ExtractedLabel>();
+                        Parallel.ForEach(labelTxts, txt =>
+                        {
+                            foreach (var entry in ReadLabelTxtFromPath(txt, labelLanguages))
+                                labelBag.Add(entry);
+                        });
+                        lbls.AddRange(labelBag);
+                    }
+                    // Inline <AxLabel> entries inside the XML manifest (rare).
+                    foreach (var manifest in Directory.EnumerateFiles(labelsDir, "*.xml", SearchOption.TopDirectoryOnly))
+                        lbls.AddRange(ParseLabelManifestInline(manifest, labelLanguages));
+                }
+                labels = lbls;
+            },
+            () => roles        = ReadAll(Path.Combine(modelRoot, "AxSecurityRole"),     ParseSecurityRole),
+            () => duties       = ReadAll(Path.Combine(modelRoot, "AxSecurityDuty"),     ParseSecurityDuty),
+            () => privileges   = ReadAll(Path.Combine(modelRoot, "AxSecurityPrivilege"),ParseSecurityPrivilege),
+            () =>
+            {
+                queries = ReadAll(Path.Combine(modelRoot, "AxQuery"), ParseQuery);
+                var sq  = ReadAll(Path.Combine(modelRoot, "AxQuerySimple"), ParseQuery);
+                if (sq.Count > 0) queries = queries.Concat(sq).ToList();
+            },
+            () => views        = ReadAll(Path.Combine(modelRoot, "AxView"),           ParseView),
+            () => dataEntities = ReadAll(Path.Combine(modelRoot, "AxDataEntityView"), ParseDataEntity),
+            () =>
+            {
+                reports = new List<ExtractedReport>();
+                reports.AddRange(ReadAll(Path.Combine(modelRoot, "AxReport"),     (d, f) => ParseReport(d, f, "Rdl")));
+                reports.AddRange(ReadAll(Path.Combine(modelRoot, "AxReportSsrs"), (d, f) => ParseReport(d, f, "Ssrs")));
+            },
+            () => services     = ReadAll(Path.Combine(modelRoot, "AxService"),      ParseService),
+            () => serviceGroups = ReadAll(Path.Combine(modelRoot, "AxServiceGroup"), ParseServiceGroup),
+            () => workflowTypes = ReadAll(Path.Combine(modelRoot, "AxWorkflowType"), ParseWorkflowType),
+            () => maps          = ReadAll(Path.Combine(modelRoot, "AxMap"),          ParseMap)
+        );
 
         var coc = classes.SelectMany(DetectCoc).ToList();
         var subscribers = classes.SelectMany(DetectSubscribers).ToList();
-
-        var roles = ReadAll(Path.Combine(modelRoot, "AxSecurityRole"), ParseSecurityRole);
-        var duties = ReadAll(Path.Combine(modelRoot, "AxSecurityDuty"), ParseSecurityDuty);
-        var privileges = ReadAll(Path.Combine(modelRoot, "AxSecurityPrivilege"), ParseSecurityPrivilege);
-
-        var queries = ReadAll(Path.Combine(modelRoot, "AxQuery"), ParseQuery);
-        var simpleQueries = ReadAll(Path.Combine(modelRoot, "AxQuerySimple"), ParseQuery);
-        if (simpleQueries.Count > 0) queries = queries.Concat(simpleQueries).ToList();
-        var views = ReadAll(Path.Combine(modelRoot, "AxView"), ParseView);
-        var dataEntities = ReadAll(Path.Combine(modelRoot, "AxDataEntityView"), ParseDataEntity);
-        var reports = new List<ExtractedReport>();
-        reports.AddRange(ReadAll(Path.Combine(modelRoot, "AxReport"), (d, f) => ParseReport(d, f, "Rdl")));
-        reports.AddRange(ReadAll(Path.Combine(modelRoot, "AxReportSsrs"), (d, f) => ParseReport(d, f, "Ssrs")));
-        var services = ReadAll(Path.Combine(modelRoot, "AxService"), ParseService);
-        var serviceGroups = ReadAll(Path.Combine(modelRoot, "AxServiceGroup"), ParseServiceGroup);
-        var workflowTypes = ReadAll(Path.Combine(modelRoot, "AxWorkflowType"), ParseWorkflowType);
-        var maps = ReadAll(Path.Combine(modelRoot, "AxMap"), ParseMap);
 
         return new ExtractBatch(
             Model: modelName,

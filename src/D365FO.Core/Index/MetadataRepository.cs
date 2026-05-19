@@ -1339,24 +1339,60 @@ public sealed class MetadataRepository
         foreach (var file in batch.Labels.Select(l => l.File).Distinct(StringComparer.OrdinalIgnoreCase))
             conn.Execute("DELETE FROM Labels WHERE LabelFile=@f", new { f = file }, tx);
 
+        // TableFields and TableMethods are high-volume inserts. Use prepared
+        // SqliteCommands with parameter rebinding for ~3-5x throughput vs
+        // Dapper's per-row anonymous-object reflection (same technique as Labels).
+        using var tableFieldCmd = conn.CreateCommand();
+        tableFieldCmd.Transaction = (Microsoft.Data.Sqlite.SqliteTransaction)tx;
+        tableFieldCmd.CommandText = "INSERT INTO TableFields(TableId, Name, Type, EdtName, Label, Mandatory) VALUES($tid, $n, $ty, $e, $l, $md)";
+        var tfTid       = tableFieldCmd.Parameters.Add("$tid", Microsoft.Data.Sqlite.SqliteType.Integer);
+        var tfName      = tableFieldCmd.Parameters.Add("$n",   Microsoft.Data.Sqlite.SqliteType.Text);
+        var tfType      = tableFieldCmd.Parameters.Add("$ty",  Microsoft.Data.Sqlite.SqliteType.Text);
+        var tfEdt       = tableFieldCmd.Parameters.Add("$e",   Microsoft.Data.Sqlite.SqliteType.Text);
+        var tfLabel     = tableFieldCmd.Parameters.Add("$l",   Microsoft.Data.Sqlite.SqliteType.Text);
+        var tfMandatory = tableFieldCmd.Parameters.Add("$md",  Microsoft.Data.Sqlite.SqliteType.Integer);
+        tableFieldCmd.Prepare();
+
+        using var tableMtdCmd = conn.CreateCommand();
+        tableMtdCmd.Transaction = (Microsoft.Data.Sqlite.SqliteTransaction)tx;
+        tableMtdCmd.CommandText = "INSERT INTO TableMethods(TableId, Name, Signature, IsStatic, ReturnType, HasDocComment, HasTodayCall, HasDoInsertOrUpdate) VALUES($tid, $n, $s, $st, $rt, $hd, $ht, $hi)";
+        var tmTid         = tableMtdCmd.Parameters.Add("$tid", Microsoft.Data.Sqlite.SqliteType.Integer);
+        var tmName        = tableMtdCmd.Parameters.Add("$n",   Microsoft.Data.Sqlite.SqliteType.Text);
+        var tmSig         = tableMtdCmd.Parameters.Add("$s",   Microsoft.Data.Sqlite.SqliteType.Text);
+        var tmStatic      = tableMtdCmd.Parameters.Add("$st",  Microsoft.Data.Sqlite.SqliteType.Integer);
+        var tmRet         = tableMtdCmd.Parameters.Add("$rt",  Microsoft.Data.Sqlite.SqliteType.Text);
+        var tmHasDoc      = tableMtdCmd.Parameters.Add("$hd",  Microsoft.Data.Sqlite.SqliteType.Integer);
+        var tmHasToday    = tableMtdCmd.Parameters.Add("$ht",  Microsoft.Data.Sqlite.SqliteType.Integer);
+        var tmHasDoInsert = tableMtdCmd.Parameters.Add("$hi",  Microsoft.Data.Sqlite.SqliteType.Integer);
+        tableMtdCmd.Prepare();
+
         foreach (var t in batch.Tables)
         {
             conn.Execute(@"INSERT INTO Tables(Name, ModelId, Label, SourcePath)
                            VALUES(@n, @m, @l, @p)",
                          new { n = t.Name, m = modelId, l = t.Label, p = t.SourcePath }, tx);
             var tableId = conn.ExecuteScalar<long>("SELECT last_insert_rowid()", transaction: tx);
+            tfTid.Value = tableId;
             foreach (var f in t.Fields)
             {
-                conn.Execute(@"INSERT INTO TableFields(TableId, Name, Type, EdtName, Label, Mandatory)
-                               VALUES(@t, @n, @ty, @e, @l, @md)",
-                             new { t = tableId, n = f.Name, ty = f.Type, e = f.EdtName, l = f.Label, md = f.Mandatory ? 1 : 0 }, tx);
+                tfName.Value      = f.Name;
+                tfType.Value      = (object?)f.Type    ?? DBNull.Value;
+                tfEdt.Value       = (object?)f.EdtName ?? DBNull.Value;
+                tfLabel.Value     = (object?)f.Label   ?? DBNull.Value;
+                tfMandatory.Value = f.Mandatory ? 1 : 0;
+                tableFieldCmd.ExecuteNonQuery();
             }
+            tmTid.Value = tableId;
             foreach (var mtd in t.Methods)
             {
-                conn.Execute(@"INSERT INTO TableMethods(TableId, Name, Signature, IsStatic, ReturnType, HasDocComment, HasTodayCall, HasDoInsertOrUpdate)
-                               VALUES(@t, @n, @s, @st, @rt, @hd, @ht, @hi)",
-                             new { t = tableId, n = mtd.Name, s = mtd.Signature, st = mtd.IsStatic ? 1 : 0, rt = mtd.ReturnType,
-                                   hd = mtd.HasDocComment ? 1 : 0, ht = mtd.HasTodayCall ? 1 : 0, hi = mtd.HasDoInsertOrUpdate ? 1 : 0 }, tx);
+                tmName.Value        = mtd.Name;
+                tmSig.Value         = (object?)mtd.Signature  ?? DBNull.Value;
+                tmStatic.Value      = mtd.IsStatic ? 1 : 0;
+                tmRet.Value         = (object?)mtd.ReturnType ?? DBNull.Value;
+                tmHasDoc.Value      = mtd.HasDocComment ? 1 : 0;
+                tmHasToday.Value    = mtd.HasTodayCall ? 1 : 0;
+                tmHasDoInsert.Value = mtd.HasDoInsertOrUpdate ? 1 : 0;
+                tableMtdCmd.ExecuteNonQuery();
             }
             foreach (var ix in t.Indexes)
             {
@@ -1378,18 +1414,38 @@ public sealed class MetadataRepository
             }
         }
 
+        // Methods are the highest-volume insert (~500k+ across all models). Apply
+        // the same prepared-statement optimization as Labels for ~3-5x throughput.
+        using var methodCmd = conn.CreateCommand();
+        methodCmd.Transaction = (Microsoft.Data.Sqlite.SqliteTransaction)tx;
+        methodCmd.CommandText = "INSERT INTO Methods(ClassId, Name, Signature, IsStatic, ReturnType, HasDocComment, HasTodayCall, HasDoInsertOrUpdate) VALUES($cid, $n, $s, $st, $rt, $hd, $ht, $hi)";
+        var mtdCid         = methodCmd.Parameters.Add("$cid", Microsoft.Data.Sqlite.SqliteType.Integer);
+        var mtdName        = methodCmd.Parameters.Add("$n",   Microsoft.Data.Sqlite.SqliteType.Text);
+        var mtdSig         = methodCmd.Parameters.Add("$s",   Microsoft.Data.Sqlite.SqliteType.Text);
+        var mtdStatic      = methodCmd.Parameters.Add("$st",  Microsoft.Data.Sqlite.SqliteType.Integer);
+        var mtdRet         = methodCmd.Parameters.Add("$rt",  Microsoft.Data.Sqlite.SqliteType.Text);
+        var mtdHasDoc      = methodCmd.Parameters.Add("$hd",  Microsoft.Data.Sqlite.SqliteType.Integer);
+        var mtdHasToday    = methodCmd.Parameters.Add("$ht",  Microsoft.Data.Sqlite.SqliteType.Integer);
+        var mtdHasDoInsert = methodCmd.Parameters.Add("$hi",  Microsoft.Data.Sqlite.SqliteType.Integer);
+        methodCmd.Prepare();
+
         foreach (var c in batch.Classes)
         {
             conn.Execute(@"INSERT INTO Classes(Name, ModelId, ExtendsName, IsAbstract, IsFinal, SourcePath)
                            VALUES(@n, @m, @e, @a, @f, @p)",
                          new { n = c.Name, m = modelId, e = c.Extends, a = c.IsAbstract ? 1 : 0, f = c.IsFinal ? 1 : 0, p = c.SourcePath }, tx);
             var classId = conn.ExecuteScalar<long>("SELECT last_insert_rowid()", transaction: tx);
+            mtdCid.Value = classId;
             foreach (var mtd in c.Methods)
             {
-                conn.Execute(@"INSERT INTO Methods(ClassId, Name, Signature, IsStatic, ReturnType, HasDocComment, HasTodayCall, HasDoInsertOrUpdate)
-                               VALUES(@c, @n, @s, @st, @rt, @hd, @ht, @hi)",
-                             new { c = classId, n = mtd.Name, s = mtd.Signature, st = mtd.IsStatic ? 1 : 0, rt = mtd.ReturnType,
-                                   hd = mtd.HasDocComment ? 1 : 0, ht = mtd.HasTodayCall ? 1 : 0, hi = mtd.HasDoInsertOrUpdate ? 1 : 0 }, tx);
+                mtdName.Value        = mtd.Name;
+                mtdSig.Value         = (object?)mtd.Signature  ?? DBNull.Value;
+                mtdStatic.Value      = mtd.IsStatic ? 1 : 0;
+                mtdRet.Value         = (object?)mtd.ReturnType ?? DBNull.Value;
+                mtdHasDoc.Value      = mtd.HasDocComment ? 1 : 0;
+                mtdHasToday.Value    = mtd.HasTodayCall ? 1 : 0;
+                mtdHasDoInsert.Value = mtd.HasDoInsertOrUpdate ? 1 : 0;
+                methodCmd.ExecuteNonQuery();
             }
             foreach (var a in c.Attributes)
             {
@@ -1736,7 +1792,7 @@ public sealed class MetadataRepository
         // Per-connection pragmas: foreign_keys is a per-connection setting,
         // journal_mode WAL survives across connections but is cheap to re-assert.
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;";
+        cmd.CommandText = "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA temp_store = MEMORY; PRAGMA cache_size = -65536;";
         cmd.ExecuteNonQuery();
         return conn;
     }
