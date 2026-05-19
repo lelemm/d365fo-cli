@@ -46,3 +46,60 @@ conversation with long metadata dumps.
 - **Prefer** EDTs over primitive types — resolve with `d365fo get edt <Name>`.
 - **Expect** a `ToolResult` envelope on every command. On `ok:false`, surface
   `error.message` to the user and stop the task.
+
+---
+
+## SysOperation — standard for new batch operations
+
+Modern replacement for `RunBaseBatch`. **Always use SysOperation for new batch code.**
+
+1. Structure: **DataContract** (parameters) + **Service** (logic) + **Controller** (execution mode).
+2. DataContract: decorate `parmXxx()` methods with `[DataMemberAttribute]`. Never use `pack()`/`unpack()`.
+3. Service method MUST be marked `[SysEntryPointAttribute(true)]` for security.
+4. Controller sets execution mode: `Synchronous`, `Asynchronous`, or `ScheduledBatch`.
+5. For SSRS report data providers: extend `SRSReportDataProviderBase` instead of `SysOperationServiceBase`.
+6. Custom dialog: use `SysOperationAutomaticUIBuilder`; link via `[SysOperationContractProcessingAttribute(classStr(MyUIBuilder))]` on the DataContract.
+
+## SysPlugin — extensible dispatch without `if`/`else`
+
+For enum-based strategy dispatching where new implementations must be addable without changing existing code:
+
+1. Define an extensible enum (`IsExtensible=Yes`) with a value per strategy.
+2. Create an interface or abstract class for the strategy.
+3. Decorate concrete implementations with `[ExportMetadataAttribute(enumStr(MyEnum), MyEnum::Value)]`.
+4. Resolve at runtime: `SysPluginFactory::Instance(enumStr(MyEnum), enumValue)`.
+
+New strategies require only a new class + enum value — no changes to callers.
+
+## Number Sequence Integration
+
+Key classes: `NumberSeqModule`, `NumberSeqApplicationModule`, `NumberSeqScope`.
+
+**Adding a new sequence:**
+1. Extend `NumberSeqApplicationModule` via CoC; add a reference in `loadModule()`.
+2. Create an EDT for the field; set `NumberSequence=Yes` and `NumberSequenceModule` on it.
+3. In form `init()`: call `NumberSeqFormHandler::newForm()` for auto-generation in UI.
+
+**Manual consumption:**
+```xpp
+NumberSeq numSeq = NumberSeq::newGetNum(CompanyInfo::numRefMySequence());
+str nextNum = numSeq.num();
+// ... use nextNum ...
+numSeq.used();   // or numSeq.abort() to roll back
+```
+
+## Workflow Development
+
+Key base classes: `WorkflowDocument`, `WorkflowType`, `WorkflowApproval`, `WorkflowTask`.
+
+**Every workflow needs:**
+- `WorkflowDocument` subclass — defines which table fields are available as conditions.
+- `SubmitToWorkflowMenuItem` action menu item — the submit button on the form.
+- `canSubmitToWorkflow()` method on the table — controls when submit is enabled.
+
+Structure: Document → Type → Approvals/Tasks → EventHandlers.
+Approval/Task event handlers use `WorkflowWorkItemActionManager` for complete/reject/delegate.
+
+```sh
+d365fo search class WorkflowDocument --output json   # find existing patterns
+```

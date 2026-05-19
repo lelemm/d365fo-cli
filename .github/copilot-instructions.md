@@ -285,6 +285,44 @@ select sum(CostAmountAdjustment) from inventSettlement
 - **SQL injection mitigation** — `executeQueryWithParameters` for dynamic queries, never string concat into `where`.
 - **Timeouts** — interactive 30 min, batch/services/OData 3 h. Override with `queryTimeout`. Catch `Exception::Timeout`.
 
+## 📦 SysDa Framework — fluent query API
+
+Use SysDa when query shape depends on runtime conditions or when building reusable framework logic. For static, compile-time queries prefer `select`.
+
+**Core classes:** `SysDaQueryObject` (root builder), `SysDaSearchStatement` (iterate), `SysDaFindStatement` (`firstOnly` equivalent), `SysDaUpdateStatement` / `SysDaInsertStatement` / `SysDaDeleteStatement` (set-based ops).
+
+```xpp
+CustTable custTable;
+var qe = new SysDaQueryObject(custTable);
+qe.whereClause(new SysDaEqualsExpression(
+    new SysDaFieldExpression(custTable, fieldStr(CustTable, AccountNum)),
+    new SysDaValueExpression('US-001')));
+var so = new SysDaSearchStatement();
+while (so.nextRecord(qe))
+{
+    info(custTable.AccountNum);
+}
+```
+
+**Joins:** `qe.joinClause(SysDaJoinKind::InnerJoin, joinQe)` — supports `InnerJoin`, `OuterJoin`, `ExistsJoin`, `NotExistsJoin`.
+
+## 🔎 Query Object Model — `Query` / `QueryRun`
+
+Use when forms/reports bind to a shared query or the user modifies filters dynamically (`SysQueryForm`).
+
+```xpp
+Query query = new Query();
+QueryBuildDataSource qbds = query.addDataSource(tableNum(CustTable));
+qbds.addRange(fieldNum(CustTable, CustGroup)).value(queryValue('10'));
+QueryRun qr = new QueryRun(query);
+while (qr.next())
+{
+    CustTable ct = qr.get(tableNum(CustTable));
+}
+```
+
+**Key APIs:** `SysQuery::findOrCreateRange(qbds, fieldNum)`, `qbds.joinMode(JoinMode::ExistsJoin)`, `query.allowCrossCompany(true)` + `query.addCompanyRange('dat')`.
+
 ---
 
 ## 🪝 Chain of Command (CoC) authoring rules
@@ -352,6 +390,30 @@ Verified against [learn:xpp-classes-methods](https://learn.microsoft.com/en-us/d
 - **Constants over macros.** `public const str FOO = 'bar';` at class scope (cross-referenced, scoped, IntelliSense-aware) instead of `#define.FOO('bar')`. Reference via `ClassName::FOO`.
 - **`var` keyword** for type-inferred locals when the type is obvious from the right-hand side (`var sum = decimal + amount;`). Skip `var` when the type is non-obvious — readability beats brevity.
 - **Declare-anywhere encouraged** — declare close to first use, smallest scope. Compiler rejects shadowing of an outer-scope variable with the same name.
+
+---
+
+## 🖼️ FormRun lifecycle & extension points
+
+Forms follow a strict initialization order:
+1. `form.init()` — structure loaded; data sources NOT yet active.
+2. `FormDataSource.init()` — each data source initializes.
+3. `form.run()` — form becomes visible.
+4. `FormDataSource.executeQuery()` — initial data load.
+
+**Common extension points:**
+
+| Method | When |
+|---|---|
+| `FormDataSource.init()` | Add ranges, modify query before first execution |
+| `FormDataSource.executeQuery()` | Modify query on each refresh |
+| `FormDataSource.active()` | Cursor moves to new record |
+| `FormDataSource.validateWrite()` | Custom validation before save |
+| `FormControl.clicked()` / `modified()` | Button/field interaction |
+
+**Key APIs:** `FormDataSource.research(retainPosition: true)`, `element.args()`, `FormDataSource.queryBuildDataSource()`, `FormDataSource.filter(fieldNum, value)` / `removeFilter(fieldNum)`.
+
+NEVER guess control names — use `d365fo get form <Name> --output json`. Cannot add new methods via CoC on form data sources/controls — only wrap existing ones.
 
 ---
 
@@ -459,6 +521,28 @@ d365fo get security <Object> --type Menuitem --output json    # bottom-up
 ```
 
 The response contains `routes[*]` of shape `{ role, duty, privilege, entryPoint }`. Duplicate `role` entries indicate multiple paths — all must be removed to revoke access.
+
+---
+
+## ⚙️ Advanced X++ patterns
+
+### SysOperation — standard for new batch operations
+Modern replacement for `RunBaseBatch`. Structure: **DataContract** (params, `[DataMemberAttribute]`, never `pack()`/`unpack()`) + **Service** (`[SysEntryPointAttribute(true)]`) + **Controller** (execution mode: `Synchronous` / `Asynchronous` / `ScheduledBatch`). For SSRS: extend `SRSReportDataProviderBase`. Custom dialog: `SysOperationAutomaticUIBuilder` linked via `[SysOperationContractProcessingAttribute(...)]`.
+
+### SysPlugin — extensible dispatch without `if`/`else`
+1. Define extensible enum (`IsExtensible=Yes`), one value per strategy.
+2. Decorate implementations with `[ExportMetadataAttribute(enumStr(MyEnum), MyEnum::Value)]`.
+3. Resolve: `SysPluginFactory::Instance(enumStr(MyEnum), enumValue)`. New strategies need only a new class + enum value.
+
+### Number Sequence Integration
+Extend `NumberSeqApplicationModule` via CoC → `loadModule()`. Create EDT with `NumberSequence=Yes` + `NumberSequenceModule`. Consumption:
+```xpp
+NumberSeq numSeq = NumberSeq::newGetNum(CompanyInfo::numRefMySequence());
+numSeq.used();   // or numSeq.abort() to roll back
+```
+
+### Workflow Development
+Structure: `WorkflowDocument` subclass → `WorkflowType` → Approvals/Tasks → EventHandlers. Every workflow needs: `WorkflowDocument` subclass, `SubmitToWorkflowMenuItem` action menu item, `canSubmitToWorkflow()` on the table. Use `WorkflowWorkItemActionManager` for complete/reject/delegate.
 
 ---
 

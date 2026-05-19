@@ -70,6 +70,62 @@ select sum(CostAmountAdjustment) from inventSettlement
 - **SQL injection mitigation** — `executeQueryWithParameters` for dynamic queries; never concatenate strings into `where`.
 - **Timeouts** — interactive 30 min, batch/services/OData 3 h. Override via `queryTimeout`. Catch `Exception::Timeout`.
 
+## SysDa Framework — fluent query API
+
+SysDa is the modern X++ query API — fluent and object-oriented. Use it when query shape depends on runtime conditions or when building reusable framework logic.
+
+**Core classes:**
+- `SysDaQueryObject` — root query builder; set table buffer via constructor.
+- `SysDaSearchStatement` — execute + iterate; `SysDaFindStatement` — `firstOnly` equivalent.
+- `SysDaUpdateStatement` / `SysDaInsertStatement` / `SysDaDeleteStatement` — set-based ops.
+
+```xpp
+CustTable custTable;
+var qe = new SysDaQueryObject(custTable);
+qe.whereClause(new SysDaEqualsExpression(
+    new SysDaFieldExpression(custTable, fieldStr(CustTable, AccountNum)),
+    new SysDaValueExpression('US-001')));
+var so = new SysDaSearchStatement();
+while (so.nextRecord(qe))
+{
+    info(custTable.AccountNum);
+}
+```
+
+**Joins:** `qe.joinClause(SysDaJoinKind::InnerJoin, joinQe)` — supports `InnerJoin`, `OuterJoin`, `ExistsJoin`, `NotExistsJoin`.
+
+**SysDa vs `select` — decision:**
+
+| Situation | Preferred |
+|---|---|
+| Static, compile-time query | `select` / `while select` — cleaner, compile-time field validation |
+| Query shape depends on runtime conditions | SysDa |
+| Building reusable framework / query logic | SysDa |
+| Dynamically selecting fields or aggregates | SysDa |
+
+## Query Object Model — `Query` / `QueryRun`
+
+Use `Query` / `QueryRun` when forms/reports bind to a shared query or the user can modify filters dynamically (e.g. `SysQueryForm`).
+
+```xpp
+Query query = new Query();
+QueryBuildDataSource qbds = query.addDataSource(tableNum(CustTable));
+qbds.addRange(fieldNum(CustTable, CustGroup)).value(queryValue('10'));
+qbds.addSortField(fieldNum(CustTable, AccountNum));
+QueryRun qr = new QueryRun(query);
+while (qr.next())
+{
+    CustTable ct = qr.get(tableNum(CustTable));
+    info(ct.AccountNum);
+}
+```
+
+**Key APIs:**
+- `SysQuery::findOrCreateRange(qbds, fieldNum)` — idempotent range addition.
+- `QueryBuildDataSource::addDataSource()` — nested join (child data source).
+- `qbds.joinMode(JoinMode::ExistsJoin)` — set join type at runtime.
+- `query.allowCrossCompany(true)` + `query.addCompanyRange('dat')` — cross-company at Query level.
+
 ## Hard "never" list
 
 - **Never** call functions in `where` (e.g. `where strFmt(...) == 'X'`) — assign to a local first; the optimizer can't index function expressions.

@@ -102,3 +102,36 @@ section template is `--section Name:Caption` (split on the first `:`).
 - Pre-flight `search form <Name>` before scaffolding to avoid collisions.
 - Caption strings must be labels (BP `BPErrorLabelIsText`) — never raw text.
 - After scaffolding, run `d365fo build` only on user request.
+
+## FormRun lifecycle & extension points
+
+Forms follow a strict initialization order. Extension code must respect it.
+
+**Initialization sequence:**
+1. `form.init()` — form structure loaded; data sources NOT yet active.
+2. `FormDataSource.init()` — each data source initializes (link types resolved).
+3. `form.run()` — form becomes visible.
+4. `FormDataSource.executeQuery()` — initial data load.
+
+**Common extension points (via CoC or event handlers):**
+
+| Method | When to use |
+|---|---|
+| `FormDataSource.init()` | Add ranges, modify query before first execution |
+| `FormDataSource.executeQuery()` | Modify query dynamically on each refresh |
+| `FormDataSource.active()` | Cursor moves to a new record — update dependent UI |
+| `FormDataSource.validateWrite()` | Custom validation before save |
+| `FormDataSource.write()` | Post-save logic |
+| `FormControl.clicked()` / `modified()` | Button/field interaction |
+
+**Key form interaction APIs:**
+- `FormDataSource.research(retainPosition: true)` — refresh grid, keep cursor position.
+- `element.args()` — access caller context (menu item, record, enum parameter).
+- `FormDataSource.queryBuildDataSource()` — underlying `QueryBuildDataSource` for runtime range manipulation.
+- `FormDataSource.filter(fieldNum, value)` / `removeFilter(fieldNum)` — programmatic quick-filter.
+- `element.design().controlName(formControlStr(MyForm, MyControl))` — access control by name at runtime.
+
+**Rules:**
+- Use `d365fo get form <Name> --output json` to find exact control names before wrapping.
+- NEVER guess control names — they differ from field names and are often prefixed.
+- Cannot add new methods via CoC on `formdatasourcestr`/`formdatafieldstr`/`formControlStr` — only wrap methods that already exist.
