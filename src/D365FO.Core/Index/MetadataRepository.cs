@@ -80,7 +80,15 @@ public sealed class MetadataRepository
         // state where some ALTER TABLE columns exist but user_version is stale.
         using var tx = conn.BeginTransaction();
 
-        conn.Execute(SchemaSql.Value, transaction: tx);
+        // ---------------------------------------------------------------
+        // ALTER TABLE migrations must run BEFORE conn.Execute(SchemaSql)
+        // because Schema.sql contains "CREATE INDEX … ON Forms(Pattern)"
+        // which fails if the Forms table already exists without that column.
+        // Guard every ALTER TABLE with a table-existence check (Count > 0)
+        // so that brand-new databases — where tables don't exist yet — are
+        // handled safely by the subsequent Schema.sql CREATE TABLE statements.
+        // ---------------------------------------------------------------
+
         // v7 migration: add new columns on pre-existing Models tables. SQLite
         // lacks `ADD COLUMN IF NOT EXISTS`, so we check via PRAGMA table_info
         // rather than relying on a benign exception.
@@ -88,9 +96,9 @@ public sealed class MetadataRepository
         {
             var existingCols = conn.Query<string>("SELECT name FROM pragma_table_info('Models')", transaction: tx)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if (!existingCols.Contains("LastExtractedUtc"))
+            if (existingCols.Count > 0 && !existingCols.Contains("LastExtractedUtc"))
                 conn.Execute("ALTER TABLE Models ADD COLUMN LastExtractedUtc TEXT", transaction: tx);
-            if (!existingCols.Contains("SourceFingerprint"))
+            if (existingCols.Count > 0 && !existingCols.Contains("SourceFingerprint"))
                 conn.Execute("ALTER TABLE Models ADD COLUMN SourceFingerprint TEXT", transaction: tx);
         }
         if (current < 8)
@@ -99,14 +107,14 @@ public sealed class MetadataRepository
             // populate them on the next `index extract` / `refresh`.
             var formCols = conn.Query<string>("SELECT name FROM pragma_table_info('Forms')", transaction: tx)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if (!formCols.Contains("Pattern")) conn.Execute("ALTER TABLE Forms ADD COLUMN Pattern TEXT", transaction: tx);
-            if (!formCols.Contains("PatternVersion")) conn.Execute("ALTER TABLE Forms ADD COLUMN PatternVersion TEXT", transaction: tx);
-            if (!formCols.Contains("Style")) conn.Execute("ALTER TABLE Forms ADD COLUMN Style TEXT", transaction: tx);
-            if (!formCols.Contains("TitleDataSource")) conn.Execute("ALTER TABLE Forms ADD COLUMN TitleDataSource TEXT", transaction: tx);
+            if (formCols.Count > 0 && !formCols.Contains("Pattern")) conn.Execute("ALTER TABLE Forms ADD COLUMN Pattern TEXT", transaction: tx);
+            if (formCols.Count > 0 && !formCols.Contains("PatternVersion")) conn.Execute("ALTER TABLE Forms ADD COLUMN PatternVersion TEXT", transaction: tx);
+            if (formCols.Count > 0 && !formCols.Contains("Style")) conn.Execute("ALTER TABLE Forms ADD COLUMN Style TEXT", transaction: tx);
+            if (formCols.Count > 0 && !formCols.Contains("TitleDataSource")) conn.Execute("ALTER TABLE Forms ADD COLUMN TitleDataSource TEXT", transaction: tx);
             var dsCols = conn.Query<string>("SELECT name FROM pragma_table_info('FormDataSources')", transaction: tx)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if (!dsCols.Contains("OrderIndex")) conn.Execute("ALTER TABLE FormDataSources ADD COLUMN OrderIndex INTEGER NOT NULL DEFAULT 0", transaction: tx);
-            if (!dsCols.Contains("JoinSource")) conn.Execute("ALTER TABLE FormDataSources ADD COLUMN JoinSource TEXT", transaction: tx);
+            if (dsCols.Count > 0 && !dsCols.Contains("OrderIndex")) conn.Execute("ALTER TABLE FormDataSources ADD COLUMN OrderIndex INTEGER NOT NULL DEFAULT 0", transaction: tx);
+            if (dsCols.Count > 0 && !dsCols.Contains("JoinSource")) conn.Execute("ALTER TABLE FormDataSources ADD COLUMN JoinSource TEXT", transaction: tx);
         }
         if (current < 9)
         {
@@ -114,16 +122,21 @@ public sealed class MetadataRepository
             // extract by scanning <Source> text — no full body storage.
             var methodCols = conn.Query<string>("SELECT name FROM pragma_table_info('Methods')", transaction: tx)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if (!methodCols.Contains("HasDocComment"))    conn.Execute("ALTER TABLE Methods ADD COLUMN HasDocComment    INTEGER NOT NULL DEFAULT 0", transaction: tx);
-            if (!methodCols.Contains("HasTodayCall"))     conn.Execute("ALTER TABLE Methods ADD COLUMN HasTodayCall     INTEGER NOT NULL DEFAULT 0", transaction: tx);
-            if (!methodCols.Contains("HasDoInsertOrUpdate")) conn.Execute("ALTER TABLE Methods ADD COLUMN HasDoInsertOrUpdate INTEGER NOT NULL DEFAULT 0", transaction: tx);
+            if (methodCols.Count > 0 && !methodCols.Contains("HasDocComment"))    conn.Execute("ALTER TABLE Methods ADD COLUMN HasDocComment    INTEGER NOT NULL DEFAULT 0", transaction: tx);
+            if (methodCols.Count > 0 && !methodCols.Contains("HasTodayCall"))     conn.Execute("ALTER TABLE Methods ADD COLUMN HasTodayCall     INTEGER NOT NULL DEFAULT 0", transaction: tx);
+            if (methodCols.Count > 0 && !methodCols.Contains("HasDoInsertOrUpdate")) conn.Execute("ALTER TABLE Methods ADD COLUMN HasDoInsertOrUpdate INTEGER NOT NULL DEFAULT 0", transaction: tx);
 
             var tmCols = conn.Query<string>("SELECT name FROM pragma_table_info('TableMethods')", transaction: tx)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if (!tmCols.Contains("HasDocComment"))    conn.Execute("ALTER TABLE TableMethods ADD COLUMN HasDocComment    INTEGER NOT NULL DEFAULT 0", transaction: tx);
-            if (!tmCols.Contains("HasTodayCall"))     conn.Execute("ALTER TABLE TableMethods ADD COLUMN HasTodayCall     INTEGER NOT NULL DEFAULT 0", transaction: tx);
-            if (!tmCols.Contains("HasDoInsertOrUpdate")) conn.Execute("ALTER TABLE TableMethods ADD COLUMN HasDoInsertOrUpdate INTEGER NOT NULL DEFAULT 0", transaction: tx);
+            if (tmCols.Count > 0 && !tmCols.Contains("HasDocComment"))    conn.Execute("ALTER TABLE TableMethods ADD COLUMN HasDocComment    INTEGER NOT NULL DEFAULT 0", transaction: tx);
+            if (tmCols.Count > 0 && !tmCols.Contains("HasTodayCall"))     conn.Execute("ALTER TABLE TableMethods ADD COLUMN HasTodayCall     INTEGER NOT NULL DEFAULT 0", transaction: tx);
+            if (tmCols.Count > 0 && !tmCols.Contains("HasDoInsertOrUpdate")) conn.Execute("ALTER TABLE TableMethods ADD COLUMN HasDoInsertOrUpdate INTEGER NOT NULL DEFAULT 0", transaction: tx);
         }
+
+        // Run the full schema SQL after all ADD COLUMN migrations so that
+        // CREATE INDEX statements referencing new columns succeed.
+        conn.Execute(SchemaSql.Value, transaction: tx);
+
         if (current < 10)
         {
             // AxMap indexing tables — Maps are field-layout templates used
@@ -1039,6 +1052,13 @@ public sealed class MetadataRepository
         // Normalize to lowercase so both 'en-US' (Windows filesystem) and 'en-us'
         // (Linux filesystem, Microsoft packages) match the caller's request.
         var langsLower = languages?.Select(l => l.ToLowerInvariant()).ToList();
+
+        // D365FO label extractors store the Key in two formats depending on the
+        // extractor version: either as a bare numeric-suffix ("12345") or as the
+        // full token WITH the @ sigil ("@SYS12345"). We try all three variants so
+        // that both storage formats resolve correctly.
+        var rawWithAt = "@" + raw;   // e.g. "@SYS11307"
+
         using var conn = OpenReadOnly();
         // Try two shapes: Key == raw (e.g. "SYS12345") in file=prefix,
         // or Key == suffix (e.g. "12345") in file=prefix. Fall back to
@@ -1053,10 +1073,11 @@ public sealed class MetadataRepository
             sql = @"
             SELECT LabelFile AS File, Language, Key, Value
             FROM Labels
-            WHERE (LabelFile = @prefix AND Key IN (@raw, @suffix))
+            WHERE (LabelFile = @prefix AND Key IN (@raw, @rawWithAt, @suffix))
                OR Key = @raw
+               OR Key = @rawWithAt
             ORDER BY LabelFile, Language";
-            return conn.Query<LabelMatch>(sql, new { prefix, raw, suffix }).ToList();
+            return conn.Query<LabelMatch>(sql, new { prefix, raw, rawWithAt, suffix }).ToList();
         }
         else
         {
@@ -1065,11 +1086,12 @@ public sealed class MetadataRepository
             FROM Labels
             WHERE LOWER(Language) IN @langs
               AND (
-                    (LabelFile = @prefix AND Key IN (@raw, @suffix))
+                    (LabelFile = @prefix AND Key IN (@raw, @rawWithAt, @suffix))
                  OR Key = @raw
+                 OR Key = @rawWithAt
               )
             ORDER BY LabelFile, Language";
-            return conn.Query<LabelMatch>(sql, new { langs = langsLower, prefix, raw, suffix }).ToList();
+            return conn.Query<LabelMatch>(sql, new { langs = langsLower, prefix, raw, rawWithAt, suffix }).ToList();
         }
     }
 
