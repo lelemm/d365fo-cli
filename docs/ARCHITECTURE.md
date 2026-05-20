@@ -43,11 +43,110 @@ JSON on non-TTY stdout, rich tables on a terminal. Override with `--output json|
 
 Single file at `$D365FO_INDEX_DB` (default `%LOCALAPPDATA%\d365fo-cli\d365fo-index.sqlite`). Schema defined in [`src/D365FO.Core/Index/Schema.sql`](../src/D365FO.Core/Index/Schema.sql), version tracked via `PRAGMA user_version`; auto-migrated on first connection.
 
-**Covered AOT types:** tables, classes, EDTs, enums, forms (+ extensions), menu items, labels, queries, views, data entities, reports, services, service groups, workflow types, security roles/duties/privileges + flattened `SecurityMap`, object extensions, event subscribers, CoC extensions, model dependencies.
+### Schema version history
+
+| Version | Introduced | Key additions |
+|---------|-----------|---------------|
+| v9 | Initial release | Tables, Classes, EDTs, Enums, Forms, Queries, Views, DataEntities, Labels, Security, CoC, EventHandlers, ModelDependencies |
+| v10 | Phase 1 | Export/import support, index history, parallel extraction metadata |
+| v11 | Phase 3 | BusinessEvents, SecurityPolicies, ConfigurationKeys, Tiles, new table/EDT property columns, extraction-time lint flags |
+| v12 | Phase 4 | Additional lint flag columns (HasInsertInLoop, HasNestedSelect, HasForceLiterals, HasForUpdateWithoutUpdate, HasTryCatchInTts, HasEmptyLoop, IsEmptyOverride, IsRunBaseBatch, HasCanGoBatch, HasPublicInstanceFields) |
+
+### AOT object type coverage
+
+| AOT Type | Directory | Indexed since | Notes |
+|----------|-----------|--------------|-------|
+| Table | `AxTable` | v9 | Fields, indexes, relations, delete actions |
+| Class | `AxClass` | v9 | Methods, CoC extensions, event handlers |
+| EDT | `AxEdt` | v9 | BaseType, extends, ReferenceTable, FormHelp (v11) |
+| Enum | `AxEnum` | v9 | Values, IsExtensible |
+| Form | `AxForm` | v9 | Pattern, datasources, controls, extensions |
+| MenuItem | `AxMenuItemDisplay`, `AxMenuItemAction`, `AxMenuItemOutput` | v9 | Kind, object reference |
+| Query | `AxQuery` | v9 | Root datasource, joins |
+| View | `AxView` | v9 | Datasources, fields |
+| DataEntity | `AxDataEntityView` | v9 | PublicEntityName, OData surface |
+| Report | `AxReport` | v9 | Datasets, design |
+| Service | `AxService` | v9 | Operations |
+| ServiceGroup | `AxServiceGroup` | v9 | Service references |
+| WorkflowType | `AxWorkflow` | v9 | Document class, elements |
+| Map | `AxMap` | v9 | Fields, `search any` union (v11 fix) |
+| SecurityRole | `AxSecurityRole` | v9 | Duties, privileges |
+| SecurityDuty | `AxSecurityDuty` | v9 | Privileges |
+| SecurityPrivilege | `AxSecurityPrivilege` | v9 | Entry points |
+| SecurityPolicy | `AxSecurityPolicy` | v11 | ConstrainedTable, PolicyQuery, OperationType, ContextType |
+| ConfigurationKey | `AxConfigurationKey` | v11 | ParentKey, LicenseCode, IsEnabled |
+| BusinessEvent | detected in `AxClass` | v11 | Category, ContractClass, `[BusinessEvents(...)]` attribute |
+| Tile | `AxTile` | v11 | MenuItemName, TileType |
+| Workspace | `AxWorkspace` | v11 | Layout descriptor (not AxForm) |
 
 **Extraction:** walks `<root>/<Package>/<Model>/`, parallelises per-file XML parsing inside each model. `*FormAdaptor` packages skipped. Idempotent per model — re-extract replaces that model's rows only.
 
 **Guardrails:** `StringSanitizer` strips control characters from free-form metadata (labels, descriptions) to defend against prompt-injection embedded in customer data. Pass `--raw-text` to opt out. Write operations use atomic swap (`.tmp` + move) with `.bak` kept on overwrite.
+
+---
+
+## Business Events indexing
+
+Business events in D365FO are implemented as X++ classes extending `BusinessEventsBase` — there is no separate `AxBusinessEvent` directory in the AOT. The extractor detects them during the `AxClass` walk by:
+
+1. Scanning class declaration source for `extends BusinessEventsBase`.
+2. Extracting the `[BusinessEvents(classStr(EventClass), classStr(ContractClass), "Category", "Description")]` attribute arguments.
+3. Storing `Name`, `Category`, `ContractClass`, `ModelId`, `SourcePath` in the `BusinessEvents` schema table.
+
+Commands:
+- `d365fo search business-event <query>` — search by name or category
+- `d365fo get business-event <name>` — show contract class and attributes
+
+---
+
+## Security Policy (XDS) indexing
+
+Extensible Data Security (XDS) policies restrict which rows a user can read or write based on the user's security context. They live in `AxSecurityPolicy` directories and are indexed with:
+
+- `Name`, `ConstrainedTable`, `PolicyQuery`, `OperationType` (All / Select / Insert / Update / Delete)
+- `ContextType` (ContextString / RoleName), `ContextValue`
+- `IsEnabled`, `IsMandatory`, `ModelId`
+
+Commands:
+- `d365fo search security-policy <query>` — find policies by name or constrained table
+- `d365fo get security-policy <name>` — inspect full policy metadata
+- `d365fo generate security-policy <name>` — scaffold a new XDS policy
+
+---
+
+## Lint rule categories (v12 — 16 rules)
+
+`d365fo lint` runs in-process heuristics against the SQLite index. Rules are evaluated without touching the VM.
+
+### Original rules (v9)
+
+| Category | What it finds | Severity |
+|----------|--------------|---------|
+| `table-no-index` | Tables without cluster or alternate-key index | warning |
+| `ext-named-not-attributed` | `*_Extension` classes missing `[ExtensionOf]` | warning |
+| `string-without-edt` | String fields without an EDT | warning |
+| `today-usage` | `today()` calls (`BPUpgradeCodeToday`) | warning |
+| `do-insert-update` | `doInsert()` / `doUpdate()` / `doDelete()` calls in non-migration code | warning |
+| `doc-comment-missing` | Public/protected methods without `/// <summary>` | warning |
+
+### New rules added in v12 (Phase 4)
+
+| Category | What it finds | Severity |
+|----------|--------------|---------|
+| `nested-select` | `while select` nested inside another loop (`BPCheckNestedLoopInCode`) | warning |
+| `insert-in-loop` | `.insert()` call inside a loop body — suggest `RecordInsertList` (`BPCheckInsertMethodInLoop`) | warning |
+| `tts-try-catch` | `try` block inside `ttsbegin`/`ttscommit` without catching `UpdateConflict` (`BPCheckNoTTSTryBlock`) | warning |
+| `empty-table-method` | Table method override with empty body — forces row-by-row DB ops (`BPCheckEmptyTableMethod`) | warning |
+| `runbase-no-can-go-batch` | `RunBaseBatch` subclass without `canGoBatch() { return true; }` (`BPCheckBatchJobsEnabled`) | warning |
+| `force-literals` | `forceLiterals` in a select — SQL injection risk | error |
+| `cache-lookup-mismatch` | `CacheLookup` value inconsistent with `TableGroup` (`BPCheckTablePropertyMismatch`) | warning |
+| `missing-delete-action` | Table relations without `DeleteAction` or `OnDelete` configured (`BPCheckMissingDeleteActions`) | warning |
+| `no-alternate-key` | Tables with unique indexes but no `AlternateKey = Yes` index (`BPCheckAlternateKeyAbsent`) | warning |
+| `unknown-label-ref` | Label `@File:Key` references in source that don't resolve in the `Labels` table (`BPErrorUnknownLabel`) | error |
+
+Use `--category <name>[,<name>…]` to run specific rules. `--format sarif` emits SARIF 2.1.0 for CI.
+
+---
 
 ## Metadata Bridge
 
@@ -76,5 +175,6 @@ Adding a new tool: one entry in `ToolCatalog` + one method on `ToolHandlers`. Th
 ## See also
 
 - [SETUP.md](SETUP.md) / [EXAMPLES.md](EXAMPLES.md) — day-to-day usage.
+- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) — common failure modes and fixes.
 - [TOKEN_ECONOMICS.md](TOKEN_ECONOMICS.md) — why CLI + Skills is cheaper per turn than MCP.
 - [MIGRATION_FROM_MCP.md](MIGRATION_FROM_MCP.md) — coming from `d365fo-mcp-server`.

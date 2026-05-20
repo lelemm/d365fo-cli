@@ -69,6 +69,25 @@ d365fo models coupling --only-cycles
 
 `models list` enumerates every model with publisher, layer, and custom-flag. `models coupling` runs Tarjan SCC over `ModelDependencies` to surface dependency cycles and ranks every model by fan-in / fan-out / instability (`I = Ce / (Ca + Ce)`, where 0 = most stable, 1 = most volatile).
 
+### Phase 3 — new search and get targets
+
+```sh
+# Business events
+d365fo search business-event CustomerPayment --output json
+d365fo get business-event CustPaymentBusinessEvent --output json
+
+# Security policies (XDS)
+d365fo search security-policy CustCustom --output json
+d365fo get security-policy CustCustomSecurityPolicy --output json
+
+# Configuration keys
+d365fo search configuration-key TradeAgreements --output json
+
+# Tiles and workspaces
+d365fo search tile CustCustom --output json
+d365fo search workspace VendPayment --output json
+```
+
 ### `search any` — scope-agnostic quick jump
 
 ```sh
@@ -276,6 +295,86 @@ d365fo generate duty FmReportingDuty --privilege FmReportsViewPriv \
 
 Both `generate privilege` and `generate duty` accept `--into-role <PATH>`; after the scaffold file is written, the role XML is updated idempotently with a `.bak` sibling (same merge path as `generate role --add-to`).
 
+### SysOperation — batch operation with parameters
+
+```sh
+# Two-parameter batch job — emits contract, service, and controller XML
+d365fo generate sysoperation ProcessVendorPayments \
+  --param "fromDate:TransDate" --param "toDate:TransDate" \
+  --execution-mode Asynchronous \
+  --out-contract c:/AOT/MyModel/AxClass/ProcessVendorPaymentsContract.xml \
+  --out-service  c:/AOT/MyModel/AxClass/ProcessVendorPaymentsService.xml \
+  --out          c:/AOT/MyModel/AxClass/ProcessVendorPaymentsController.xml
+```
+
+The controller XML extends `SysOperationServiceController`. `--param name:EdtType` (repeatable) generates `parmXxx()` accessors decorated with `[DataMemberAttribute]` on the contract class. Use `--execution-mode Synchronous|Asynchronous|ScheduledBatch`.
+
+### Number sequence — three-file output
+
+```sh
+# Module extension class + EDT + form handler
+d365fo generate number-sequence CustCustomModule \
+  --edt CustCustomNum --scope Company --table CustCustomTable \
+  --out         c:/AOT/MyModel/AxClass/NumberSeqModuleExtension_CustCustomModule.xml \
+  --out-edt     c:/AOT/MyModel/AxEdt/CustCustomNum.xml \
+  --out-handler c:/AOT/MyModel/AxClass/CustCustomTable_NumberSeqFormHandler.xml
+```
+
+Emits a CoC extension of `NumberSeqApplicationModule` wired to the new EDT and an optional `NumberSeqFormHandler` extension class for the target form.
+
+### Workflow — PurchTable approval workflow
+
+```sh
+# Approval workflow with document class and submit stub
+d365fo generate workflow PurchTableApproval \
+  --table PurchTable --approval-name PurchTableApprovalElement \
+  --out          c:/AOT/MyModel/AxWorkflow/PurchTableApproval.xml \
+  --out-document c:/AOT/MyModel/AxClass/PurchTableWorkflowDocument.xml \
+  --out-submit   c:/AOT/MyModel/AxClass/PurchTable_WorkflowSubmitExtension.xml
+```
+
+`--out-document` emits a `WorkflowDocument` subclass. `--out-submit` emits a CoC extension of the target table that adds `canSubmitToWorkflow()`.
+
+### Menu item — display menu item for a form
+
+```sh
+d365fo generate menu-item CustCustomForm \
+  --kind Display --object CustCustomForm --object-type Form \
+  --label "@SYS12345" \
+  --out c:/AOT/MyModel/AxMenuItemDisplay/CustCustomForm.xml
+```
+
+`--kind` accepts `Display`, `Action`, or `Output`. `--object-type` accepts `Form`, `Class`, or `Report`.
+
+### EDT — custom string EDT
+
+```sh
+d365fo generate edt CustCustomId --base-type String --size 20 --label "@SYS100" \
+  --out c:/AOT/MyModel/AxEdt/CustCustomId.xml
+```
+
+`--base-type` accepts `String`, `Integer`, `Real`, `Int64`, `Date`, `UtcDateTime`, `Enum`, `Guid`. `--size` applies to String EDTs. Use `--extends <BaseEdt>` to derive from an existing EDT.
+
+### Enum — extensible status enum
+
+```sh
+d365fo generate enum CustCustomStatus \
+  --value "None:0:@SYS000" --value "Active:1:@SYS001" --value "Closed:2:@SYS002" \
+  --out c:/AOT/MyModel/AxEnum/CustCustomStatus.xml
+```
+
+`--value name:intValue:labelKey` (repeatable). Adds `<IsExtensible>Yes</IsExtensible>` by default — pass `--no-extensible` to opt out.
+
+### Query — SalesTable + SalesLine inner join
+
+```sh
+d365fo generate query SalesTableWithLines \
+  --ds SalesTable --join "SalesLine:InnerJoin:SalesTable" \
+  --out c:/AOT/MyModel/AxQuery/SalesTableWithLines.xml
+```
+
+`--ds` sets the root datasource. `--join target:joinKind:parentDs` (repeatable) adds embedded datasources. `joinKind` accepts `InnerJoin`, `OuterJoin`, `ExistsJoin`, `NotExistsJoin`.
+
 ### Security role (new or merge)
 
 ```sh
@@ -328,6 +427,69 @@ d365fo generate report FmFleetSummaryReport \
 ```
 
 The command atomically writes **two or three XML files**: `AxReport` (datasets + auto-design + tablix), DP class extending `SrsReportDataProviderBase`, and (when `--parameter` is used) a DataContract class extending `SrsReportDataContractBase`. Output overrides: `--out-dp`, `--out-contract`.
+
+### Business event — custom event with payload
+
+```sh
+# Scaffold event class + contract class
+d365fo generate business-event CustCustomBusinessEvent \
+  --contract-name CustCustomBusinessEventContract \
+  --payload "custAccount:CustAccount" --payload "amount:AmountCur" \
+  --category "CustomerEvents" --primary-table CustTable \
+  --out          c:/AOT/MyModel/AxClass/CustCustomBusinessEvent.xml \
+  --out-contract c:/AOT/MyModel/AxClass/CustCustomBusinessEventContract.xml
+```
+
+The event class extends `BusinessEventsBase` and is decorated with `[BusinessEvents(classStr(CustCustomBusinessEvent), classStr(CustCustomBusinessEventContract), "CustomerEvents", "...")]`. The contract class implements `BusinessEventsContract` with `parmXxx()` accessors for each `--payload` entry.
+
+After scaffolding, activate the event in **System Administration > Business events catalog**.
+
+### Custom service — JSON/SOAP service with operations
+
+```sh
+# Scaffold service XML + service class + service group
+d365fo generate custom-service CustCustomService \
+  --class-name CustCustomServiceClass --group-name CustCustomServiceGroup \
+  --operation "processCustomer:CustAccount" \
+  --out       c:/AOT/MyModel/AxService/CustCustomService.xml \
+  --out-class c:/AOT/MyModel/AxClass/CustCustomServiceClass.xml \
+  --out-group c:/AOT/MyModel/AxServiceGroup/CustCustomServiceGroup.xml
+```
+
+The service class method is decorated with `[SysEntryPointAttribute(true)]` for security. Use `d365fo search service <name>` to check for existing services before naming.
+
+### Migration script — data-fix runnable with batching
+
+```sh
+d365fo generate migration-script MigrateCustCustomData \
+  --source-table CustCustomTableOld --target-table CustCustomTable \
+  --batch-size 500 --mode Upsert \
+  --out c:/AOT/MyModel/AxClass/MigrateCustCustomData.xml
+```
+
+`--mode` accepts `Insert`, `Update`, `Upsert`. Emits a `Runnable` class with `doInsert`/`doUpdate` (the one documented exception where `do*` methods are appropriate for migration logic) and configurable `ttsbegin`/`ttscommit` batching with progress logging.
+
+### RunBase — legacy batch class
+
+```sh
+d365fo generate runbase CustCustomReport \
+  --batch \
+  --dialog-param "fromDate:TransDate" --dialog-param "toDate:TransDate" \
+  --out c:/AOT/MyModel/AxClass/CustCustomReport.xml
+```
+
+`--batch` adds `canGoBatch() { return true; }` and `pack()`/`unpack()` with a `container` member list. `--dialog-param name:EdtType` (repeatable) generates dialog field declarations and `getFromDialog()` logic. Use `generate sysoperation` for new code — `generate runbase` is provided for ISV teams maintaining older codebases.
+
+### Security policy — XDS row-level security policy
+
+```sh
+d365fo generate security-policy CustCustomSecurityPolicy \
+  --constrained-table CustCustomTable --policy-query CustCustomPolicyQuery \
+  --operation Select --context-type RoleName --context-value CustCustomRole \
+  --out c:/AOT/MyModel/AxSecurityPolicy/CustCustomSecurityPolicy.xml
+```
+
+`--operation` accepts `All`, `Select`, `Insert`, `Update`, `Delete`. `--context-type` accepts `RoleName` or `ContextString`. Use `d365fo search security-policy <name>` to audit existing XDS policies before adding new ones.
 
 ---
 

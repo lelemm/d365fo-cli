@@ -1268,6 +1268,117 @@ public sealed class MetadataRepository
             new { like, limit }).ToList();
     }
 
+    // ---- Phase 5: integration analysis ----
+
+    /// <summary>
+    /// Cross-checks all indexed data entities for integration-readiness issues.
+    /// Optional <paramref name="model"/> restricts to a single model.
+    /// </summary>
+    public IReadOnlyList<IntegrationIssue> AnalyzeIntegration(string? model = null)
+    {
+        using var conn = OpenReadOnly();
+
+        // Pull all entities (optionally filtered by model).
+        var entities = conn.Query<DataEntityInfo>(@"
+            SELECT e.EntityId, e.Name, m.Name AS Model, e.PublicEntityName, e.PublicCollectionName,
+                   e.StagingTable, e.QueryName, e.Label, e.SourcePath
+            FROM DataEntities e JOIN Models m ON m.ModelId = e.ModelId
+            WHERE (@model IS NULL OR m.Name = @model)
+            ORDER BY e.Name",
+            new { model }).ToList();
+
+        var issues = new List<IntegrationIssue>();
+
+        // Detect duplicate PublicEntityName values.
+        var publicNames = entities
+            .Where(e => !string.IsNullOrEmpty(e.PublicEntityName))
+            .GroupBy(e => e.PublicEntityName!, StringComparer.OrdinalIgnoreCase)
+            .Where(g => g.Count() > 1);
+        foreach (var g in publicNames)
+            foreach (var e in g)
+                issues.Add(new IntegrationIssue(e.Name, e.Model, "DUPLICATE_PUBLIC_NAME",
+                    $"PublicEntityName '{g.Key}' is shared with {g.Count() - 1} other entity(ies)."));
+
+        foreach (var e in entities)
+        {
+            // Missing PublicCollectionName when OData-exposed.
+            if (!string.IsNullOrEmpty(e.PublicEntityName) && string.IsNullOrEmpty(e.PublicCollectionName))
+                issues.Add(new IntegrationIssue(e.Name, e.Model, "MISSING_COLLECTION_NAME",
+                    "Entity has PublicEntityName but no PublicCollectionName — OData collection route will be missing."));
+
+            // Missing staging table reference.
+            if (e.StagingTable is null && !string.IsNullOrEmpty(e.PublicEntityName))
+                issues.Add(new IntegrationIssue(e.Name, e.Model, "NO_STAGING_TABLE",
+                    "OData-exposed entity has no StagingTable — DMF import/export will not be available."));
+
+            // Zero fields mapped.
+            var fieldCount = conn.ExecuteScalar<long>(
+                "SELECT COUNT(*) FROM DataEntityFields WHERE EntityId = @id", new { id = e.EntityId });
+            if (fieldCount == 0)
+                issues.Add(new IntegrationIssue(e.Name, e.Model, "NO_FIELDS",
+                    "Entity has no fields mapped — likely incomplete scaffold."));
+
+            // No mandatory fields.
+            if (fieldCount > 0)
+            {
+                var mandatoryCount = conn.ExecuteScalar<long>(
+                    "SELECT COUNT(*) FROM DataEntityFields WHERE EntityId = @id AND IsMandatory = 1",
+                    new { id = e.EntityId });
+                if (mandatoryCount == 0)
+                    issues.Add(new IntegrationIssue(e.Name, e.Model, "NO_MANDATORY_FIELDS",
+                        "Entity has no mandatory fields — key identification may be ambiguous for data management."));
+            }
+        }
+
+        return issues.OrderBy(i => i.EntityName).ToList();
+    }
+
+    /// <summary>
+    /// Builds a full integration surface report: OData entities, custom services,
+    /// business events, workflow types, and batch jobs.
+    /// Optional <paramref name="model"/> restricts all lists to one model.
+    /// </summary>
+    public IntegrationReport GetIntegrationReport(string? model = null)
+    {
+        using var conn = OpenReadOnly();
+
+        var odataEntities = conn.Query<DataEntityInfo>(@"
+            SELECT e.EntityId, e.Name, m.Name AS Model, e.PublicEntityName, e.PublicCollectionName,
+                   e.StagingTable, e.QueryName, e.Label, e.SourcePath
+            FROM DataEntities e JOIN Models m ON m.ModelId = e.ModelId
+            WHERE e.PublicEntityName IS NOT NULL
+              AND (@model IS NULL OR m.Name = @model)
+            ORDER BY e.Name", new { model }).ToList();
+
+        var services = conn.Query<ServiceInfo>(@"
+            SELECT s.ServiceId, s.Name, s.Class, m.Name AS Model, s.SourcePath
+            FROM Services s JOIN Models m ON m.ModelId = s.ModelId
+            WHERE @model IS NULL OR m.Name = @model
+            ORDER BY s.Name", new { model }).ToList();
+
+        var businessEvents = conn.Query<BusinessEventInfo>(@"
+            SELECT be.Id, be.Name, be.Category, be.ContractClass, m.Name AS Model, be.SourcePath
+            FROM BusinessEvents be JOIN Models m ON m.ModelId = be.ModelId
+            WHERE @model IS NULL OR m.Name = @model
+            ORDER BY be.Category, be.Name", new { model }).ToList();
+
+        var workflowTypes = conn.Query<WorkflowTypeInfo>(@"
+            SELECT w.Name, w.Category, w.DocumentClass, m.Name AS Model, w.SourcePath
+            FROM WorkflowTypes w JOIN Models m ON m.ModelId = w.ModelId
+            WHERE @model IS NULL OR m.Name = @model
+            ORDER BY w.Name", new { model }).ToList();
+
+        var batchJobs = conn.Query<ClassInfo>(@"
+            SELECT c.ClassId, c.Name, m.Name AS Model, c.ExtendsName AS Extends,
+                   c.IsAbstract, c.IsFinal, c.SourcePath
+            FROM Classes c JOIN Models m ON m.ModelId = c.ModelId
+            WHERE c.IsRunBaseBatch = 1
+              AND (@model IS NULL OR m.Name = @model)
+            ORDER BY c.Name", new { model }).ToList();
+
+        return new IntegrationReport(odataEntities, services, businessEvents, workflowTypes, batchJobs);
+    }
+
     public IReadOnlyList<ModelInfo> ListModels()
     {
         using var conn = OpenReadOnly();

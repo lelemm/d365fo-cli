@@ -113,6 +113,49 @@ needs a different caption.
 Treat the defaults as a *starting point* — always replace placeholder fields
 (e.g. `Key`, `Code`) with names that fit the domain.
 
+## Related AOT objects
+
+### AOT Query for joining related tables
+
+After scaffolding a table, you often need an AOT Query to drive forms, reports, or data entities:
+
+```sh
+# Inner join — SalesTable driving, SalesLine joined
+d365fo generate query SalesTableWithLines \
+  --ds SalesTable --join "SalesLine:InnerJoin:SalesTable" \
+  --out c:/AOT/MyModel/AxQuery/SalesTableWithLines.xml
+
+# Check for existing queries on the same table first
+d365fo search query <NamePart> --output json
+```
+
+`--join target:joinKind:parentDs` (repeatable). JoinKind: `InnerJoin`, `OuterJoin`, `ExistsJoin`, `NotExistsJoin`.
+
+### Number sequence integration
+
+If the table needs an auto-generated document number:
+
+```sh
+# Generate the module extension class, the EDT, and the form handler
+d365fo generate number-sequence <ModuleName> \
+  --edt <NumEdtName> --scope Company --table <YourTable> \
+  --out         c:/AOT/MyModel/AxClass/NumberSeqModuleExtension_<ModuleName>.xml \
+  --out-edt     c:/AOT/MyModel/AxEdt/<NumEdtName>.xml \
+  --out-handler c:/AOT/MyModel/AxClass/<YourTable>_NumberSeqFormHandler.xml
+```
+
+This emits:
+- A CoC extension of `NumberSeqApplicationModule` that registers the new sequence.
+- An EDT with `NumberSequence=Yes` and `NumberSequenceModule` set.
+- A `NumberSeqFormHandler` extension class for the target form's `init()`.
+
+Manual consumption in X++:
+```xpp
+NumberSeq numSeq = NumberSeq::newGetNum(CompanyInfo::numRefMySequence());
+str nextNum = numSeq.num();
+numSeq.used();   // or numSeq.abort() to roll back
+```
+
 ## Hard rules
 
 - Never guess EDTs — `d365fo get edt <Name>` first.

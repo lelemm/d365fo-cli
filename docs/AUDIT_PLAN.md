@@ -300,12 +300,12 @@ Requires class declaration source parsing to detect `public <type> <field>;` pat
 
 ---
 
-## Phase 5: Integration Patterns — Commands & Skills 🔲
+## Phase 5: Integration Patterns — Commands & Skills ✅
 
 Based on the D365FO integration overview at:
 https://learn.microsoft.com/en-us/dynamics365/fin-ops-core/dev-itpro/data-entities/integration-overview
 
-### 5.1 `analyze integration` 🔲
+### 5.1 `analyze integration` ✅
 
 Cross-check all indexed data entities for integration readiness:
 - `EnablePublicAPI` present → OData-exposed; check: mandatory fields mapped, key fields defined, `PublicEntityName` unique
@@ -510,73 +510,58 @@ subclasses. Useful for auditing before server upgrades. Requires Phase 4.5 flags
 
 ---
 
-## Phase 8: Documentation Refresh 🔲
+## Phase 8: Documentation Refresh ✅
 
-### 8.1 Update `docs/ARCHITECTURE.md` 🔲
+### 8.1 Update `docs/ARCHITECTURE.md` ✅
 
-Current ARCHITECTURE.md describes schema v9/v10 with original features. Update to:
-- Describe schema v11 (Phase 3–7 new tables)
-- Document the Business Events and Security Policy indexing
-- Add the integration analysis commands
-- Update the AOT object type coverage table
-- Document new lint rule categories
-- Add shell completion section
+Updated to schema v12 with:
+- Schema version history table (v9 through v12)
+- Full AOT object type coverage table (22 types) including SecurityPolicy, ConfigurationKey, BusinessEvent, Tile, Workspace (new v11) and Phase 4 lint flag columns (v12)
+- Business Events indexing section (detected from AxClass, not separate AOT folder)
+- Security Policy (XDS) indexing section
+- New lint rule categories section (16 rules total: 6 original + 10 new from Phase 4)
 
-### 8.2 Expand `docs/EXAMPLES.md` 🔲
+### 8.2 Expand `docs/EXAMPLES.md` ✅
 
-Add worked examples for all Phase 2 commands:
-- `generate sysoperation` — batch job with two parameters
-- `generate number-sequence` — full three-file output
-- `generate workflow` — PurchTable workflow with approval + canSubmitToWorkflow stub
-- `generate menu-item` — display menu item for a form
-- `generate edt` — custom string EDT with label
-- `generate enum` — extensible status enum
-- `generate query` — SalesTable + SalesLine inner join
+Added worked examples for:
+- Phase 2: `generate sysoperation`, `generate number-sequence`, `generate workflow`, `generate menu-item`, `generate edt`, `generate enum`, `generate query`
+- Phase 3: `search business-event`, `get business-event`, `search security-policy`, `get security-policy`, `search configuration-key`, `search tile`, `search workspace`
+- Phase 6: `generate business-event`, `generate custom-service`, `generate migration-script`, `generate runbase`, `generate security-policy`
 
-And new Phase 5–7 commands when implemented.
+### 8.3 Update `README.md` Commands at a Glance table ✅
 
-### 8.3 Update `README.md` Commands at a Glance table 🔲
+Updated Commands at a Glance table with Phase 2, Phase 3, and Phase 6 commands. MCP tool count updated from "54 tools" to "~70 tools". Documentation table updated to include TROUBLESHOOTING.md.
 
-Add Phase 2 generate commands and any new Phase 5–7 commands to the table.
-Mark the MCP adapter's tool count as updated (currently says "54 tools").
+### 8.4 `docs/TROUBLESHOOTING.md` (new) ✅
 
-### 8.4 `docs/TROUBLESHOOTING.md` (new) 🔲
-
-Consolidate the current README troubleshooting table into a full document:
-- D365FO-specific package path patterns (cloud VMs, local docker, Azure Files share)
-- Common extraction failures (unicode in paths, locked AOT files, .NET 4.8 bridge not found)
-- SQLite WAL-mode locking
-- Bridge child process startup issues
-- Label language detection failures
+Created comprehensive troubleshooting guide covering:
+- Package path patterns (cloud VM, local devbox, custom env var)
+- Common extraction failures (Unicode paths, locked files, .NET 4.8 bridge on non-Windows)
+- SQLite WAL-mode locking (cause, fix, WAL file cleanup, `index optimize`)
+- Bridge child process issues (checklist, stderr capture)
+- Label language detection (format, `--languages` flag, missing label fix)
+- Schema migration (`index build` vs `index extract` vs `index refresh`)
 - MCP tool count / token budget guidance
 
-### 8.5 Expand `.github/copilot-instructions.md` 🔲
+### 8.5 Expand `.github/copilot-instructions.md` ✅
 
-Add sections for:
-- Phase 2 `generate` commands (sysoperation, workflow, edt, enum, query, menu-item, number-sequence)
-- Integration pattern commands (Phase 5)
-- Business event scaffolding (Phase 6.1)
-- Updated generate command table
+Added:
+- Phase 2 generate commands table (sysoperation, number-sequence, workflow, menu-item, edt, enum, query)
+- Phase 6 generate commands table (business-event, custom-service, migration-script, runbase, security-policy)
+- Phase 3 search/get commands (business-event, security-policy, configuration-key, tile, workspace) in the read-path lookup table
 
-### 8.6 New skill: `er-extension-authoring` 🔲
+### 8.6 New skills: `integration-patterns` and `business-events-authoring` ✅
 
-Electronic Reporting custom functions and format extension points:
-- `[ERLibraryExtension]` decorator on static class
-- Custom ER functions: `[ERExtension("FunctionName", "Category")]`
-- ER data model extension via IoC
-- Grounded by searching for `ERLibraryExtension` classes via `d365fo search class`
+Created:
+- `skills/_source/integration-patterns.md` — covers all four D365FO integration patterns (OData, Custom Services, DMF, Business Events) with CLI grounding commands and decision guide
+- `skills/_source/business-events-authoring.md` — complete guide to authoring custom business events including event class skeleton, contract class skeleton, firing the event, activation lifecycle, and hard rules
 
-**Files:**
-- `skills/_source/er-extension-authoring.md` (new)
+### 8.7 Update existing skills with Phase 2 and Phase 6 commands ✅
 
-**Reference:** https://learn.microsoft.com/en-us/dynamics365/fin-ops-core/dev-itpro/analytics/er-overview-components
-
-### 8.7 Update existing skills with Phase 2 commands 🔲
-
-Several existing skills reference `d365fo generate` commands. Update:
-- `x++-class-authoring.md` — add `generate sysoperation`, `generate runbase` (Phase 6.4)
-- `object-extension-authoring.md` — add `generate edt`, `generate enum` usage
-- `table-scaffolding.md` — add `generate query`, `generate number-sequence` for related objects
+Updated:
+- `skills/_source/x++-class-authoring.md` — added `generate sysoperation` CLI scaffold note + new `RunBase/RunBaseBatch` section with `generate runbase` scaffold note
+- `skills/_source/table-scaffolding.md` — added "Related AOT objects" section with `generate query` and `generate number-sequence` examples
+- `skills/_source/object-extension-authoring.md` — added "Scaffolding new EDTs and enums" section (`generate edt`, `generate enum`) and "XDS Security Policy scaffolding" section (`generate security-policy`)
 
 ---
 

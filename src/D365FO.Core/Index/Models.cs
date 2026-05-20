@@ -291,6 +291,19 @@ public sealed record WorkspaceInfo(
     string Model,
     string? SourcePath);
 
+// ---- Phase 5: integration analysis DTOs ---------------------------------
+
+/// <summary>A single integration-readiness finding from <c>d365fo analyze integration</c>.</summary>
+public sealed record IntegrationIssue(string EntityName, string Model, string Code, string Detail);
+
+/// <summary>Aggregated integration surface report from <c>d365fo report integrations</c>.</summary>
+public sealed record IntegrationReport(
+    IReadOnlyList<DataEntityInfo>    ODataEntities,
+    IReadOnlyList<ServiceInfo>       CustomServices,
+    IReadOnlyList<BusinessEventInfo> BusinessEvents,
+    IReadOnlyList<WorkflowTypeInfo>  WorkflowTypes,
+    IReadOnlyList<ClassInfo>         BatchJobs);
+
 // ---- Index maintenance DTOs ----------------------------------------------
 
 /// <summary>Result of <c>d365fo index optimize</c> (VACUUM + ANALYZE).</summary>

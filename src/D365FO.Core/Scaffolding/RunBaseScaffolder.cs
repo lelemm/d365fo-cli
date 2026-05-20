@@ -7,7 +7,7 @@ public sealed record DialogParamSpec(string Name, string Edt);
 /// <summary>
 /// Scaffolds a legacy <c>RunBase</c> / <c>RunBaseBatch</c> class for D365FO.
 /// Emits <c>dialog()</c>, <c>getFromDialog()</c>, <c>pack()</c>, <c>unpack()</c>,
-/// and optionally <c>canGoBatch()</c> when <paramref name="isBatch"/> is true.
+/// and optionally <c>canGoBatch()</c> for batch-enabled classes.
 /// </summary>
 public static class RunBaseScaffolder
 {

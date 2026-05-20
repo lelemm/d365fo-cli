@@ -175,7 +175,10 @@ app.Configure(cfg =>
     {
         b.SetDescription("Cross-check workspace AOT XML against the index.");
         b.AddCommand<AnalyzeCompletenessCommand>("completeness").WithDescription("Report broken EDT, label, security-role references in a project folder.");
+        b.AddCommand<AnalyzeIntegrationCommand>("integration").WithDescription("Cross-check data entities for OData / DMF integration readiness.");
     });
+
+    cfg.AddCommand<ReportIntegrationsCommand>("report-integrations").WithDescription("Aggregated report of OData entities, services, business events, workflow types, and batch jobs.");
 
     cfg.AddBranch("test", b =>
     {
