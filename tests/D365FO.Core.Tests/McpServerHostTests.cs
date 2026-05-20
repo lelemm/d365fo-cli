@@ -84,4 +84,34 @@ public class McpServerHostTests : IDisposable
         var doc = JsonDocument.Parse(text);
         Assert.Equal("UNKNOWN_TOOL", doc.RootElement.GetProperty("error").GetProperty("code").GetString());
     }
+
+    /// <summary>
+    /// Parity assertion: every entry in <see cref="ToolCatalog.All"/> must have
+    /// a handler that can be invoked (even with empty parameters). This fails
+    /// immediately if a catalog entry is added without a corresponding handler.
+    /// </summary>
+    [Fact]
+    public void ToolCatalog_every_entry_has_a_working_handler()
+    {
+        var handlers = Handlers();
+        var emptyParams = JsonDocument.Parse("{}").RootElement;
+        var errors = new List<string>();
+
+        foreach (var descriptor in ToolCatalog.All)
+        {
+            try
+            {
+                // Invoke with empty params — may return a validation error (ok=false)
+                // but must NOT throw an unhandled exception.
+                descriptor.Invoke(handlers, emptyParams);
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"{descriptor.Name}: {ex.GetType().Name} — {ex.Message}");
+            }
+        }
+
+        Assert.True(errors.Count == 0,
+            $"The following catalog entries threw exceptions:\n" + string.Join("\n", errors));
+    }
 }

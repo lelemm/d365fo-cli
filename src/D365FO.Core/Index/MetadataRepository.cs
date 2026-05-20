@@ -224,8 +224,14 @@ public sealed class MetadataRepository
 
             var tmCols12 = conn.Query<string>("SELECT name FROM pragma_table_info('TableMethods')", transaction: tx)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if (tmCols12.Count > 0 && !tmCols12.Contains("IsEmptyOverride"))
-                conn.Execute("ALTER TABLE TableMethods ADD COLUMN IsEmptyOverride INTEGER NOT NULL DEFAULT 0", transaction: tx);
+            if (tmCols12.Count > 0)
+            {
+                if (!tmCols12.Contains("IsEmptyOverride"))  conn.Execute("ALTER TABLE TableMethods ADD COLUMN IsEmptyOverride  INTEGER NOT NULL DEFAULT 0", transaction: tx);
+                if (!tmCols12.Contains("HasInsertInLoop"))  conn.Execute("ALTER TABLE TableMethods ADD COLUMN HasInsertInLoop  INTEGER NOT NULL DEFAULT 0", transaction: tx);
+                if (!tmCols12.Contains("HasNestedSelect"))  conn.Execute("ALTER TABLE TableMethods ADD COLUMN HasNestedSelect  INTEGER NOT NULL DEFAULT 0", transaction: tx);
+                if (!tmCols12.Contains("HasForceLiterals")) conn.Execute("ALTER TABLE TableMethods ADD COLUMN HasForceLiterals INTEGER NOT NULL DEFAULT 0", transaction: tx);
+                if (!tmCols12.Contains("HasTryCatchInTts")) conn.Execute("ALTER TABLE TableMethods ADD COLUMN HasTryCatchInTts INTEGER NOT NULL DEFAULT 0", transaction: tx);
+            }
 
             var classCols12 = conn.Query<string>("SELECT name FROM pragma_table_info('Classes')", transaction: tx)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -793,22 +799,24 @@ public sealed class MetadataRepository
     {
         using var conn = OpenReadOnly();
         var rows = new List<LintHit>();
-        rows.AddRange(conn.Query<LintHit>(@"
+        rows.AddRange(conn.Query(@"
             SELECT (c.Name || '::' || mt.Name) AS TargetName, m.Name AS Model, 'Class method' AS Detail
             FROM Methods mt
             JOIN Classes c ON c.ClassId = mt.ClassId
             JOIN Models m ON m.ModelId = c.ModelId
             WHERE mt.HasNestedSelect = 1
               AND (@only = 0 OR m.IsCustom = 1)
-            ORDER BY c.Name, mt.Name", new { only = onlyCustom ? 1 : 0 }));
-        rows.AddRange(conn.Query<LintHit>(@"
+            ORDER BY c.Name, mt.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)));
+        rows.AddRange(conn.Query(@"
             SELECT (t.Name || '::' || tm.Name) AS TargetName, m.Name AS Model, 'Table method' AS Detail
             FROM TableMethods tm
             JOIN Tables t ON t.TableId = tm.TableId
             JOIN Models m ON m.ModelId = t.ModelId
             WHERE tm.HasNestedSelect = 1
               AND (@only = 0 OR m.IsCustom = 1)
-            ORDER BY t.Name, tm.Name", new { only = onlyCustom ? 1 : 0 }));
+            ORDER BY t.Name, tm.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)));
         return rows;
     }
 
@@ -819,22 +827,24 @@ public sealed class MetadataRepository
     {
         using var conn = OpenReadOnly();
         var rows = new List<LintHit>();
-        rows.AddRange(conn.Query<LintHit>(@"
+        rows.AddRange(conn.Query(@"
             SELECT (c.Name || '::' || mt.Name) AS TargetName, m.Name AS Model, 'Class method' AS Detail
             FROM Methods mt
             JOIN Classes c ON c.ClassId = mt.ClassId
             JOIN Models m ON m.ModelId = c.ModelId
             WHERE mt.HasInsertInLoop = 1
               AND (@only = 0 OR m.IsCustom = 1)
-            ORDER BY c.Name, mt.Name", new { only = onlyCustom ? 1 : 0 }));
-        rows.AddRange(conn.Query<LintHit>(@"
+            ORDER BY c.Name, mt.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)));
+        rows.AddRange(conn.Query(@"
             SELECT (t.Name || '::' || tm.Name) AS TargetName, m.Name AS Model, 'Table method' AS Detail
             FROM TableMethods tm
             JOIN Tables t ON t.TableId = tm.TableId
             JOIN Models m ON m.ModelId = t.ModelId
             WHERE tm.HasInsertInLoop = 1
               AND (@only = 0 OR m.IsCustom = 1)
-            ORDER BY t.Name, tm.Name", new { only = onlyCustom ? 1 : 0 }));
+            ORDER BY t.Name, tm.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)));
         return rows;
     }
 
@@ -845,22 +855,24 @@ public sealed class MetadataRepository
     {
         using var conn = OpenReadOnly();
         var rows = new List<LintHit>();
-        rows.AddRange(conn.Query<LintHit>(@"
+        rows.AddRange(conn.Query(@"
             SELECT (c.Name || '::' || mt.Name) AS TargetName, m.Name AS Model, 'Class method' AS Detail
             FROM Methods mt
             JOIN Classes c ON c.ClassId = mt.ClassId
             JOIN Models m ON m.ModelId = c.ModelId
             WHERE mt.HasTryCatchInTts = 1
               AND (@only = 0 OR m.IsCustom = 1)
-            ORDER BY c.Name, mt.Name", new { only = onlyCustom ? 1 : 0 }));
-        rows.AddRange(conn.Query<LintHit>(@"
+            ORDER BY c.Name, mt.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)));
+        rows.AddRange(conn.Query(@"
             SELECT (t.Name || '::' || tm.Name) AS TargetName, m.Name AS Model, 'Table method' AS Detail
             FROM TableMethods tm
             JOIN Tables t ON t.TableId = tm.TableId
             JOIN Models m ON m.ModelId = t.ModelId
             WHERE tm.HasTryCatchInTts = 1
               AND (@only = 0 OR m.IsCustom = 1)
-            ORDER BY t.Name, tm.Name", new { only = onlyCustom ? 1 : 0 }));
+            ORDER BY t.Name, tm.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)));
         return rows;
     }
 
@@ -870,14 +882,15 @@ public sealed class MetadataRepository
     public IReadOnlyList<LintHit> FindEmptyTableMethodOverrides(bool onlyCustom = true)
     {
         using var conn = OpenReadOnly();
-        return conn.Query<LintHit>(@"
+        return conn.Query(@"
             SELECT (t.Name || '::' || tm.Name) AS TargetName, m.Name AS Model, 'Empty method override' AS Detail
             FROM TableMethods tm
             JOIN Tables t ON t.TableId = tm.TableId
             JOIN Models m ON m.ModelId = t.ModelId
             WHERE tm.IsEmptyOverride = 1
               AND (@only = 0 OR m.IsCustom = 1)
-            ORDER BY t.Name, tm.Name", new { only = onlyCustom ? 1 : 0 }).ToList();
+            ORDER BY t.Name, tm.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)).ToList();
     }
 
     /// <summary>
@@ -886,14 +899,15 @@ public sealed class MetadataRepository
     public IReadOnlyList<LintHit> FindRunBaseBatchWithoutCanGoBatch(bool onlyCustom = true)
     {
         using var conn = OpenReadOnly();
-        return conn.Query<LintHit>(@"
+        return conn.Query(@"
             SELECT c.Name AS TargetName, m.Name AS Model, 'Extends RunBaseBatch but canGoBatch() not detected' AS Detail
             FROM Classes c
             JOIN Models m ON m.ModelId = c.ModelId
             WHERE c.IsRunBaseBatch = 1
               AND c.HasCanGoBatch = 0
               AND (@only = 0 OR m.IsCustom = 1)
-            ORDER BY c.Name", new { only = onlyCustom ? 1 : 0 }).ToList();
+            ORDER BY c.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)).ToList();
     }
 
     /// <summary>
@@ -903,22 +917,24 @@ public sealed class MetadataRepository
     {
         using var conn = OpenReadOnly();
         var rows = new List<LintHit>();
-        rows.AddRange(conn.Query<LintHit>(@"
+        rows.AddRange(conn.Query(@"
             SELECT (c.Name || '::' || mt.Name) AS TargetName, m.Name AS Model, 'Class method' AS Detail
             FROM Methods mt
             JOIN Classes c ON c.ClassId = mt.ClassId
             JOIN Models m ON m.ModelId = c.ModelId
             WHERE mt.HasForceLiterals = 1
               AND (@only = 0 OR m.IsCustom = 1)
-            ORDER BY c.Name, mt.Name", new { only = onlyCustom ? 1 : 0 }));
-        rows.AddRange(conn.Query<LintHit>(@"
+            ORDER BY c.Name, mt.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)));
+        rows.AddRange(conn.Query(@"
             SELECT (t.Name || '::' || tm.Name) AS TargetName, m.Name AS Model, 'Table method' AS Detail
             FROM TableMethods tm
             JOIN Tables t ON t.TableId = tm.TableId
             JOIN Models m ON m.ModelId = t.ModelId
             WHERE tm.HasForceLiterals = 1
               AND (@only = 0 OR m.IsCustom = 1)
-            ORDER BY t.Name, tm.Name", new { only = onlyCustom ? 1 : 0 }));
+            ORDER BY t.Name, tm.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)));
         return rows;
     }
 
@@ -928,13 +944,14 @@ public sealed class MetadataRepository
     public IReadOnlyList<LintHit> FindPublicInstanceFieldClasses(bool onlyCustom = true)
     {
         using var conn = OpenReadOnly();
-        return conn.Query<LintHit>(@"
+        return conn.Query(@"
             SELECT c.Name AS TargetName, m.Name AS Model, 'Class has public instance fields' AS Detail
             FROM Classes c
             JOIN Models m ON m.ModelId = c.ModelId
             WHERE c.HasPublicInstanceFields = 1
               AND (@only = 0 OR m.IsCustom = 1)
-            ORDER BY c.Name", new { only = onlyCustom ? 1 : 0 }).ToList();
+            ORDER BY c.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)).ToList();
     }
 
     /// <summary>
@@ -945,7 +962,7 @@ public sealed class MetadataRepository
     public IReadOnlyList<LintHit> FindCacheLookupMismatches(bool onlyCustom = true)
     {
         using var conn = OpenReadOnly();
-        return conn.Query<LintHit>(@"
+        return conn.Query(@"
             SELECT t.Name AS TargetName, m.Name AS Model, ('CacheLookup=' || t.CacheLookup) AS Detail
             FROM Tables t
             JOIN Models m ON m.ModelId = t.ModelId
@@ -953,7 +970,8 @@ public sealed class MetadataRepository
               AND t.CacheLookup <> ''
               AND t.CacheLookup <> 'None'
               AND (@only = 0 OR m.IsCustom = 1)
-            ORDER BY t.Name", new { only = onlyCustom ? 1 : 0 }).ToList();
+            ORDER BY t.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)).ToList();
     }
 
     /// <summary>
@@ -962,7 +980,7 @@ public sealed class MetadataRepository
     public IReadOnlyList<LintHit> FindMissingDeleteActions(bool onlyCustom = true)
     {
         using var conn = OpenReadOnly();
-        return conn.Query<LintHit>(@"
+        return conn.Query(@"
             SELECT t.Name AS TargetName, m.Name AS Model, ('Relation to ' || r.ToTable) AS Detail
             FROM Relations r
             JOIN Tables t ON t.Name = r.FromTable
@@ -970,7 +988,8 @@ public sealed class MetadataRepository
             LEFT JOIN TableDeleteActions da ON da.TableId = t.TableId AND da.RelatedTable = r.ToTable
             WHERE da.Id IS NULL
               AND (@only = 0 OR m.IsCustom = 1)
-            ORDER BY t.Name, r.ToTable", new { only = onlyCustom ? 1 : 0 }).ToList();
+            ORDER BY t.Name, r.ToTable", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)).ToList();
     }
 
     /// <summary>
@@ -979,7 +998,7 @@ public sealed class MetadataRepository
     public IReadOnlyList<LintHit> FindTablesWithoutAlternateKey(bool onlyCustom = true)
     {
         using var conn = OpenReadOnly();
-        return conn.Query<LintHit>(@"
+        return conn.Query(@"
             SELECT DISTINCT t.Name AS TargetName, m.Name AS Model, 'Has unique index but no AlternateKey' AS Detail
             FROM TableIndexes ix
             JOIN Tables t ON t.TableId = ix.TableId
@@ -990,7 +1009,8 @@ public sealed class MetadataRepository
                 SELECT 1 FROM TableIndexes ix2
                 WHERE ix2.TableId = t.TableId AND ix2.AlternateKey = 1
               )
-            ORDER BY t.Name", new { only = onlyCustom ? 1 : 0 }).ToList();
+            ORDER BY t.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)).ToList();
     }
 
     // ---- v4: queries / views / data entities / reports / services / workflow ----
@@ -2459,7 +2479,7 @@ public sealed class MetadataRepository
     {
         using var conn = OpenReadOnly();
 
-        var perModel = conn.Query<PerModelStat>(@"
+        var perModel = conn.Query(@"
             SELECT m.Name AS Model, m.IsCustom AS IsCustom,
                    COALESCE(t.Cnt, 0) AS Tables,
                    COALESCE(c.Cnt, 0) AS Classes,
@@ -2469,7 +2489,7 @@ public sealed class MetadataRepository
                    COALESCE(f.Cnt, 0) AS Forms,
                    COALESCE(ox.Cnt, 0) AS Extensions,
                    COALESCE(cx.Cnt, 0) AS Coc,
-                   COALESCE(lb.Cnt, 0) AS Labels
+                   0 AS Labels
             FROM Models m
             LEFT JOIN (SELECT ModelId, COUNT(*) AS Cnt FROM Tables GROUP BY ModelId) t ON t.ModelId = m.ModelId
             LEFT JOIN (SELECT ModelId, COUNT(*) AS Cnt FROM Classes GROUP BY ModelId) c ON c.ModelId = m.ModelId
@@ -2479,33 +2499,40 @@ public sealed class MetadataRepository
             LEFT JOIN (SELECT ModelId, COUNT(*) AS Cnt FROM Forms GROUP BY ModelId) f ON f.ModelId = m.ModelId
             LEFT JOIN (SELECT ModelId, COUNT(*) AS Cnt FROM ObjectExtensions GROUP BY ModelId) ox ON ox.ModelId = m.ModelId
             LEFT JOIN (SELECT ModelId, COUNT(*) AS Cnt FROM CocExtensions GROUP BY ModelId) cx ON cx.ModelId = m.ModelId
-            LEFT JOIN (SELECT ModelId, COUNT(*) AS Cnt FROM Labels GROUP BY ModelId) lb ON lb.ModelId = m.ModelId
-            ORDER BY m.Name").ToList();
+            ORDER BY m.Name")
+            .Select(r => new PerModelStat(
+                (string)r.Model, r.IsCustom == 1L,
+                (long)r.Tables, (long)r.Classes, (long)r.Edts,
+                (long)r.Enums, (long)r.MenuItems, (long)r.Forms,
+                (long)r.Extensions, (long)r.Coc, 0L)).ToList();
 
-        var topTables = conn.Query<TopTableStat>(@"
+        var topTables = conn.Query(@"
             SELECT t.Name AS Name, m.Name AS Model, COUNT(f.FieldId) AS FieldCount
             FROM Tables t
             JOIN Models m ON m.ModelId = t.ModelId
             LEFT JOIN TableFields f ON f.TableId = t.TableId
             GROUP BY t.TableId, t.Name, m.Name
             ORDER BY FieldCount DESC, t.Name
-            LIMIT @topN", new { topN }).ToList();
+            LIMIT @topN", new { topN })
+            .Select(r => new TopTableStat((string)r.Name, (string)r.Model, (long)r.FieldCount)).ToList();
 
-        var topClasses = conn.Query<TopClassStat>(@"
+        var topClasses = conn.Query(@"
             SELECT c.Name AS Name, m.Name AS Model, COUNT(mt.MethodId) AS MethodCount
             FROM Classes c
             JOIN Models m ON m.ModelId = c.ModelId
             LEFT JOIN Methods mt ON mt.ClassId = c.ClassId
             GROUP BY c.ClassId, c.Name, m.Name
             ORDER BY MethodCount DESC, c.Name
-            LIMIT @topN", new { topN }).ToList();
+            LIMIT @topN", new { topN })
+            .Select(r => new TopClassStat((string)r.Name, (string)r.Model, (long)r.MethodCount)).ToList();
 
-        var topCoc = conn.Query<TopCocStat>(@"
+        var topCoc = conn.Query(@"
             SELECT c.TargetClass AS Target, COUNT(*) AS ExtensionCount
             FROM CocExtensions c
             GROUP BY c.TargetClass
             ORDER BY ExtensionCount DESC, c.TargetClass
-            LIMIT @topN", new { topN }).ToList();
+            LIMIT @topN", new { topN })
+            .Select(r => new TopCocStat((string)r.Target, (long)r.ExtensionCount)).ToList();
 
         return new IndexStats(perModel, topTables, topClasses, topCoc);
     }

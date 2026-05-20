@@ -196,6 +196,10 @@ CREATE TABLE IF NOT EXISTS TableMethods (
     HasTodayCall                INTEGER NOT NULL DEFAULT 0,
     HasDoInsertOrUpdate         INTEGER NOT NULL DEFAULT 0,
     IsEmptyOverride             INTEGER NOT NULL DEFAULT 0,
+    HasInsertInLoop             INTEGER NOT NULL DEFAULT 0,
+    HasNestedSelect             INTEGER NOT NULL DEFAULT 0,
+    HasForceLiterals            INTEGER NOT NULL DEFAULT 0,
+    HasTryCatchInTts            INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (TableId) REFERENCES Tables(TableId) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS IX_TableMethods_TableId ON TableMethods(TableId, Name);

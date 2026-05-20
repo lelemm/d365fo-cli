@@ -74,7 +74,7 @@ public static class BusinessEventScaffolder
             : "";
 
         var declaration =
-            "[DataContract]\n" +
+            "[DataContractAttribute]\n" +
             $"public final class {contractName} implements BusinessEventsContract\n" +
             "{\n" +
             memberDecls +

@@ -15,15 +15,15 @@ namespace D365FO.Mcp;
 /// Kept as a hand-written table so the server can publish <c>inputSchema</c>
 /// without reflection — important once this ships as a trimmed/AOT binary.
 /// </summary>
-internal static class ToolCatalog
+public static class ToolCatalog
 {
-    internal readonly record struct Descriptor(
+    public readonly record struct Descriptor(
         string Name,
         string Description,
         JsonObject InputSchema,
         Func<ToolHandlers, JsonElement, object> Invoke);
 
-    internal static IReadOnlyList<Descriptor> All { get; } = new[]
+    public static IReadOnlyList<Descriptor> All { get; } = new[]
     {
         new Descriptor("search_classes",
             "Find X++ classes by substring match on the class name.",
