@@ -1,6 +1,7 @@
 ---
+name: custom-service-authoring
 description: Build or extend a D365FO custom service (JSON/SOAP REST endpoint) using the AxService + AxServiceGroup + SysOperation or plain class pattern. Invoke when the user asks to "create a custom service", "expose an X++ method as a REST endpoint", "build a service class", or "register a service group".
-applyTo: '**/AxService/**,**/AxServiceGroup/**,**/*Service.xml,**/*ServiceGroup.xml'
+applies_when: User intent mentions custom service, service class, service group, JSON endpoint, SOAP endpoint, REST API from X++, [ServiceAttribute], [SysEntryPointAttribute], or AxServiceGroup.
 ---
 > ⛔ **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema is proprietary. **ALWAYS use `d365fo generate …` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
 

@@ -1,6 +1,7 @@
 ---
+name: integration-patterns
 description: Guidance for building or debugging integrations between D365 Finance & Operations and external systems. Invoke when the user asks about OData, custom services, DMF/Data Management Framework, business events, Power Automate connectors, Service Bus, or external system connectivity.
-applyTo: '**/AxDataEntityView/**,**/AxService/**,**/AxServiceGroup/**,**/*Entity.xml,**/*Service.xml'
+applies_when: User intent mentions OData, REST API, custom service, SOAP, DMF, Data Management Framework, business event, Power Automate, Service Bus, Event Grid, Logic Apps, or any integration with an external system.
 ---
 > ⛔ **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema is proprietary. **ALWAYS use `d365fo generate …` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
 
