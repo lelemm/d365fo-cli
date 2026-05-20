@@ -151,11 +151,11 @@ If `d365fo resolve label @SYS12345 --lang cs-CZ` returns `LABEL_NOT_FOUND`:
 
 The CLI auto-migrates the schema on first connection via `EnsureSchema()`. This is safe and additive — it never drops existing data.
 
-| Old schema | CLI version | What happens on first connect |
-|-----------|------------|-------------------------------|
-| v9 / v10 | Phases 1–2 | `ALTER TABLE` adds new columns with `NULL` defaults |
-| v10 | Phase 3+ | New tables (`BusinessEvents`, `SecurityPolicies`, `ConfigurationKeys`, `Tiles`) are created empty |
-| v11 | Phase 4+ | New lint flag columns added; existing rows have `0`/`false` defaults |
+The migration is applied automatically on first connection and is always additive:
+
+- New columns are added via `ALTER TABLE … ADD COLUMN` with safe defaults (`NULL` or `0`).
+- New tables (e.g. `BusinessEvents`, `SecurityPolicies`, `ConfigurationKeys`, `Tiles`) are created empty.
+- Lint flag columns (`HasInsertInLoop`, `HasNestedSelect`, etc.) default to `0` in existing rows.
 
 After migration, newly added columns are empty until you re-extract:
 

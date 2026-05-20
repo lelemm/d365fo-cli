@@ -247,7 +247,7 @@ See [`docs/EXAMPLES.md`](docs/EXAMPLES.md) for one worked example per command.
 |---|---|
 | [docs/SETUP.md](docs/SETUP.md) | Install, configure, verify — dev alias vs. self-contained distribution |
 | [docs/EXAMPLES.md](docs/EXAMPLES.md) | One worked example per command (discover, scaffold, review, ops, agents, daemon, CI) |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Index schema (v12), AOT type coverage table, lint rules, bridge, daemon file watcher |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Index schema, AOT type coverage table (22 types), 16 lint rules, bridge, daemon file watcher |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common failures, SQLite locking, bridge issues, label detection, schema migration |
 | [docs/TOKEN_ECONOMICS.md](docs/TOKEN_ECONOMICS.md) | Why CLI+Skills is cheaper per turn, with numbers |
 | [docs/MIGRATION_FROM_MCP.md](docs/MIGRATION_FROM_MCP.md) | Coming from `d365fo-mcp-server`? Read this first |

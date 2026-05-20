@@ -41,43 +41,34 @@ JSON on non-TTY stdout, rich tables on a terminal. Override with `--output json|
 
 ## Local index (SQLite)
 
-Single file at `$D365FO_INDEX_DB` (default `%LOCALAPPDATA%\d365fo-cli\d365fo-index.sqlite`). Schema defined in [`src/D365FO.Core/Index/Schema.sql`](../src/D365FO.Core/Index/Schema.sql), version tracked via `PRAGMA user_version`; auto-migrated on first connection.
-
-### Schema version history
-
-| Version | Introduced | Key additions |
-|---------|-----------|---------------|
-| v9 | Initial release | Tables, Classes, EDTs, Enums, Forms, Queries, Views, DataEntities, Labels, Security, CoC, EventHandlers, ModelDependencies |
-| v10 | Phase 1 | Export/import support, index history, parallel extraction metadata |
-| v11 | Phase 3 | BusinessEvents, SecurityPolicies, ConfigurationKeys, Tiles, new table/EDT property columns, extraction-time lint flags |
-| v12 | Phase 4 | Additional lint flag columns (HasInsertInLoop, HasNestedSelect, HasForceLiterals, HasForUpdateWithoutUpdate, HasTryCatchInTts, HasEmptyLoop, IsEmptyOverride, IsRunBaseBatch, HasCanGoBatch, HasPublicInstanceFields) |
+Single file at `$D365FO_INDEX_DB` (default `%LOCALAPPDATA%\d365fo-cli\d365fo-index.sqlite`). Schema defined in [`src/D365FO.Core/Index/Schema.sql`](../src/D365FO.Core/Index/Schema.sql), auto-migrated on first connection.
 
 ### AOT object type coverage
 
-| AOT Type | Directory | Indexed since | Notes |
-|----------|-----------|--------------|-------|
-| Table | `AxTable` | v9 | Fields, indexes, relations, delete actions |
-| Class | `AxClass` | v9 | Methods, CoC extensions, event handlers |
-| EDT | `AxEdt` | v9 | BaseType, extends, ReferenceTable, FormHelp (v11) |
-| Enum | `AxEnum` | v9 | Values, IsExtensible |
-| Form | `AxForm` | v9 | Pattern, datasources, controls, extensions |
-| MenuItem | `AxMenuItemDisplay`, `AxMenuItemAction`, `AxMenuItemOutput` | v9 | Kind, object reference |
-| Query | `AxQuery` | v9 | Root datasource, joins |
-| View | `AxView` | v9 | Datasources, fields |
-| DataEntity | `AxDataEntityView` | v9 | PublicEntityName, OData surface |
-| Report | `AxReport` | v9 | Datasets, design |
-| Service | `AxService` | v9 | Operations |
-| ServiceGroup | `AxServiceGroup` | v9 | Service references |
-| WorkflowType | `AxWorkflow` | v9 | Document class, elements |
-| Map | `AxMap` | v9 | Fields, `search any` union (v11 fix) |
-| SecurityRole | `AxSecurityRole` | v9 | Duties, privileges |
-| SecurityDuty | `AxSecurityDuty` | v9 | Privileges |
-| SecurityPrivilege | `AxSecurityPrivilege` | v9 | Entry points |
-| SecurityPolicy | `AxSecurityPolicy` | v11 | ConstrainedTable, PolicyQuery, OperationType, ContextType |
-| ConfigurationKey | `AxConfigurationKey` | v11 | ParentKey, LicenseCode, IsEnabled |
-| BusinessEvent | detected in `AxClass` | v11 | Category, ContractClass, `[BusinessEvents(...)]` attribute |
-| Tile | `AxTile` | v11 | MenuItemName, TileType |
-| Workspace | `AxWorkspace` | v11 | Layout descriptor (not AxForm) |
+| AOT Type | Directory | Notes |
+|----------|-----------|-------|
+| Table | `AxTable` | Fields, indexes, relations, delete actions, CacheLookup, OCC, ValidTimeState |
+| Class | `AxClass` | Methods, CoC extensions, event handlers, lint flags |
+| EDT | `AxEdt` | BaseType, extends, ReferenceTable, FormHelp, AnalysisUsage |
+| Enum | `AxEnum` | Values, IsExtensible |
+| Form | `AxForm` | Pattern, datasources, controls, extensions, Style, TitleDataSource |
+| MenuItem | `AxMenuItemDisplay`, `AxMenuItemAction`, `AxMenuItemOutput` | Kind, object reference |
+| Query | `AxQuery` | Root datasource, joins |
+| View | `AxView` | Datasources, fields |
+| DataEntity | `AxDataEntityView` | PublicEntityName, OData surface |
+| Report | `AxReport` | Datasets, design |
+| Service | `AxService` | Operations |
+| ServiceGroup | `AxServiceGroup` | Service references |
+| WorkflowType | `AxWorkflow` | Document class, elements |
+| Map | `AxMap` | Fields, mapped tables |
+| SecurityRole | `AxSecurityRole` | Duties, privileges |
+| SecurityDuty | `AxSecurityDuty` | Privileges |
+| SecurityPrivilege | `AxSecurityPrivilege` | Entry points |
+| SecurityPolicy | `AxSecurityPolicy` | ConstrainedTable, PolicyQuery, OperationType, ContextType |
+| ConfigurationKey | `AxConfigurationKey` | ParentKey, LicenseCode, IsEnabled |
+| BusinessEvent | detected in `AxClass` | Category, ContractClass, `[BusinessEvents(...)]` attribute |
+| Tile | `AxTile` | MenuItemName, TileType |
+| Workspace | `AxWorkspace` | Layout descriptor (not AxForm) |
 
 **Extraction:** walks `<root>/<Package>/<Model>/`, parallelises per-file XML parsing inside each model. `*FormAdaptor` packages skipped. Idempotent per model — re-extract replaces that model's rows only.
 
@@ -114,11 +105,9 @@ Commands:
 
 ---
 
-## Lint rule categories (v12 — 16 rules)
+## Lint rule categories (16 rules)
 
 `d365fo lint` runs in-process heuristics against the SQLite index. Rules are evaluated without touching the VM.
-
-### Original rules (v9)
 
 | Category | What it finds | Severity |
 |----------|--------------|---------|
@@ -128,11 +117,6 @@ Commands:
 | `today-usage` | `today()` calls (`BPUpgradeCodeToday`) | warning |
 | `do-insert-update` | `doInsert()` / `doUpdate()` / `doDelete()` calls in non-migration code | warning |
 | `doc-comment-missing` | Public/protected methods without `/// <summary>` | warning |
-
-### New rules added in v12 (Phase 4)
-
-| Category | What it finds | Severity |
-|----------|--------------|---------|
 | `nested-select` | `while select` nested inside another loop (`BPCheckNestedLoopInCode`) | warning |
 | `insert-in-loop` | `.insert()` call inside a loop body — suggest `RecordInsertList` (`BPCheckInsertMethodInLoop`) | warning |
 | `tts-try-catch` | `try` block inside `ttsbegin`/`ttscommit` without catching `UpdateConflict` (`BPCheckNoTTSTryBlock`) | warning |
@@ -168,7 +152,6 @@ Provides: authoritative per-object reads (`get` commands), file create/update/de
 Adding a new tool: one entry in `ToolCatalog` + one method on `ToolHandlers`. The CLI picks it up once a command wraps the same `MetadataRepository` call.
 
 **Daemon mode** (`d365fo daemon start`) keeps the SQLite handle and read caches hot. Also starts a `FileSystemWatcher` that auto-triggers incremental `index refresh` when `*.xml` files change (debounce 3 s; disable with `--no-watch`).
-
 
 ---
 

@@ -69,7 +69,7 @@ d365fo models coupling --only-cycles
 
 `models list` enumerates every model with publisher, layer, and custom-flag. `models coupling` runs Tarjan SCC over `ModelDependencies` to surface dependency cycles and ranks every model by fan-in / fan-out / instability (`I = Ce / (Ca + Ce)`, where 0 = most stable, 1 = most volatile).
 
-### Phase 3 — new search and get targets
+### Business events, policies, keys, tiles
 
 ```sh
 # Business events
@@ -129,16 +129,19 @@ d365fo lint --category today-usage,do-insert-update,doc-comment-missing
 d365fo lint --format sarif > lint.sarif
 ```
 
-Six categories shipped:
+16 rule categories (see [ARCHITECTURE.md](ARCHITECTURE.md) for the full list):
 
 | Category | What it finds |
 |---|---|
 | `table-no-index` | Tables without cluster/alternate index |
-| `ext-named-not-attributed` | `*_Extension` classes missing `[ExtensionOf]` |
 | `string-without-edt` | String fields without an EDT |
-| `today-usage` | `today()` calls (BP `BPUpgradeCodeToday`) |
-| `do-insert-update` | `doInsert()` / `doUpdate()` / `doDelete()` calls |
-| `doc-comment-missing` | Methods without `/// <summary>` |
+| `insert-in-loop` | `.insert()` inside a loop — suggest `RecordInsertList` |
+| `nested-select` | Nested `while select` loops |
+| `force-literals` | `forceLiterals` in a select — SQL injection risk |
+| `tts-try-catch` | `try` inside `ttsbegin`/`ttscommit` |
+| `runbase-no-can-go-batch` | `RunBaseBatch` subclass without `canGoBatch()` |
+| `doc-comment-missing` | Public/protected methods without `/// <summary>` |
+| … | (and 8 more — see ARCHITECTURE.md) |
 
 Defaults to custom models only; `--all-models` includes ISV/MS content. `--format sarif` emits SARIF 2.1.0 for CI (GitHub code-scanning, Azure DevOps).
 
