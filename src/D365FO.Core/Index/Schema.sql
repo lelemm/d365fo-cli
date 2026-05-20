@@ -54,27 +54,36 @@ CREATE TABLE IF NOT EXISTS TableFields (
 CREATE INDEX IF NOT EXISTS IX_TableFields_TableId ON TableFields(TableId);
 
 CREATE TABLE IF NOT EXISTS Classes (
-    ClassId     INTEGER PRIMARY KEY AUTOINCREMENT,
-    Name        TEXT NOT NULL,
-    ModelId     INTEGER NOT NULL,
-    ExtendsName TEXT,
-    IsAbstract  INTEGER NOT NULL DEFAULT 0,
-    IsFinal     INTEGER NOT NULL DEFAULT 0,
-    SourcePath  TEXT,
+    ClassId                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    Name                    TEXT NOT NULL,
+    ModelId                 INTEGER NOT NULL,
+    ExtendsName             TEXT,
+    IsAbstract              INTEGER NOT NULL DEFAULT 0,
+    IsFinal                 INTEGER NOT NULL DEFAULT 0,
+    SourcePath              TEXT,
+    IsRunBaseBatch          INTEGER NOT NULL DEFAULT 0,
+    HasCanGoBatch           INTEGER NOT NULL DEFAULT 0,
+    HasPublicInstanceFields INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (ModelId) REFERENCES Models(ModelId)
 );
 CREATE INDEX IF NOT EXISTS IX_Classes_Name ON Classes(Name);
 
 CREATE TABLE IF NOT EXISTS Methods (
-    MethodId        INTEGER PRIMARY KEY AUTOINCREMENT,
-    ClassId         INTEGER NOT NULL,
-    Name            TEXT NOT NULL,
-    Signature       TEXT,
-    IsStatic        INTEGER NOT NULL DEFAULT 0,
-    ReturnType      TEXT,
-    HasDocComment   INTEGER NOT NULL DEFAULT 0,
-    HasTodayCall    INTEGER NOT NULL DEFAULT 0,
-    HasDoInsertOrUpdate INTEGER NOT NULL DEFAULT 0,
+    MethodId                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    ClassId                     INTEGER NOT NULL,
+    Name                        TEXT NOT NULL,
+    Signature                   TEXT,
+    IsStatic                    INTEGER NOT NULL DEFAULT 0,
+    ReturnType                  TEXT,
+    HasDocComment               INTEGER NOT NULL DEFAULT 0,
+    HasTodayCall                INTEGER NOT NULL DEFAULT 0,
+    HasDoInsertOrUpdate         INTEGER NOT NULL DEFAULT 0,
+    HasInsertInLoop             INTEGER NOT NULL DEFAULT 0,
+    HasNestedSelect             INTEGER NOT NULL DEFAULT 0,
+    HasForceLiterals            INTEGER NOT NULL DEFAULT 0,
+    HasForUpdateWithoutUpdate   INTEGER NOT NULL DEFAULT 0,
+    HasTryCatchInTts            INTEGER NOT NULL DEFAULT 0,
+    HasEmptyLoop                INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (ClassId) REFERENCES Classes(ClassId) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS IX_Methods_ClassId_Name ON Methods(ClassId, Name);
@@ -177,15 +186,16 @@ CREATE INDEX IF NOT EXISTS IX_Sec_Object ON SecurityMap(ObjectName, ObjectType);
 -- v3 additions -----------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS TableMethods (
-    Id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    TableId         INTEGER NOT NULL,
-    Name            TEXT NOT NULL,
-    Signature       TEXT,
-    IsStatic        INTEGER NOT NULL DEFAULT 0,
-    ReturnType      TEXT,
-    HasDocComment   INTEGER NOT NULL DEFAULT 0,
-    HasTodayCall    INTEGER NOT NULL DEFAULT 0,
-    HasDoInsertOrUpdate INTEGER NOT NULL DEFAULT 0,
+    Id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+    TableId                     INTEGER NOT NULL,
+    Name                        TEXT NOT NULL,
+    Signature                   TEXT,
+    IsStatic                    INTEGER NOT NULL DEFAULT 0,
+    ReturnType                  TEXT,
+    HasDocComment               INTEGER NOT NULL DEFAULT 0,
+    HasTodayCall                INTEGER NOT NULL DEFAULT 0,
+    HasDoInsertOrUpdate         INTEGER NOT NULL DEFAULT 0,
+    IsEmptyOverride             INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (TableId) REFERENCES Tables(TableId) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS IX_TableMethods_TableId ON TableMethods(TableId, Name);
