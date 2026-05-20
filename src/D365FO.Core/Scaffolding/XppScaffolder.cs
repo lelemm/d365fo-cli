@@ -614,6 +614,70 @@ public static class XppScaffolder
                     new XElement("Methods", parmMethods))));
     }
 
+    /// <summary>
+    /// Scaffolds an <c>AxEdt</c>. When neither <paramref name="extends"/> nor
+    /// <paramref name="baseType"/> is supplied the EDT is created without an extends
+    /// clause, which is valid for root EDTs. When <paramref name="baseType"/> is
+    /// supplied without <paramref name="extends"/>, a sensible standard parent is
+    /// inferred (e.g. <c>String → Name</c>, <c>Int → Integer</c>).
+    /// </summary>
+    public static XDocument Edt(
+        string name,
+        string? extends = null,
+        string? baseType = null,
+        int? stringSize = null,
+        string? label = null)
+    {
+        var effectiveExtends = extends;
+        if (string.IsNullOrEmpty(effectiveExtends) && !string.IsNullOrEmpty(baseType))
+        {
+            effectiveExtends = baseType.ToLowerInvariant() switch
+            {
+                "int" or "integer"          => "Integer",
+                "int64"                     => "Int64",
+                "real"                      => "Amount",
+                "date"                      => "Date",
+                "utcdatetime" or "datetime" => "TransDate",
+                "boolean" or "bool"         => "NoYesId",
+                _                           => "Name",
+            };
+        }
+
+        return new XDocument(
+            new XElement("AxEdt",
+                new XElement("Name", name),
+                string.IsNullOrEmpty(effectiveExtends) ? null : new XElement("Extends", effectiveExtends),
+                stringSize.HasValue ? new XElement("StringSize", stringSize.Value.ToString()) : null,
+                string.IsNullOrEmpty(label) ? null : new XElement("Label", label)));
+    }
+
+    /// <summary>Scaffolds an <c>AxEnum</c> with optional values.</summary>
+    public static XDocument Enum(
+        string name,
+        IEnumerable<EnumValueSpec>? values = null,
+        bool isExtensible = true,
+        string? label = null)
+    {
+        var enumVals = (values ?? Enumerable.Empty<EnumValueSpec>()).ToList();
+
+        var valEls = enumVals.Select(v =>
+        {
+            var el = new XElement("AxEnumValue",
+                new XElement("Name", v.Name),
+                new XElement("Value", v.IntValue.ToString()));
+            if (!string.IsNullOrEmpty(v.Label))
+                el.Add(new XElement("Label", v.Label));
+            return el;
+        });
+
+        return new XDocument(
+            new XElement("AxEnum",
+                new XElement("Name", name),
+                string.IsNullOrEmpty(label) ? null : new XElement("Label", label),
+                new XElement("IsExtensible", isExtensible ? "Yes" : "No"),
+                enumVals.Count > 0 ? new XElement("EnumValues", valEls) : null));
+    }
+
     private static bool AppendRefs(XElement root, string containerName, string itemName, IEnumerable<string>? values)
     {
         var items = (values ?? Enumerable.Empty<string>())
@@ -695,6 +759,9 @@ public sealed record ReportSpec(
 }
 
 public sealed record TableFieldSpec(string Name, string? Edt, string? Label, bool Mandatory);
+
+/// <summary>One value within an <c>AxEnum</c>.</summary>
+public sealed record EnumValueSpec(string Name, int IntValue, string? Label = null);
 
 /// <summary>
 /// Writes a scaffolded XML document atomically: a .tmp sibling is written and

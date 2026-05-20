@@ -45,67 +45,73 @@ Add `d365fo index export --out index.tar.gz` and `d365fo index import --from ind
 
 ---
 
-## Phase 2: Missing Scaffolding Commands
+## Phase 2: Missing Scaffolding Commands ✅
 
 The `generate` branch covers 12 artifact types. Key D365FO patterns are missing.
 
-### 2.1 `generate sysoperation`
+### 2.1 `generate sysoperation` ✅
 
 Scaffold the DataContract + Service + Controller triplet (the standard pattern for batch jobs).
 
-**Options:** `--contract-name`, `--service-name`, `--controller-name`, `--param <name>:<type>`, `--execution-mode Batch|Sync`.
+**Options:** `--contract-name`, `--service-name`, `--controller-name`, `--param <name>:<type>`, `--execution-mode Batch|Sync|Async`, `--service-method`, `--out-contract`, `--out-service`.
 
 - New: `src/D365FO.Core/Scaffolding/SysOperationScaffolder.cs`
 - New: `src/D365FO.Cli/Commands/Generate/GenerateSysOperationCommand.cs`
 - Reference: `skills/_source/x++-class-authoring.md` (SysOperation section)
 
-### 2.2 `generate number-sequence`
+### 2.2 `generate number-sequence` ✅
 
 Scaffold NumberSeqApplicationModule CoC extension + EDT + form handler wiring.
 
-**Options:** `--module-name`, `--edt <name>`, `--scope Company|Shared`.
+**Options:** `--edt <name>`, `--edt-label`, `--scope Company|Shared`, `--table`, `--out-edt`, `--out-handler`.
 
 - New: `src/D365FO.Core/Scaffolding/NumberSequenceScaffolder.cs`
+- New: `src/D365FO.Cli/Commands/Generate/GenerateNumberSequenceCommand.cs`
 
-### 2.3 `generate workflow`
+### 2.3 `generate workflow` ✅
 
 Scaffold WorkflowDocument subclass + WorkflowType XML + `canSubmitToWorkflow()` table method stub.
 
-**Options:** `--table`, `--approval-name`, `--task-name`.
+**Options:** `--table`, `--approval-name`, `--task-name`, `--document-class`, `--query`, `--out-document`, `--out-submit`, `--no-submit-stub`.
 
 - New: `src/D365FO.Core/Scaffolding/WorkflowScaffolder.cs`
+- New: `src/D365FO.Cli/Commands/Generate/GenerateWorkflowCommand.cs`
 
-### 2.4 `generate menu-item`
+### 2.4 `generate menu-item` ✅
 
 Scaffold AxMenuItemDisplay/Action/Output.
 
-**Options:** `--kind Display|Action|Output`, `--object <name>`, `--object-type Form|Class|Report`, `--label`.
+**Options:** `--kind Display|Action|Output`, `--object <name>`, `--object-type Form|Class|Report|Query`, `--label`.
 
 - New: `src/D365FO.Core/Scaffolding/MenuItemScaffolder.cs`
+- New: `src/D365FO.Cli/Commands/Generate/GenerateMenuItemCommand.cs`
 
-### 2.5 `generate edt`
+### 2.5 `generate edt` ✅
 
 Scaffold AxEdt with proper `extends`, `stringSize`, `label`.
 
 **Options:** `--extends <base>`, `--base-type String|Int|Real|Date|...`, `--size N`, `--label`.
 
-- Extend: `src/D365FO.Core/Scaffolding/XppScaffolder.cs`
+- Extended: `src/D365FO.Core/Scaffolding/XppScaffolder.cs` (new `Edt()` method + `EnumValueSpec` record)
+- New: `src/D365FO.Cli/Commands/Generate/GenerateEdtCommand.cs`
 
-### 2.6 `generate enum`
+### 2.6 `generate enum` ✅
 
 Scaffold AxEnum with values.
 
-**Options:** `--value <name>:<intValue>[:label]`, `--is-extensible Yes|No`.
+**Options:** `--value <name>:<intValue>[:<label>]`, `--non-extensible`, `--label`.
 
-- Extend: `src/D365FO.Core/Scaffolding/XppScaffolder.cs`
+- Extended: `src/D365FO.Core/Scaffolding/XppScaffolder.cs` (new `Enum()` method)
+- New: `src/D365FO.Cli/Commands/Generate/GenerateEnumCommand.cs`
 
-### 2.7 `generate query`
+### 2.7 `generate query` ✅
 
 Scaffold AxQuery with datasources and joins.
 
 **Options:** `--ds <table>`, `--join <table>:<joinKind>:<parentDs>`.
 
 - New: `src/D365FO.Core/Scaffolding/QueryScaffolder.cs`
+- New: `src/D365FO.Cli/Commands/Generate/GenerateQueryCommand.cs`
 
 ---
 
