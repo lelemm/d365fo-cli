@@ -380,12 +380,12 @@ Guide for building JSON/SOAP custom services:
 
 ---
 
-## Phase 6: Scaffolding Wave 2 🔲
+## Phase 6: Scaffolding Wave 2 ✅
 
 Second round of scaffold commands covering integration objects, legacy patterns,
 and operational scenarios.
 
-### 6.1 `generate business-event` 🔲
+### 6.1 `generate business-event` ✅
 
 Scaffold a custom business event class extending `BusinessEventsBase` plus its
 companion `BusinessEventsContract`.
@@ -397,7 +397,7 @@ companion `BusinessEventsContract`.
 - `src/D365FO.Core/Scaffolding/BusinessEventScaffolder.cs` (new)
 - `src/D365FO.Cli/Commands/Generate/GenerateBusinessEventCommand.cs` (new)
 
-### 6.2 `generate custom-service` 🔲
+### 6.2 `generate custom-service` ✅
 
 Scaffold an `AxService`, its service class, the companion data contract, and an
 `AxServiceGroup` XML.
@@ -409,7 +409,7 @@ Scaffold an `AxService`, its service class, the companion data contract, and an
 - `src/D365FO.Core/Scaffolding/CustomServiceScaffolder.cs` (new)
 - `src/D365FO.Cli/Commands/Generate/GenerateCustomServiceCommand.cs` (new)
 
-### 6.3 `generate migration-script` 🔲
+### 6.3 `generate migration-script` ✅
 
 Scaffold a data-migration `Runnable` class with the proper `doInsert`/`doUpdate`
 pattern (the one documented exception where `do*` methods ARE appropriate), correct
@@ -422,7 +422,7 @@ transaction batching with a configurable batch size, and a progress log.
 - `src/D365FO.Core/Scaffolding/MigrationScriptScaffolder.cs` (new)
 - `src/D365FO.Cli/Commands/Generate/GenerateMigrationScriptCommand.cs` (new)
 
-### 6.4 `generate runbase` 🔲
+### 6.4 `generate runbase` ✅
 
 Scaffold a legacy `RunBase`/`RunBaseBatch` class for teams maintaining older
 codebases that cannot yet migrate to SysOperation. Includes `pack()`/`unpack()`,
@@ -435,7 +435,7 @@ codebases that cannot yet migrate to SysOperation. Includes `pack()`/`unpack()`,
 - `src/D365FO.Core/Scaffolding/RunBaseScaffolder.cs` (new)
 - `src/D365FO.Cli/Commands/Generate/GenerateRunBaseCommand.cs` (new)
 
-### 6.5 `generate security-policy` 🔲
+### 6.5 `generate security-policy` ✅
 
 Scaffold an `AxSecurityPolicy` (XDS policy) with a policy query and constrained table.
 
