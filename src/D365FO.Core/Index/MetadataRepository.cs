@@ -14,7 +14,7 @@ namespace D365FO.Core.Index;
 public sealed class MetadataRepository
 {
     /// <summary>Current schema version tracked in PRAGMA user_version.</summary>
-    public const int CurrentSchemaVersion = 10;
+    public const int CurrentSchemaVersion = 11;
 
     private static readonly Lazy<string> SchemaSql = new(LoadEmbeddedSchema);
 
@@ -178,6 +178,35 @@ public sealed class MetadataRepository
             }
         }
 
+        if (current < 11)
+        {
+            // v11: Table property gap-fill — new columns on pre-existing Tables/Edts.
+            var tableCols = conn.Query<string>("SELECT name FROM pragma_table_info('Tables')", transaction: tx)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (tableCols.Count > 0)
+            {
+                if (!tableCols.Contains("SaveDataPerCompany"))      conn.Execute("ALTER TABLE Tables ADD COLUMN SaveDataPerCompany TEXT", transaction: tx);
+                if (!tableCols.Contains("CacheLookup"))             conn.Execute("ALTER TABLE Tables ADD COLUMN CacheLookup TEXT", transaction: tx);
+                if (!tableCols.Contains("OccEnabled"))              conn.Execute("ALTER TABLE Tables ADD COLUMN OccEnabled INTEGER NOT NULL DEFAULT 0", transaction: tx);
+                if (!tableCols.Contains("ValidTimeStateFieldType")) conn.Execute("ALTER TABLE Tables ADD COLUMN ValidTimeStateFieldType TEXT", transaction: tx);
+                if (!tableCols.Contains("TableExtends"))            conn.Execute("ALTER TABLE Tables ADD COLUMN TableExtends TEXT", transaction: tx);
+                if (!tableCols.Contains("AOSAuthorization"))        conn.Execute("ALTER TABLE Tables ADD COLUMN AOSAuthorization TEXT", transaction: tx);
+                if (!tableCols.Contains("FormRef"))                 conn.Execute("ALTER TABLE Tables ADD COLUMN FormRef TEXT", transaction: tx);
+                if (!tableCols.Contains("ListPageRef"))             conn.Execute("ALTER TABLE Tables ADD COLUMN ListPageRef TEXT", transaction: tx);
+                if (!tableCols.Contains("SystemTable"))             conn.Execute("ALTER TABLE Tables ADD COLUMN SystemTable INTEGER NOT NULL DEFAULT 0", transaction: tx);
+            }
+
+            var edtCols = conn.Query<string>("SELECT name FROM pragma_table_info('Edts')", transaction: tx)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (edtCols.Count > 0)
+            {
+                if (!edtCols.Contains("ReferenceTable")) conn.Execute("ALTER TABLE Edts ADD COLUMN ReferenceTable TEXT", transaction: tx);
+                if (!edtCols.Contains("FormHelp"))       conn.Execute("ALTER TABLE Edts ADD COLUMN FormHelp TEXT", transaction: tx);
+                if (!edtCols.Contains("AnalysisUsage"))  conn.Execute("ALTER TABLE Edts ADD COLUMN AnalysisUsage TEXT", transaction: tx);
+                if (!edtCols.Contains("EnumType"))       conn.Execute("ALTER TABLE Edts ADD COLUMN EnumType TEXT", transaction: tx);
+            }
+        }
+
         conn.Execute($"PRAGMA user_version = {CurrentSchemaVersion}", transaction: tx);
         conn.Execute(
             "INSERT OR IGNORE INTO SchemaVersion(Version, AppliedUtc) VALUES(@v, @t)",
@@ -250,7 +279,9 @@ public sealed class MetadataRepository
     {
         using var conn = OpenReadOnly();
         var table = conn.QueryFirstOrDefault<TableInfo>(@"
-            SELECT t.TableId, t.Name, m.Name AS Model, t.Label, t.SourcePath
+            SELECT t.TableId, t.Name, m.Name AS Model, t.Label, t.SourcePath,
+                   t.SaveDataPerCompany, t.CacheLookup, t.OccEnabled, t.ValidTimeStateFieldType,
+                   t.TableExtends, t.AOSAuthorization, t.FormRef, t.ListPageRef, t.SystemTable
             FROM Tables t JOIN Models m ON m.ModelId = t.ModelId
             WHERE t.Name = @name LIMIT 1", new { name });
         if (table is null) return null;
@@ -288,7 +319,8 @@ public sealed class MetadataRepository
         using var conn = OpenReadOnly();
         return conn.QueryFirstOrDefault<EdtInfo>(@"
             SELECT e.Name, m.Name AS Model, e.ExtendsName AS Extends,
-                   e.BaseType, e.Label, e.StringSize
+                   e.BaseType, e.Label, e.StringSize,
+                   e.ReferenceTable, e.FormHelp, e.AnalysisUsage, e.EnumType
             FROM Edts e JOIN Models m ON m.ModelId = e.ModelId
             WHERE e.Name = @name LIMIT 1", new { name });
     }
@@ -914,6 +946,89 @@ public sealed class MetadataRepository
         return new MapDetails(map, fields, tables);
     }
 
+    // ---- v11 query methods ----
+
+    public IReadOnlyList<BusinessEventInfo> SearchBusinessEvents(string query, string? category = null, int limit = 50)
+    {
+        using var conn = OpenReadOnly();
+        var like = $"%{query}%";
+        return conn.Query<BusinessEventInfo>(@"
+            SELECT be.Id, be.Name, be.Category, be.ContractClass, m.Name AS Model, be.SourcePath
+            FROM BusinessEvents be JOIN Models m ON m.ModelId = be.ModelId
+            WHERE (be.Name LIKE @like OR be.ContractClass LIKE @like)
+              AND (@category IS NULL OR be.Category LIKE @catLike)
+            ORDER BY be.Name LIMIT @limit",
+            new { like, category, catLike = category is not null ? $"%{category}%" : null, limit }).ToList();
+    }
+
+    public BusinessEventInfo? GetBusinessEvent(string name)
+    {
+        using var conn = OpenReadOnly();
+        return conn.QueryFirstOrDefault<BusinessEventInfo>(@"
+            SELECT be.Id, be.Name, be.Category, be.ContractClass, m.Name AS Model, be.SourcePath
+            FROM BusinessEvents be JOIN Models m ON m.ModelId = be.ModelId
+            WHERE be.Name = @name LIMIT 1", new { name });
+    }
+
+    public IReadOnlyList<SecurityPolicyInfo> SearchSecurityPolicies(string query, int limit = 50)
+    {
+        using var conn = OpenReadOnly();
+        var like = $"%{query}%";
+        return conn.Query<SecurityPolicyInfo>(@"
+            SELECT sp.Id, sp.Name, sp.ConstrainedTable, sp.PolicyQuery, sp.OperationType, sp.ContextType,
+                   sp.IsEnabled, sp.IsMandatory, m.Name AS Model, sp.SourcePath
+            FROM SecurityPolicies sp JOIN Models m ON m.ModelId = sp.ModelId
+            WHERE sp.Name LIKE @like OR sp.ConstrainedTable LIKE @like
+            ORDER BY sp.Name LIMIT @limit",
+            new { like, limit }).ToList();
+    }
+
+    public SecurityPolicyInfo? GetSecurityPolicy(string name)
+    {
+        using var conn = OpenReadOnly();
+        return conn.QueryFirstOrDefault<SecurityPolicyInfo>(@"
+            SELECT sp.Id, sp.Name, sp.ConstrainedTable, sp.PolicyQuery, sp.OperationType, sp.ContextType,
+                   sp.IsEnabled, sp.IsMandatory, m.Name AS Model, sp.SourcePath
+            FROM SecurityPolicies sp JOIN Models m ON m.ModelId = sp.ModelId
+            WHERE sp.Name = @name LIMIT 1", new { name });
+    }
+
+    public IReadOnlyList<ConfigurationKeyInfo> SearchConfigurationKeys(string query, int limit = 50)
+    {
+        using var conn = OpenReadOnly();
+        var like = $"%{query}%";
+        return conn.Query<ConfigurationKeyInfo>(@"
+            SELECT ck.Id, ck.Name, ck.Label, ck.IsEnabled, ck.ParentKey, ck.LicenseCode, m.Name AS Model
+            FROM ConfigurationKeys ck JOIN Models m ON m.ModelId = ck.ModelId
+            WHERE ck.Name LIKE @like
+            ORDER BY ck.Name LIMIT @limit",
+            new { like, limit }).ToList();
+    }
+
+    public IReadOnlyList<TileInfo> SearchTiles(string query, int limit = 50)
+    {
+        using var conn = OpenReadOnly();
+        var like = $"%{query}%";
+        return conn.Query<TileInfo>(@"
+            SELECT t.Id, t.Name, t.MenuItemName, t.MenuItemType, t.Label, t.TileType, m.Name AS Model, t.SourcePath
+            FROM Tiles t JOIN Models m ON m.ModelId = t.ModelId
+            WHERE t.Name LIKE @like OR t.MenuItemName LIKE @like
+            ORDER BY t.Name LIMIT @limit",
+            new { like, limit }).ToList();
+    }
+
+    public IReadOnlyList<WorkspaceInfo> SearchWorkspaces(string query, int limit = 50)
+    {
+        using var conn = OpenReadOnly();
+        var like = $"%{query}%";
+        return conn.Query<WorkspaceInfo>(@"
+            SELECT ws.Id, ws.Name, ws.Label, m.Name AS Model, ws.SourcePath
+            FROM Workspaces ws JOIN Models m ON m.ModelId = ws.ModelId
+            WHERE ws.Name LIKE @like
+            ORDER BY ws.Name LIMIT @limit",
+            new { like, limit }).ToList();
+    }
+
     public IReadOnlyList<ModelInfo> ListModels()
     {
         using var conn = OpenReadOnly();
@@ -979,7 +1094,9 @@ public sealed class MetadataRepository
         using var conn = OpenReadOnly();
         var like = $"%{query}%";
         return conn.Query<TableInfo>(@"
-            SELECT t.TableId, t.Name, m.Name AS Model, t.Label, t.SourcePath
+            SELECT t.TableId, t.Name, m.Name AS Model, t.Label, t.SourcePath,
+                   t.SaveDataPerCompany, t.CacheLookup, t.OccEnabled, t.ValidTimeStateFieldType,
+                   t.TableExtends, t.AOSAuthorization, t.FormRef, t.ListPageRef, t.SystemTable
             FROM Tables t JOIN Models m ON m.ModelId = t.ModelId
             WHERE t.Name LIKE @like
               AND (@model IS NULL OR m.Name = @model)
@@ -993,7 +1110,8 @@ public sealed class MetadataRepository
         var like = $"%{query}%";
         return conn.Query<EdtInfo>(@"
             SELECT e.Name, m.Name AS Model, e.ExtendsName AS Extends,
-                   e.BaseType, e.Label, e.StringSize
+                   e.BaseType, e.Label, e.StringSize,
+                   e.ReferenceTable, e.FormHelp, e.AnalysisUsage, e.EnumType
             FROM Edts e JOIN Models m ON m.ModelId = e.ModelId
             WHERE e.Name LIKE @like
             ORDER BY e.Name
@@ -1143,6 +1261,8 @@ public sealed class MetadataRepository
             SELECT 'Service', s.Name, m.Name FROM Services s JOIN Models m ON m.ModelId=s.ModelId WHERE s.Name LIKE @like
             UNION ALL
             SELECT 'Workflow', w.Name, m.Name FROM WorkflowTypes w JOIN Models m ON m.ModelId=w.ModelId WHERE w.Name LIKE @like
+            UNION ALL
+            SELECT 'Map', mp.Name, m.Name FROM Maps mp JOIN Models m ON m.ModelId=mp.ModelId WHERE mp.Name LIKE @like
             ORDER BY Name
             LIMIT @limit", new { like, limit });
         return rows.Select(r => (r.Kind, r.Name, r.Model)).ToList();
@@ -1349,6 +1469,11 @@ public sealed class MetadataRepository
         conn.Execute("DELETE FROM MapFields WHERE MapId IN (SELECT MapId FROM Maps WHERE ModelId=@m)", new { m = modelId }, tx);
         conn.Execute("DELETE FROM MapTables WHERE MapId IN (SELECT MapId FROM Maps WHERE ModelId=@m)", new { m = modelId }, tx);
         conn.Execute("DELETE FROM Maps WHERE ModelId=@m", new { m = modelId }, tx);
+        conn.Execute("DELETE FROM BusinessEvents WHERE ModelId=@m", new { m = modelId }, tx);
+        conn.Execute("DELETE FROM SecurityPolicies WHERE ModelId=@m", new { m = modelId }, tx);
+        conn.Execute("DELETE FROM ConfigurationKeys WHERE ModelId=@m", new { m = modelId }, tx);
+        conn.Execute("DELETE FROM Tiles WHERE ModelId=@m", new { m = modelId }, tx);
+        conn.Execute("DELETE FROM Workspaces WHERE ModelId=@m", new { m = modelId }, tx);
         conn.Execute("DELETE FROM ModelDependencies WHERE ModelId=@m", new { m = modelId }, tx);
         // Labels are keyed by file+lang, not model; we delete by file instead.
         foreach (var file in batch.Labels.Select(l => l.File).Distinct(StringComparer.OrdinalIgnoreCase))
@@ -1360,11 +1485,23 @@ public sealed class MetadataRepository
         // Tables main insert — prepared statement (30k+ rows for large models).
         using var tableCmd = conn.CreateCommand();
         tableCmd.Transaction = (Microsoft.Data.Sqlite.SqliteTransaction)tx;
-        tableCmd.CommandText = "INSERT INTO Tables(Name, ModelId, Label, SourcePath) VALUES($n, $m, $l, $p)";
-        var tblName    = tableCmd.Parameters.Add("$n", Microsoft.Data.Sqlite.SqliteType.Text);
-        var tblModelId = tableCmd.Parameters.Add("$m", Microsoft.Data.Sqlite.SqliteType.Integer);
-        var tblLabel   = tableCmd.Parameters.Add("$l", Microsoft.Data.Sqlite.SqliteType.Text);
-        var tblPath    = tableCmd.Parameters.Add("$p", Microsoft.Data.Sqlite.SqliteType.Text);
+        tableCmd.CommandText = @"INSERT INTO Tables(Name, ModelId, Label, SourcePath,
+            SaveDataPerCompany, CacheLookup, OccEnabled, ValidTimeStateFieldType, TableExtends,
+            AOSAuthorization, FormRef, ListPageRef, SystemTable)
+            VALUES($n, $m, $l, $p, $sdc, $cl, $occ, $vts, $tx, $aos, $fr, $lpr, $st)";
+        var tblName    = tableCmd.Parameters.Add("$n",   Microsoft.Data.Sqlite.SqliteType.Text);
+        var tblModelId = tableCmd.Parameters.Add("$m",   Microsoft.Data.Sqlite.SqliteType.Integer);
+        var tblLabel   = tableCmd.Parameters.Add("$l",   Microsoft.Data.Sqlite.SqliteType.Text);
+        var tblPath    = tableCmd.Parameters.Add("$p",   Microsoft.Data.Sqlite.SqliteType.Text);
+        var tblSdc     = tableCmd.Parameters.Add("$sdc", Microsoft.Data.Sqlite.SqliteType.Text);
+        var tblCl      = tableCmd.Parameters.Add("$cl",  Microsoft.Data.Sqlite.SqliteType.Text);
+        var tblOcc     = tableCmd.Parameters.Add("$occ", Microsoft.Data.Sqlite.SqliteType.Integer);
+        var tblVts     = tableCmd.Parameters.Add("$vts", Microsoft.Data.Sqlite.SqliteType.Text);
+        var tblTx      = tableCmd.Parameters.Add("$tx",  Microsoft.Data.Sqlite.SqliteType.Text);
+        var tblAos     = tableCmd.Parameters.Add("$aos", Microsoft.Data.Sqlite.SqliteType.Text);
+        var tblFr      = tableCmd.Parameters.Add("$fr",  Microsoft.Data.Sqlite.SqliteType.Text);
+        var tblLpr     = tableCmd.Parameters.Add("$lpr", Microsoft.Data.Sqlite.SqliteType.Text);
+        var tblSt      = tableCmd.Parameters.Add("$st",  Microsoft.Data.Sqlite.SqliteType.Integer);
         tableCmd.Prepare();
 
         using var tableFieldCmd = conn.CreateCommand();
@@ -1395,8 +1532,17 @@ public sealed class MetadataRepository
         {
             tblName.Value    = t.Name;
             tblModelId.Value = modelId;
-            tblLabel.Value   = (object?)t.Label      ?? DBNull.Value;
-            tblPath.Value    = (object?)t.SourcePath ?? DBNull.Value;
+            tblLabel.Value   = (object?)t.Label           ?? DBNull.Value;
+            tblPath.Value    = (object?)t.SourcePath      ?? DBNull.Value;
+            tblSdc.Value     = (object?)t.SaveDataPerCompany ?? DBNull.Value;
+            tblCl.Value      = (object?)t.CacheLookup     ?? DBNull.Value;
+            tblOcc.Value     = t.OccEnabled ? 1 : 0;
+            tblVts.Value     = (object?)t.ValidTimeStateFieldType ?? DBNull.Value;
+            tblTx.Value      = (object?)t.TableExtends    ?? DBNull.Value;
+            tblAos.Value     = (object?)t.AOSAuthorization ?? DBNull.Value;
+            tblFr.Value      = (object?)t.FormRef          ?? DBNull.Value;
+            tblLpr.Value     = (object?)t.ListPageRef      ?? DBNull.Value;
+            tblSt.Value      = t.SystemTable ? 1 : 0;
             tableCmd.ExecuteNonQuery();
             var tableId = conn.ExecuteScalar<long>("SELECT last_insert_rowid()", transaction: tx);
             tfTid.Value = tableId;
@@ -1513,9 +1659,10 @@ public sealed class MetadataRepository
 
         foreach (var e in batch.Edts)
         {
-            conn.Execute(@"INSERT INTO Edts(Name, ModelId, ExtendsName, BaseType, Label, StringSize)
-                           VALUES(@n, @m, @e, @b, @l, @s)",
-                         new { n = e.Name, m = modelId, e = e.Extends, b = e.BaseType, l = e.Label, s = e.StringSize }, tx);
+            conn.Execute(@"INSERT INTO Edts(Name, ModelId, ExtendsName, BaseType, Label, StringSize, ReferenceTable, FormHelp, AnalysisUsage, EnumType)
+                           VALUES(@n, @m, @e, @b, @l, @s, @rt, @fh, @au, @et)",
+                         new { n = e.Name, m = modelId, e = e.Extends, b = e.BaseType, l = e.Label, s = e.StringSize,
+                               rt = e.ReferenceTable, fh = e.FormHelp, au = e.AnalysisUsage, et = e.EnumType }, tx);
         }
 
         foreach (var en in batch.Enums)
@@ -1709,6 +1856,40 @@ public sealed class MetadataRepository
                              new { mid = mapId, t = tname }, tx);
             }
         }
+        foreach (var be in batch.BusinessEvents)
+        {
+            conn.Execute(@"INSERT INTO BusinessEvents(Name, Category, ContractClass, ModelId, SourcePath)
+                           VALUES(@n, @c, @cc, @m, @p)",
+                         new { n = be.Name, c = be.Category, cc = be.ContractClass, m = modelId, p = be.SourcePath }, tx);
+        }
+        foreach (var sp in batch.SecurityPolicies)
+        {
+            conn.Execute(@"INSERT INTO SecurityPolicies(Name, ConstrainedTable, PolicyQuery, OperationType, ContextType, IsEnabled, IsMandatory, ModelId, SourcePath)
+                           VALUES(@n, @ct, @pq, @ot, @cx, @ie, @im, @m, @p)",
+                         new { n = sp.Name, ct = sp.ConstrainedTable, pq = sp.PolicyQuery, ot = sp.OperationType,
+                               cx = sp.ContextType, ie = sp.IsEnabled ? 1 : 0, im = sp.IsMandatory ? 1 : 0,
+                               m = modelId, p = sp.SourcePath }, tx);
+        }
+        foreach (var ck in batch.ConfigurationKeys)
+        {
+            conn.Execute(@"INSERT INTO ConfigurationKeys(Name, Label, IsEnabled, ParentKey, LicenseCode, ModelId)
+                           VALUES(@n, @l, @ie, @pk, @lc, @m)",
+                         new { n = ck.Name, l = ck.Label, ie = ck.IsEnabled ? 1 : 0, pk = ck.ParentKey, lc = ck.LicenseCode, m = modelId }, tx);
+        }
+        foreach (var tile in batch.Tiles)
+        {
+            conn.Execute(@"INSERT INTO Tiles(Name, MenuItemName, MenuItemType, Label, TileType, ModelId, SourcePath)
+                           VALUES(@n, @mn, @mt, @l, @tt, @m, @p)",
+                         new { n = tile.Name, mn = tile.MenuItemName, mt = tile.MenuItemType, l = tile.Label,
+                               tt = tile.TileType, m = modelId, p = tile.SourcePath }, tx);
+        }
+        foreach (var ws in batch.Workspaces)
+        {
+            conn.Execute(@"INSERT INTO Workspaces(Name, Label, ModelId, SourcePath)
+                           VALUES(@n, @l, @m, @p)",
+                         new { n = ws.Name, l = ws.Label, m = modelId, p = ws.SourcePath }, tx);
+        }
+
         foreach (var dep in batch.Dependencies.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             conn.Execute(@"INSERT INTO ModelDependencies(ModelId, Target) VALUES(@m, @t)",

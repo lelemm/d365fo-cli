@@ -49,7 +49,16 @@ public sealed record TableInfo(
     string Name,
     string Model,
     string? Label,
-    string? SourcePath);
+    string? SourcePath,
+    string? SaveDataPerCompany = null,
+    string? CacheLookup = null,
+    bool OccEnabled = false,
+    string? ValidTimeStateFieldType = null,
+    string? TableExtends = null,
+    string? AOSAuthorization = null,
+    string? FormRef = null,
+    string? ListPageRef = null,
+    bool SystemTable = false);
 
 public sealed record TableFieldInfo(
     string Name,
@@ -89,7 +98,11 @@ public sealed record EdtInfo(
     string? Extends,
     string? BaseType,
     string? Label,
-    long? StringSize);
+    long? StringSize,
+    string? ReferenceTable = null,
+    string? FormHelp = null,
+    string? AnalysisUsage = null,
+    string? EnumType = null);
 
 public sealed record EnumInfo(string Name, string Model, string? Label);
 
@@ -229,6 +242,54 @@ public sealed record MapFieldInfo(string Name, string? Type, string? EdtName, st
 
 /// <summary>Full detail of an AxMap including fields and mapped tables.</summary>
 public sealed record MapDetails(MapInfo Map, IReadOnlyList<MapFieldInfo> Fields, IReadOnlyList<string> MappedTables);
+
+// ---- v11 DTOs -----------------------------------------------------------
+
+public sealed record BusinessEventInfo(
+    long Id,
+    string Name,
+    string? Category,
+    string? ContractClass,
+    string Model,
+    string? SourcePath);
+
+public sealed record SecurityPolicyInfo(
+    long Id,
+    string Name,
+    string? ConstrainedTable,
+    string? PolicyQuery,
+    string? OperationType,
+    string? ContextType,
+    bool IsEnabled,
+    bool IsMandatory,
+    string Model,
+    string? SourcePath);
+
+public sealed record ConfigurationKeyInfo(
+    long Id,
+    string Name,
+    string? Label,
+    bool IsEnabled,
+    string? ParentKey,
+    string? LicenseCode,
+    string Model);
+
+public sealed record TileInfo(
+    long Id,
+    string Name,
+    string? MenuItemName,
+    string? MenuItemType,
+    string? Label,
+    string? TileType,
+    string Model,
+    string? SourcePath);
+
+public sealed record WorkspaceInfo(
+    long Id,
+    string Name,
+    string? Label,
+    string Model,
+    string? SourcePath);
 
 // ---- Index maintenance DTOs ----------------------------------------------
 

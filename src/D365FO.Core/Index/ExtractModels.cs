@@ -34,6 +34,12 @@ public sealed record ExtractBatch(
     public IReadOnlyList<string> Dependencies { get; init; } = Array.Empty<string>();
     /// <summary>AxMap objects found in the model's AxMap folder.</summary>
     public IReadOnlyList<ExtractedMap> Maps { get; init; } = Array.Empty<ExtractedMap>();
+    // v11 additions
+    public IReadOnlyList<ExtractedBusinessEvent>    BusinessEvents    { get; init; } = Array.Empty<ExtractedBusinessEvent>();
+    public IReadOnlyList<ExtractedSecurityPolicy>   SecurityPolicies  { get; init; } = Array.Empty<ExtractedSecurityPolicy>();
+    public IReadOnlyList<ExtractedConfigurationKey> ConfigurationKeys { get; init; } = Array.Empty<ExtractedConfigurationKey>();
+    public IReadOnlyList<ExtractedTile>             Tiles             { get; init; } = Array.Empty<ExtractedTile>();
+    public IReadOnlyList<ExtractedWorkspace>        Workspaces        { get; init; } = Array.Empty<ExtractedWorkspace>();
 
     public static ExtractBatch Empty(string model) => new(
         model, null, null, false,
@@ -52,6 +58,16 @@ public sealed record ExtractedTable(string Name, string? Label, string? SourcePa
     public IReadOnlyList<ExtractedTableIndex> Indexes { get; init; } = Array.Empty<ExtractedTableIndex>();
     public IReadOnlyList<ExtractedTableDeleteAction> DeleteActions { get; init; } = Array.Empty<ExtractedTableDeleteAction>();
     public IReadOnlyList<ExtractedMethod> Methods { get; init; } = Array.Empty<ExtractedMethod>();
+    // v11 gap-fill properties
+    public string? SaveDataPerCompany { get; init; }
+    public string? CacheLookup { get; init; }
+    public bool OccEnabled { get; init; }
+    public string? ValidTimeStateFieldType { get; init; }
+    public string? TableExtends { get; init; }
+    public string? AOSAuthorization { get; init; }
+    public string? FormRef { get; init; }
+    public string? ListPageRef { get; init; }
+    public bool SystemTable { get; init; }
 }
 public sealed record ExtractedTableField(string Name, string? Type, string? EdtName, string? Label, bool Mandatory);
 public sealed record ExtractedTableRelation(string? Name, string RelatedTable, string? Cardinality, string? RelationshipType);
@@ -73,7 +89,14 @@ public sealed record ExtractedEventSubscriber(
     string? SourceMember,
     string? EventType);
 
-public sealed record ExtractedEdt(string Name, string? Extends, string? BaseType, string? Label, int? StringSize);
+public sealed record ExtractedEdt(string Name, string? Extends, string? BaseType, string? Label, int? StringSize)
+{
+    // v11 gap-fill properties
+    public string? ReferenceTable { get; init; }
+    public string? FormHelp { get; init; }
+    public string? AnalysisUsage { get; init; }
+    public string? EnumType { get; init; }
+}
 public sealed record ExtractedEnum(string Name, string? Label, IReadOnlyList<ExtractedEnumValue> Values);
 public sealed record ExtractedEnumValue(string Name, int? Value, string? Label);
 public sealed record ExtractedMenuItem(string Name, string Kind, string? Object, string? ObjectType, string? Label);
@@ -151,6 +174,49 @@ public sealed record ExtractedServiceOperation(string OperationName, string? Met
 public sealed record ExtractedServiceGroup(string Name, string? SourcePath, IReadOnlyList<string> Members);
 
 public sealed record ExtractedWorkflowType(string Name, string? Category, string? DocumentClass, string? SourcePath);
+
+// ---- v11 extract records ------------------------------------------------
+
+/// <summary>A D365FO Business Event (class extending BusinessEventsBase).</summary>
+public sealed record ExtractedBusinessEvent(
+    string Name,
+    string? Category,
+    string? ContractClass,
+    string? SourcePath);
+
+/// <summary>An AxSecurityPolicy (XDS row-level security policy).</summary>
+public sealed record ExtractedSecurityPolicy(
+    string Name,
+    string? ConstrainedTable,
+    string? PolicyQuery,
+    string? OperationType,
+    string? ContextType,
+    bool IsEnabled,
+    bool IsMandatory,
+    string? SourcePath);
+
+/// <summary>An AxConfigurationKey gating feature availability.</summary>
+public sealed record ExtractedConfigurationKey(
+    string Name,
+    string? Label,
+    bool IsEnabled,
+    string? ParentKey,
+    string? LicenseCode);
+
+/// <summary>An AxTile used in navigation tile panels.</summary>
+public sealed record ExtractedTile(
+    string Name,
+    string? MenuItemName,
+    string? MenuItemType,
+    string? Label,
+    string? TileType,
+    string? SourcePath);
+
+/// <summary>An AxWorkspace navigation descriptor.</summary>
+public sealed record ExtractedWorkspace(
+    string Name,
+    string? Label,
+    string? SourcePath);
 
 public sealed record ExtractCounts(
     long Models,

@@ -41,6 +41,11 @@ app.Configure(cfg =>
         b.AddCommand<SearchWorkflowCommand>("workflow").WithDescription("Find workflow types.");
         b.AddCommand<SearchAnyCommand>("any").WithDescription("Scope-agnostic search across every indexed kind.");
         b.AddCommand<SearchBatchCommand>("batch").WithDescription("Run several scope-agnostic searches in one CLI call.");
+        b.AddCommand<SearchBusinessEventCommand>("business-event").WithDescription("Find business events (classes extending BusinessEventsBase).");
+        b.AddCommand<SearchSecurityPolicyCommand>("security-policy").WithDescription("Find XDS security policies.");
+        b.AddCommand<SearchConfigurationKeyCommand>("configuration-key").WithDescription("Find configuration keys.");
+        b.AddCommand<SearchTileCommand>("tile").WithDescription("Find navigation tiles.");
+        b.AddCommand<SearchWorkspaceCommand>("workspace").WithDescription("Find workspace descriptors.");
     });
 
     cfg.AddBranch("get", b =>
@@ -64,6 +69,8 @@ app.Configure(cfg =>
         b.AddCommand<GetServiceCommand>("service").WithDescription("SOAP service: operations.");
         b.AddCommand<GetServiceGroupCommand>("service-group").WithDescription("Service group: members.");
         b.AddCommand<GetObjectCommand>("object").WithDescription("Generic get by kind/name for agent workflows.");
+        b.AddCommand<GetBusinessEventCommand>("business-event").WithDescription("Business event: class, category, contract.");
+        b.AddCommand<GetSecurityPolicyCommand>("security-policy").WithDescription("XDS security policy: constrained table, query, operation type.");
     });
 
     cfg.AddBranch("find", b =>

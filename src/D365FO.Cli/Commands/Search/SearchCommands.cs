@@ -289,6 +289,110 @@ public sealed class SearchAnyCommand : Command<SearchAnyCommand.Settings>
     }
 }
 
+public sealed class SearchBusinessEventCommand : Command<SearchBusinessEventCommand.Settings>
+{
+    public sealed class Settings : D365OutputSettings
+    {
+        [CommandArgument(0, "<QUERY>")]
+        public string Query { get; init; } = "";
+
+        [CommandOption("-c|--category <CAT>")]
+        [System.ComponentModel.Description("Filter by business event category (partial match).")]
+        public string? Category { get; init; }
+
+        [CommandOption("-l|--limit <N>")]
+        public int Limit { get; init; } = 50;
+    }
+
+    public override int Execute(CommandContext ctx, Settings settings)
+    {
+        var kind = OutputMode.Resolve(settings.Output);
+        var repo = RepoFactory.Create();
+        var items = repo.SearchBusinessEvents(settings.Query, settings.Category, settings.Limit);
+        return RenderHelpers.Render(kind, ToolResult<object>.Success(new { count = items.Count, items }));
+    }
+}
+
+public sealed class SearchSecurityPolicyCommand : Command<SearchSecurityPolicyCommand.Settings>
+{
+    public sealed class Settings : D365OutputSettings
+    {
+        [CommandArgument(0, "<QUERY>")]
+        public string Query { get; init; } = "";
+
+        [CommandOption("-l|--limit <N>")]
+        public int Limit { get; init; } = 50;
+    }
+
+    public override int Execute(CommandContext ctx, Settings settings)
+    {
+        var kind = OutputMode.Resolve(settings.Output);
+        var repo = RepoFactory.Create();
+        var items = repo.SearchSecurityPolicies(settings.Query, settings.Limit);
+        return RenderHelpers.Render(kind, ToolResult<object>.Success(new { count = items.Count, items }));
+    }
+}
+
+public sealed class SearchConfigurationKeyCommand : Command<SearchConfigurationKeyCommand.Settings>
+{
+    public sealed class Settings : D365OutputSettings
+    {
+        [CommandArgument(0, "<QUERY>")]
+        public string Query { get; init; } = "";
+
+        [CommandOption("-l|--limit <N>")]
+        public int Limit { get; init; } = 50;
+    }
+
+    public override int Execute(CommandContext ctx, Settings settings)
+    {
+        var kind = OutputMode.Resolve(settings.Output);
+        var repo = RepoFactory.Create();
+        var items = repo.SearchConfigurationKeys(settings.Query, settings.Limit);
+        return RenderHelpers.Render(kind, ToolResult<object>.Success(new { count = items.Count, items }));
+    }
+}
+
+public sealed class SearchTileCommand : Command<SearchTileCommand.Settings>
+{
+    public sealed class Settings : D365OutputSettings
+    {
+        [CommandArgument(0, "<QUERY>")]
+        public string Query { get; init; } = "";
+
+        [CommandOption("-l|--limit <N>")]
+        public int Limit { get; init; } = 50;
+    }
+
+    public override int Execute(CommandContext ctx, Settings settings)
+    {
+        var kind = OutputMode.Resolve(settings.Output);
+        var repo = RepoFactory.Create();
+        var items = repo.SearchTiles(settings.Query, settings.Limit);
+        return RenderHelpers.Render(kind, ToolResult<object>.Success(new { count = items.Count, items }));
+    }
+}
+
+public sealed class SearchWorkspaceCommand : Command<SearchWorkspaceCommand.Settings>
+{
+    public sealed class Settings : D365OutputSettings
+    {
+        [CommandArgument(0, "<QUERY>")]
+        public string Query { get; init; } = "";
+
+        [CommandOption("-l|--limit <N>")]
+        public int Limit { get; init; } = 50;
+    }
+
+    public override int Execute(CommandContext ctx, Settings settings)
+    {
+        var kind = OutputMode.Resolve(settings.Output);
+        var repo = RepoFactory.Create();
+        var items = repo.SearchWorkspaces(settings.Query, settings.Limit);
+        return RenderHelpers.Render(kind, ToolResult<object>.Success(new { count = items.Count, items }));
+    }
+}
+
 public sealed class SearchBatchCommand : Command<SearchBatchCommand.Settings>
 {
     public sealed class Settings : D365OutputSettings

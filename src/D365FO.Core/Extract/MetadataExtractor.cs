@@ -127,8 +127,13 @@ public sealed class MetadataExtractor
         List<ExtractedReport>            reports       = null!;
         List<ExtractedService>           services      = null!;
         List<ExtractedServiceGroup>      serviceGroups = null!;
-        List<ExtractedWorkflowType>      workflowTypes = null!;
-        List<ExtractedMap>               maps          = null!;
+        List<ExtractedWorkflowType>      workflowTypes    = null!;
+        List<ExtractedMap>               maps             = null!;
+        List<ExtractedBusinessEvent>     businessEvents   = null!;
+        List<ExtractedSecurityPolicy>    securityPolicies = null!;
+        List<ExtractedConfigurationKey>  configKeys       = null!;
+        List<ExtractedTile>              tiles            = null!;
+        List<ExtractedWorkspace>         workspaces       = null!;
 
         Parallel.Invoke(
             () => tables       = ReadAll(Path.Combine(modelRoot, "AxTable"), ParseTable),
@@ -214,12 +219,17 @@ public sealed class MetadataExtractor
             },
             () => services     = ReadAll(Path.Combine(modelRoot, "AxService"),      ParseService),
             () => serviceGroups = ReadAll(Path.Combine(modelRoot, "AxServiceGroup"), ParseServiceGroup),
-            () => workflowTypes = ReadAll(Path.Combine(modelRoot, "AxWorkflowType"), ParseWorkflowType),
-            () => maps          = ReadAll(Path.Combine(modelRoot, "AxMap"),          ParseMap)
+            () => workflowTypes    = ReadAll(Path.Combine(modelRoot, "AxWorkflowType"),    ParseWorkflowType),
+            () => maps             = ReadAll(Path.Combine(modelRoot, "AxMap"),             ParseMap),
+            () => securityPolicies = ReadAll(Path.Combine(modelRoot, "AxSecurityPolicy"),  ParseSecurityPolicy),
+            () => configKeys       = ReadAll(Path.Combine(modelRoot, "AxConfigurationKey"),ParseConfigurationKey),
+            () => tiles            = ReadAll(Path.Combine(modelRoot, "AxTile"),            ParseTile),
+            () => workspaces       = ReadAll(Path.Combine(modelRoot, "AxWorkspace"),       ParseWorkspace)
         );
 
         var coc = classes.SelectMany(DetectCoc).ToList();
         var subscribers = classes.SelectMany(DetectSubscribers).ToList();
+        businessEvents = DeriveBusinessEvents(classes);
 
         return new ExtractBatch(
             Model: modelName,
@@ -246,8 +256,13 @@ public sealed class MetadataExtractor
             Reports = reports,
             Services = services,
             ServiceGroups = serviceGroups,
-            WorkflowTypes = workflowTypes,
-            Maps = maps,
+            WorkflowTypes    = workflowTypes,
+            Maps             = maps,
+            BusinessEvents   = businessEvents,
+            SecurityPolicies = securityPolicies,
+            ConfigurationKeys = configKeys,
+            Tiles            = tiles,
+            Workspaces       = workspaces,
         };
     }
 
@@ -279,7 +294,7 @@ public sealed class MetadataExtractor
             "AxMenuItemDisplay", "AxMenuItemAction", "AxMenuItemOutput",
             "AxQuery", "AxQuerySimple", "AxView", "AxDataEntityView",
             "AxReport", "AxReportSsrs", "AxService", "AxServiceGroup", "AxWorkflowType",
-            "AxMap",
+            "AxMap", "AxSecurityPolicy", "AxConfigurationKey", "AxTile", "AxWorkspace",
         })
             if (Directory.Exists(Path.Combine(dir, s))) return true;
         return false;
@@ -431,6 +446,15 @@ public sealed class MetadataExtractor
             Indexes = indexes,
             DeleteActions = deleteActions,
             Methods = methods,
+            SaveDataPerCompany      = Local(root, "SaveDataPerCompany"),
+            CacheLookup             = Local(root, "CacheLookup"),
+            OccEnabled              = string.Equals(Local(root, "OccEnabled"), "Yes", StringComparison.OrdinalIgnoreCase),
+            ValidTimeStateFieldType = Local(root, "ValidTimeStateFieldType"),
+            TableExtends            = Local(root, "Extends"),
+            AOSAuthorization        = Local(root, "AOSAuthorization"),
+            FormRef                 = Local(root, "FormRef"),
+            ListPageRef             = Local(root, "ListPageRef"),
+            SystemTable             = string.Equals(Local(root, "SystemTable"), "Yes", StringComparison.OrdinalIgnoreCase),
         };
     }
 
@@ -520,7 +544,13 @@ public sealed class MetadataExtractor
             : null;
         var label = Local(root, "Label");
         int? stringSize = int.TryParse(Local(root, "StringSize"), out var s) ? s : null;
-        return new ExtractedEdt(name, extends, baseType, label, stringSize);
+        return new ExtractedEdt(name, extends, baseType, label, stringSize)
+        {
+            ReferenceTable = Local(root, "ReferenceTable"),
+            FormHelp       = Local(root, "FormHelp"),
+            AnalysisUsage  = Local(root, "AnalysisUsage"),
+            EnumType       = Local(root, "EnumType"),
+        };
     }
 
     private static ExtractedEnum? ParseEnum(XDocument doc, string file)
@@ -1195,5 +1225,105 @@ public sealed class MetadataExtractor
         {
             MappedTables = mappedTables,
         };
+    }
+
+    // -------- v11: security policies --------
+
+    private static ExtractedSecurityPolicy? ParseSecurityPolicy(XDocument doc, string file)
+    {
+        var root = doc.Root;
+        if (root is null) return null;
+        var name = Local(root, "Name") ?? Path.GetFileNameWithoutExtension(file);
+        return new ExtractedSecurityPolicy(
+            name,
+            ConstrainedTable: Local(root, "ConstrainedTable"),
+            PolicyQuery:      Local(root, "Query") ?? Local(root, "PolicyQuery"),
+            OperationType:    Local(root, "Operation") ?? Local(root, "OperationType"),
+            ContextType:      Local(root, "ContextType"),
+            IsEnabled:        !string.Equals(Local(root, "IsEnabled"), "No", StringComparison.OrdinalIgnoreCase),
+            IsMandatory:      string.Equals(Local(root, "IsMandatory"), "Yes", StringComparison.OrdinalIgnoreCase),
+            SourcePath:       file);
+    }
+
+    // -------- v11: configuration keys --------
+
+    private static ExtractedConfigurationKey? ParseConfigurationKey(XDocument doc, string file)
+    {
+        var root = doc.Root;
+        if (root is null) return null;
+        var name = Local(root, "Name") ?? Path.GetFileNameWithoutExtension(file);
+        return new ExtractedConfigurationKey(
+            name,
+            Label:       Local(root, "Label"),
+            IsEnabled:   !string.Equals(Local(root, "IsEnabled"), "No", StringComparison.OrdinalIgnoreCase),
+            ParentKey:   Local(root, "Parent") ?? Local(root, "ParentKey"),
+            LicenseCode: Local(root, "LicenseCode"));
+    }
+
+    // -------- v11: tiles --------
+
+    private static ExtractedTile? ParseTile(XDocument doc, string file)
+    {
+        var root = doc.Root;
+        if (root is null) return null;
+        var name = Local(root, "Name") ?? Path.GetFileNameWithoutExtension(file);
+        return new ExtractedTile(
+            name,
+            MenuItemName: Local(root, "MenuItemName"),
+            MenuItemType: Local(root, "MenuItemType"),
+            Label:        Local(root, "Label"),
+            TileType:     Local(root, "Type") ?? Local(root, "TileType"),
+            SourcePath:   file);
+    }
+
+    // -------- v11: workspaces --------
+
+    private static ExtractedWorkspace? ParseWorkspace(XDocument doc, string file)
+    {
+        var root = doc.Root;
+        if (root is null) return null;
+        var name = Local(root, "Name") ?? Path.GetFileNameWithoutExtension(file);
+        return new ExtractedWorkspace(name, Local(root, "Label"), file);
+    }
+
+    // -------- v11: business events derived from classes --------
+
+    private static readonly System.Text.RegularExpressions.Regex ClassStrRx =
+        new(@"classStr\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex QuotedStringRx =
+        new(@"""([^""\\]*(?:\\.[^""\\]*)*)""", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static List<ExtractedBusinessEvent> DeriveBusinessEvents(IReadOnlyList<ExtractedClass> classes)
+    {
+        var result = new List<ExtractedBusinessEvent>();
+        foreach (var cls in classes)
+        {
+            if (!string.Equals(cls.Extends, "BusinessEventsBase", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var attr = cls.Attributes.FirstOrDefault(a =>
+                a.MethodName is null &&
+                string.Equals(a.AttributeName, "BusinessEvents", StringComparison.OrdinalIgnoreCase));
+
+            string? contractClass = null;
+            string? category = null;
+
+            if (attr is not null)
+            {
+                var classStrMatches = ClassStrRx.Matches(attr.RawArgs ?? string.Empty);
+                // First classStr() is the event class itself; second is the contract class.
+                if (classStrMatches.Count >= 2)
+                    contractClass = classStrMatches[1].Groups[1].Value;
+
+                var quotedMatches = QuotedStringRx.Matches(attr.RawArgs ?? string.Empty);
+                // First quoted string is the category label.
+                if (quotedMatches.Count >= 1)
+                    category = quotedMatches[0].Groups[1].Value;
+            }
+
+            result.Add(new ExtractedBusinessEvent(cls.Name, category, contractClass, cls.SourcePath));
+        }
+        return result;
     }
 }

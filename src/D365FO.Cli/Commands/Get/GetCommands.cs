@@ -547,3 +547,41 @@ public sealed class GetObjectCommand : Command<GetObjectCommand.Settings>
                 deleteActions = details.DeleteActions,
             }));
 }
+
+public sealed class GetBusinessEventCommand : Command<GetBusinessEventCommand.Settings>
+{
+    public sealed class Settings : D365OutputSettings
+    {
+        [CommandArgument(0, "<NAME>")]
+        public string Name { get; init; } = "";
+    }
+
+    public override int Execute(CommandContext ctx, Settings settings)
+    {
+        var kind = OutputMode.Resolve(settings.Output);
+        var repo = RepoFactory.Create();
+        var item = repo.GetBusinessEvent(settings.Name);
+        return RenderHelpers.Render(kind, item is null
+            ? ToolResult<object>.Fail("NOT_FOUND", $"Business event '{settings.Name}' not found.")
+            : ToolResult<object>.Success(item));
+    }
+}
+
+public sealed class GetSecurityPolicyCommand : Command<GetSecurityPolicyCommand.Settings>
+{
+    public sealed class Settings : D365OutputSettings
+    {
+        [CommandArgument(0, "<NAME>")]
+        public string Name { get; init; } = "";
+    }
+
+    public override int Execute(CommandContext ctx, Settings settings)
+    {
+        var kind = OutputMode.Resolve(settings.Output);
+        var repo = RepoFactory.Create();
+        var item = repo.GetSecurityPolicy(settings.Name);
+        return RenderHelpers.Render(kind, item is null
+            ? ToolResult<object>.Fail("NOT_FOUND", $"Security policy '{settings.Name}' not found.")
+            : ToolResult<object>.Success(item));
+    }
+}

@@ -42,12 +42,12 @@ documentation, the D365FO Customization Analysis Report (CAR), and full code inv
 
 ---
 
-## Phase 3: AOT Coverage Gaps 🔲
+## Phase 3: AOT Coverage Gaps ✅
 
 The index covers ~20 AOT object types. The full D365FO Application Object Tree has
 additional types that are either not indexed or only partially surfaced.
 
-### 3.1 Business Events (`AxBusinessEvent`) 🔲
+### 3.1 Business Events (`AxBusinessEvent`) ✅
 
 Business events are a first-class extensibility mechanism (subscribers via Power
 Automate, Azure Service Bus, Event Grid, Logic Apps). Currently not in the index.
@@ -72,7 +72,7 @@ Automate, Azure Service Bus, Event Grid, Logic Apps). Currently not in the index
 
 **Reference:** https://learn.microsoft.com/en-us/dynamics365/fin-ops-core/dev-itpro/business-events/home-page
 
-### 3.2 Security Policies / Extensible Data Security (XDS) 🔲
+### 3.2 Security Policies / Extensible Data Security (XDS) ✅
 
 XDS policies restrict what rows a user can read/write. Missing entirely.
 
@@ -91,7 +91,7 @@ XDS policies restrict what rows a user can read/write. Missing entirely.
 - `src/D365FO.Core/Index/MetadataRepository.cs` — `SearchSecurityPolicies`, `GetSecurityPolicy`
 - `src/D365FO.Cli/Commands/Search/SearchCommands.cs`, `GetCommands.cs`
 
-### 3.3 Configuration Keys (`AxConfigurationKey`) 🔲
+### 3.3 Configuration Keys (`AxConfigurationKey`) ✅
 
 Configuration keys gate feature availability; important for completeness analysis.
 
@@ -106,7 +106,7 @@ Configuration keys gate feature availability; important for completeness analysi
 - `src/D365FO.Core/Index/MetadataRepository.cs` — `SearchConfigurationKeys`
 - `src/D365FO.Cli/Commands/Search/SearchCommands.cs`
 
-### 3.4 Tiles and Workspace Descriptors 🔲
+### 3.4 Tiles and Workspace Descriptors ✅
 
 Tiles and workspaces are visible in the navigation experience. Low query frequency
 but useful for impact analysis.
@@ -117,7 +117,7 @@ but useful for impact analysis.
 
 **Files:** Same pattern — schema tables + extractor walk + search commands.
 
-### 3.5 Table AOT Properties Gap-fill 🔲
+### 3.5 Table AOT Properties Gap-fill ✅
 
 Currently extracted table properties are missing several columns important for lint:
 
@@ -138,7 +138,7 @@ Currently extracted table properties are missing several columns important for l
 - `src/D365FO.Core/Index/Models.cs` — extend `TableDetails`
 - `src/D365FO.Core/Index/MetadataRepository.cs` — extend `GetTableDetails` projection
 
-### 3.6 EDT Properties Gap-fill 🔲
+### 3.6 EDT Properties Gap-fill ✅
 
 | Property | Schema Column | Needed For |
 |----------|--------------|------------|
@@ -149,7 +149,7 @@ Currently extracted table properties are missing several columns important for l
 
 **Files:** Same pattern as 3.5.
 
-### 3.7 `search any` gap: Maps not included 🔲
+### 3.7 `search any` gap: Maps not included ✅
 
 `SearchMaps` exists in `MetadataRepository` but `search any` and `search batch` do
 not include maps in the union. Add `Maps` to the multi-kind union query.

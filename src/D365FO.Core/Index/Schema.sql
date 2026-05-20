@@ -23,11 +23,20 @@ CREATE TABLE IF NOT EXISTS Models (
 );
 
 CREATE TABLE IF NOT EXISTS Tables (
-    TableId     INTEGER PRIMARY KEY AUTOINCREMENT,
-    Name        TEXT NOT NULL,
-    ModelId     INTEGER NOT NULL,
-    Label       TEXT,
-    SourcePath  TEXT,
+    TableId                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    Name                    TEXT NOT NULL,
+    ModelId                 INTEGER NOT NULL,
+    Label                   TEXT,
+    SourcePath              TEXT,
+    SaveDataPerCompany      TEXT,
+    CacheLookup             TEXT,
+    OccEnabled              INTEGER NOT NULL DEFAULT 0,
+    ValidTimeStateFieldType TEXT,
+    TableExtends            TEXT,
+    AOSAuthorization        TEXT,
+    FormRef                 TEXT,
+    ListPageRef             TEXT,
+    SystemTable             INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (ModelId) REFERENCES Models(ModelId)
 );
 CREATE INDEX IF NOT EXISTS IX_Tables_Name ON Tables(Name);
@@ -81,13 +90,17 @@ CREATE TABLE IF NOT EXISTS CocExtensions (
 CREATE INDEX IF NOT EXISTS IX_Coc_Target ON CocExtensions(TargetClass, TargetMethod);
 
 CREATE TABLE IF NOT EXISTS Edts (
-    EdtId       INTEGER PRIMARY KEY AUTOINCREMENT,
-    Name        TEXT NOT NULL,
-    ModelId     INTEGER NOT NULL,
-    ExtendsName TEXT,
-    BaseType    TEXT,
-    Label       TEXT,
-    StringSize  INTEGER,
+    EdtId           INTEGER PRIMARY KEY AUTOINCREMENT,
+    Name            TEXT NOT NULL,
+    ModelId         INTEGER NOT NULL,
+    ExtendsName     TEXT,
+    BaseType        TEXT,
+    Label           TEXT,
+    StringSize      INTEGER,
+    ReferenceTable  TEXT,
+    FormHelp        TEXT,
+    AnalysisUsage   TEXT,
+    EnumType        TEXT,
     FOREIGN KEY (ModelId) REFERENCES Models(ModelId)
 );
 CREATE INDEX IF NOT EXISTS IX_Edts_Name ON Edts(Name);
@@ -534,4 +547,76 @@ CREATE TABLE IF NOT EXISTS MapTables (
     TableName  TEXT NOT NULL,
     FOREIGN KEY (MapId) REFERENCES Maps(MapId) ON DELETE CASCADE
 );
+
+-- v11 additions ----------------------------------------------------------
+
+-- Business events: classes extending BusinessEventsBase. Derived from AxClass
+-- during extraction; the [BusinessEvents(...)] attribute provides category and
+-- contract class name.
+CREATE TABLE IF NOT EXISTS BusinessEvents (
+    Id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    Name            TEXT NOT NULL,
+    Category        TEXT,
+    ContractClass   TEXT,
+    ModelId         INTEGER NOT NULL,
+    SourcePath      TEXT,
+    FOREIGN KEY (ModelId) REFERENCES Models(ModelId)
+);
+CREATE INDEX IF NOT EXISTS IX_BusinessEvents_Name     ON BusinessEvents(Name);
+CREATE INDEX IF NOT EXISTS IX_BusinessEvents_Category ON BusinessEvents(Category);
+
+-- XDS / AxSecurityPolicy objects restrict row-level data access.
+CREATE TABLE IF NOT EXISTS SecurityPolicies (
+    Id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    Name             TEXT NOT NULL,
+    ConstrainedTable TEXT,
+    PolicyQuery      TEXT,
+    OperationType    TEXT,
+    ContextType      TEXT,
+    IsEnabled        INTEGER NOT NULL DEFAULT 1,
+    IsMandatory      INTEGER NOT NULL DEFAULT 0,
+    ModelId          INTEGER NOT NULL,
+    SourcePath       TEXT,
+    FOREIGN KEY (ModelId) REFERENCES Models(ModelId)
+);
+CREATE INDEX IF NOT EXISTS IX_SecurityPolicies_Name  ON SecurityPolicies(Name);
+CREATE INDEX IF NOT EXISTS IX_SecurityPolicies_Table ON SecurityPolicies(ConstrainedTable);
+
+-- AxConfigurationKey objects gate feature availability.
+CREATE TABLE IF NOT EXISTS ConfigurationKeys (
+    Id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    Name        TEXT NOT NULL,
+    Label       TEXT,
+    IsEnabled   INTEGER NOT NULL DEFAULT 1,
+    ParentKey   TEXT,
+    LicenseCode TEXT,
+    ModelId     INTEGER NOT NULL,
+    FOREIGN KEY (ModelId) REFERENCES Models(ModelId)
+);
+CREATE INDEX IF NOT EXISTS IX_ConfigurationKeys_Name ON ConfigurationKeys(Name);
+
+-- AxTile objects used in workspaces / navigation tile panels.
+CREATE TABLE IF NOT EXISTS Tiles (
+    Id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    Name            TEXT NOT NULL,
+    MenuItemName    TEXT,
+    MenuItemType    TEXT,
+    Label           TEXT,
+    TileType        TEXT,
+    ModelId         INTEGER NOT NULL,
+    SourcePath      TEXT,
+    FOREIGN KEY (ModelId) REFERENCES Models(ModelId)
+);
+CREATE INDEX IF NOT EXISTS IX_Tiles_Name ON Tiles(Name);
+
+-- AxWorkspace descriptors (navigation workspace declarations, not AxForm).
+CREATE TABLE IF NOT EXISTS Workspaces (
+    Id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    Name        TEXT NOT NULL,
+    Label       TEXT,
+    ModelId     INTEGER NOT NULL,
+    SourcePath  TEXT,
+    FOREIGN KEY (ModelId) REFERENCES Models(ModelId)
+);
+CREATE INDEX IF NOT EXISTS IX_Workspaces_Name ON Workspaces(Name);
 
