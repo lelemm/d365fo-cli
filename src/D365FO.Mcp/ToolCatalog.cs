@@ -15,15 +15,15 @@ namespace D365FO.Mcp;
 /// Kept as a hand-written table so the server can publish <c>inputSchema</c>
 /// without reflection — important once this ships as a trimmed/AOT binary.
 /// </summary>
-internal static class ToolCatalog
+public static class ToolCatalog
 {
-    internal readonly record struct Descriptor(
+    public readonly record struct Descriptor(
         string Name,
         string Description,
         JsonObject InputSchema,
         Func<ToolHandlers, JsonElement, object> Invoke);
 
-    internal static IReadOnlyList<Descriptor> All { get; } = new[]
+    public static IReadOnlyList<Descriptor> All { get; } = new[]
     {
         new Descriptor("search_classes",
             "Find X++ classes by substring match on the class name.",
@@ -313,6 +313,99 @@ internal static class ToolCatalog
             "Coupling metrics over ModelDependencies: fan-in, fan-out, instability, dependency cycles.",
             Schema(("topN", "integer", false), ("onlyCycles", "boolean", false)),
             (h, p) => h.ModelsCoupling(Int(p, "topN", 20), Bool(p, "onlyCycles"))),
+
+        // ---- Phase 3: v11 search/get tools ----
+
+        new Descriptor("search_business_events",
+            "Search indexed D365FO business events by name or contract class.",
+            Schema(("query", "string", true), ("category", "string", false), ("limit", "integer", false)),
+            (h, p) => h.SearchBusinessEvents(Str(p, "query"), StrOrNull(p, "category"), Int(p, "limit", 50))),
+
+        new Descriptor("get_business_event",
+            "Return full details for a business event by name.",
+            Schema(("name", "string", true)),
+            (h, p) => h.GetBusinessEvent(Str(p, "name"))),
+
+        new Descriptor("search_security_policies",
+            "Search indexed AxSecurityPolicy (XDS row-level security) objects.",
+            Schema(("query", "string", true), ("limit", "integer", false)),
+            (h, p) => h.SearchSecurityPolicies(Str(p, "query"), Int(p, "limit", 50))),
+
+        new Descriptor("search_configuration_keys",
+            "Search indexed AxConfigurationKey objects.",
+            Schema(("query", "string", true), ("limit", "integer", false)),
+            (h, p) => h.SearchConfigurationKeys(Str(p, "query"), Int(p, "limit", 50))),
+
+        new Descriptor("search_tiles",
+            "Search indexed AxTile navigation tile objects.",
+            Schema(("query", "string", true), ("limit", "integer", false)),
+            (h, p) => h.SearchTiles(Str(p, "query"), Int(p, "limit", 50))),
+
+        new Descriptor("search_workspaces",
+            "Search indexed AxWorkspace navigation workspace descriptors.",
+            Schema(("query", "string", true), ("limit", "integer", false)),
+            (h, p) => h.SearchWorkspaces(Str(p, "query"), Int(p, "limit", 50))),
+
+        // ---- Phase 5: integration analysis tools ----
+
+        new Descriptor("analyze_integration",
+            "Cross-check indexed data entities for OData/DMF integration readiness. Returns issues such as duplicate PublicEntityName, missing staging table, and zero-field entities.",
+            Schema(("model", "string", false)),
+            (h, p) => h.AnalyzeIntegration(StrOrNull(p, "model"))),
+
+        new Descriptor("report_integrations",
+            "Aggregated integration surface report: OData entities, custom services, business events, workflow types, and batch jobs.",
+            Schema(("model", "string", false)),
+            (h, p) => h.ReportIntegrations(StrOrNull(p, "model"))),
+
+        // ---- Phase 7: developer experience tools ----
+
+        new Descriptor("analyze_impact",
+            "Change-impact analysis: list all downstream consumers (CoC wrappers, event handlers, extensions, form datasources, data entities, queries) of an AOT object.",
+            Schema(("object", "string", true)),
+            (h, p) => h.AnalyzeImpact(Str(p, "object"))),
+
+        new Descriptor("find_batch_jobs",
+            "Find all RunBaseBatch / SysOperationServiceController subclasses in the index.",
+            Schema(("model", "string", false)),
+            (h, p) => h.FindBatchJobs(StrOrNull(p, "model"))),
+
+        // ---- Phase 2 + 6: scaffolding tools (return XML content) ----
+
+        new Descriptor("generate_edt",
+            "Scaffold an AxEdt Extended Data Type. Returns the XML content as a string.",
+            Schema(("name", "string", true), ("extends", "string", false), ("label", "string", false), ("size", "integer", false)),
+            (h, p) => h.GenerateEdt(Str(p, "name"), StrOrNull(p, "extends"), StrOrNull(p, "label"), Int(p, "size", 0))),
+
+        new Descriptor("generate_enum",
+            "Scaffold an AxEnum base enumeration. Returns the XML content as a string.",
+            Schema(("name", "string", true), ("label", "string", false), ("values", "array", false)),
+            (h, p) => h.GenerateEnum(Str(p, "name"), StrOrNull(p, "label"), StrArray(p, "values"))),
+
+        new Descriptor("generate_query",
+            "Scaffold an AxQuery with a root data source. Returns the XML content as a string.",
+            Schema(("name", "string", true), ("rootTable", "string", true), ("label", "string", false)),
+            (h, p) => h.GenerateQuery(Str(p, "name"), Str(p, "rootTable"), StrOrNull(p, "label"))),
+
+        new Descriptor("generate_sysoperation",
+            "Scaffold a SysOperation DataContract + Service + Controller triplet. Returns XML content.",
+            Schema(("name", "string", true), ("executionMode", "string", false)),
+            (h, p) => h.GenerateSysOperation(Str(p, "name"), StrOr(p, "executionMode", "Synchronous"))),
+
+        new Descriptor("generate_business_event",
+            "Scaffold a D365FO business event class + contract class. Returns XML content for both files.",
+            Schema(("name", "string", true), ("contractName", "string", false), ("category", "string", false)),
+            (h, p) => h.GenerateBusinessEvent(Str(p, "name"), StrOrNull(p, "contractName"), StrOr(p, "category", "Custom"))),
+
+        new Descriptor("generate_runbase",
+            "Scaffold a RunBase / RunBaseBatch class. Returns XML content.",
+            Schema(("name", "string", true), ("batch", "boolean", false)),
+            (h, p) => h.GenerateRunBase(Str(p, "name"), Bool(p, "batch"))),
+
+        new Descriptor("generate_security_policy",
+            "Scaffold an AxSecurityPolicy (XDS) XML. Returns XML content.",
+            Schema(("name", "string", true), ("constrainedTable", "string", true), ("policyQuery", "string", false)),
+            (h, p) => h.GenerateSecurityPolicy(Str(p, "name"), Str(p, "constrainedTable"), StrOrNull(p, "policyQuery"))),
     };
 
     // ---- JSON helpers ----

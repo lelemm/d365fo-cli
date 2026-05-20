@@ -599,4 +599,173 @@ public sealed class ToolHandlers
             top,
         });
     }
+
+    // ---- Phase 3: v11 search/get handlers ----
+
+    public ToolResult<object> SearchBusinessEvents(string query, string? category, int limit)
+    {
+        var items = _repo.SearchBusinessEvents(query, category, limit);
+        return ToolResult<object>.Success(new { count = items.Count, items });
+    }
+
+    public ToolResult<object> GetBusinessEvent(string name)
+    {
+        var e = _repo.GetBusinessEvent(name);
+        return e is null
+            ? ToolResult<object>.Fail("BUSINESS_EVENT_NOT_FOUND", $"Business event '{name}' not found.")
+            : ToolResult<object>.Success(e);
+    }
+
+    public ToolResult<object> SearchSecurityPolicies(string query, int limit)
+    {
+        var items = _repo.SearchSecurityPolicies(query, limit);
+        return ToolResult<object>.Success(new { count = items.Count, items });
+    }
+
+    public ToolResult<object> SearchConfigurationKeys(string query, int limit)
+    {
+        var items = _repo.SearchConfigurationKeys(query, limit);
+        return ToolResult<object>.Success(new { count = items.Count, items });
+    }
+
+    public ToolResult<object> SearchTiles(string query, int limit)
+    {
+        var items = _repo.SearchTiles(query, limit);
+        return ToolResult<object>.Success(new { count = items.Count, items });
+    }
+
+    public ToolResult<object> SearchWorkspaces(string query, int limit)
+    {
+        var items = _repo.SearchWorkspaces(query, limit);
+        return ToolResult<object>.Success(new { count = items.Count, items });
+    }
+
+    // ---- Phase 5: integration analysis handlers ----
+
+    public ToolResult<object> AnalyzeIntegration(string? model)
+    {
+        var issues = _repo.AnalyzeIntegration(model);
+        return ToolResult<object>.Success(new { count = issues.Count, issues });
+    }
+
+    public ToolResult<object> ReportIntegrations(string? model)
+    {
+        var r = _repo.GetIntegrationReport(model);
+        return ToolResult<object>.Success(new
+        {
+            odataEntities  = new { count = r.ODataEntities.Count,  items = r.ODataEntities },
+            customServices = new { count = r.CustomServices.Count,  items = r.CustomServices },
+            businessEvents = new { count = r.BusinessEvents.Count,  items = r.BusinessEvents },
+            workflowTypes  = new { count = r.WorkflowTypes.Count,   items = r.WorkflowTypes },
+            batchJobs      = new { count = r.BatchJobs.Count,       items = r.BatchJobs },
+        });
+    }
+
+    // ---- Phase 7: developer experience handlers ----
+
+    public ToolResult<object> AnalyzeImpact(string objectName)
+    {
+        var r = _repo.AnalyzeImpact(objectName);
+        return ToolResult<object>.Success(new
+        {
+            objectName    = r.ObjectName,
+            directCount   = r.CocWrappers.Count + r.EventHandlers.Count + r.Extensions.Count,
+            indirectCount = r.FormDataSources.Count + r.DataEntities.Count + r.Queries.Count,
+            direct   = new { cocWrappers = r.CocWrappers, eventHandlers = r.EventHandlers, extensions = r.Extensions },
+            indirect = new { formDataSources = r.FormDataSources, dataEntities = r.DataEntities, queries = r.Queries },
+        });
+    }
+
+    public ToolResult<object> FindBatchJobs(string? model)
+    {
+        var items = _repo.FindBatchJobs(model);
+        return ToolResult<object>.Success(new { count = items.Count, items });
+    }
+
+    // ---- Phase 2 + 6: scaffolding handlers (return XML as string) ----
+
+    public ToolResult<object> GenerateEdt(string name, string? extends, string? label, int size)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return ToolResult<object>.Fail("BAD_INPUT", "name is required.");
+        var doc = D365FO.Core.Scaffolding.XppScaffolder.Edt(name, extends, null, size > 0 ? size : null, label);
+        return ToolResult<object>.Success(new { name, xml = doc.ToString() });
+    }
+
+    public ToolResult<object> GenerateEnum(string name, string? label, string[]? values)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return ToolResult<object>.Fail("BAD_INPUT", "name is required.");
+        var vals = values?.Select((v, i) => new D365FO.Core.Scaffolding.EnumValueSpec(v, i, null)).ToList()
+                   ?? new List<D365FO.Core.Scaffolding.EnumValueSpec>();
+        var doc = D365FO.Core.Scaffolding.XppScaffolder.Enum(name, vals, label: label);
+        return ToolResult<object>.Success(new { name, xml = doc.ToString() });
+    }
+
+    public ToolResult<object> GenerateQuery(string name, string rootTable, string? label)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return ToolResult<object>.Fail("BAD_INPUT", "name is required.");
+        if (string.IsNullOrWhiteSpace(rootTable))
+            return ToolResult<object>.Fail("BAD_INPUT", "rootTable is required.");
+        var ds = new[] { new D365FO.Core.Scaffolding.QueryDataSourceSpec(rootTable) };
+        var doc = D365FO.Core.Scaffolding.QueryScaffolder.Query(name, ds);
+        return ToolResult<object>.Success(new { name, xml = doc.ToString() });
+    }
+
+    public ToolResult<object> GenerateSysOperation(string name, string executionMode)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return ToolResult<object>.Fail("BAD_INPUT", "name is required.");
+        var mode = Enum.TryParse<D365FO.Core.Scaffolding.SysOperationExecutionMode>(executionMode, true, out var m)
+            ? m : D365FO.Core.Scaffolding.SysOperationExecutionMode.Synchronous;
+        var contractName   = name + "Contract";
+        var serviceName    = name + "Service";
+        var controllerName = name + "Controller";
+        var serviceMethod  = "process";
+        var contract   = D365FO.Core.Scaffolding.SysOperationScaffolder.Contract(contractName);
+        var service    = D365FO.Core.Scaffolding.SysOperationScaffolder.Service(serviceName, contractName, serviceMethod);
+        var controller = D365FO.Core.Scaffolding.SysOperationScaffolder.Controller(controllerName, serviceName, serviceMethod, mode);
+        return ToolResult<object>.Success(new
+        {
+            name,
+            contract   = new { name = contractName,   xml = contract.ToString() },
+            service    = new { name = serviceName,     xml = service.ToString() },
+            controller = new { name = controllerName,  xml = controller.ToString() },
+        });
+    }
+
+    public ToolResult<object> GenerateBusinessEvent(string name, string? contractName, string category)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return ToolResult<object>.Fail("BAD_INPUT", "name is required.");
+        var cn = string.IsNullOrWhiteSpace(contractName) ? name + "Contract" : contractName!;
+        var eventDoc    = D365FO.Core.Scaffolding.BusinessEventScaffolder.EventClass(name, cn, category, null);
+        var contractDoc = D365FO.Core.Scaffolding.BusinessEventScaffolder.ContractClass(cn, new List<D365FO.Core.Scaffolding.PayloadSpec>());
+        return ToolResult<object>.Success(new
+        {
+            name,
+            @event   = new { name, xml = eventDoc.ToString() },
+            contract = new { name = cn, xml = contractDoc.ToString() },
+        });
+    }
+
+    public ToolResult<object> GenerateRunBase(string name, bool batch)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return ToolResult<object>.Fail("BAD_INPUT", "name is required.");
+        var doc = D365FO.Core.Scaffolding.RunBaseScaffolder.RunBaseClass(name, batch);
+        return ToolResult<object>.Success(new { name, isBatch = batch, xml = doc.ToString() });
+    }
+
+    public ToolResult<object> GenerateSecurityPolicy(string name, string constrainedTable, string? policyQuery)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return ToolResult<object>.Fail("BAD_INPUT", "name is required.");
+        if (string.IsNullOrWhiteSpace(constrainedTable))
+            return ToolResult<object>.Fail("BAD_INPUT", "constrainedTable is required.");
+        var pq = string.IsNullOrWhiteSpace(policyQuery) ? name + "Query" : policyQuery!;
+        var doc = D365FO.Core.Scaffolding.SecurityPolicyScaffolder.Policy(name, constrainedTable, pq);
+        return ToolResult<object>.Success(new { name, xml = doc.ToString() });
+    }
 }

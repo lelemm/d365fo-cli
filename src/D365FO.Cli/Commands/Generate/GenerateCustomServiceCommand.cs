@@ -1,0 +1,133 @@
+using D365FO.Core;
+using D365FO.Core.Scaffolding;
+using Spectre.Console.Cli;
+
+namespace D365FO.Cli.Commands.Generate;
+
+/// <summary>
+/// Scaffolds the D365FO custom SOAP service pattern: an <c>AxClass</c> service class,
+/// an <c>AxService</c> XML, and an <c>AxServiceGroup</c> XML. Produces three files.
+/// </summary>
+public sealed class GenerateCustomServiceCommand : Command<GenerateCustomServiceCommand.Settings>
+{
+    public sealed class Settings : GenerateSettings
+    {
+        [CommandArgument(0, "<NAME>")]
+        [System.ComponentModel.Description("Service name used to derive AxService name and default class/group names.")]
+        public string Name { get; init; } = "";
+
+        [CommandOption("--class-name <NAME>")]
+        [System.ComponentModel.Description("Service class name. Defaults to <NAME>Service.")]
+        public string? ClassName { get; init; }
+
+        [CommandOption("--group-name <NAME>")]
+        [System.ComponentModel.Description("Service group name. Defaults to <NAME>Group.")]
+        public string? GroupName { get; init; }
+
+        [CommandOption("--operation <SPEC>")]
+        [System.ComponentModel.Description("Repeatable: <name>:<returnType>. Defaults to 'process:void'.")]
+        public string[] Operations { get; init; } = Array.Empty<string>();
+
+        [CommandOption("--contract-param <SPEC>")]
+        [System.ComponentModel.Description("Contract parameter for all operations. Format: <ContractClass>. Applied as the sole parameter type on all generated methods.")]
+        public string? ContractParam { get; init; }
+
+        [CommandOption("--out-class <PATH>")]
+        [System.ComponentModel.Description("Output path for the service class XML. Defaults to sibling of --out.")]
+        public string? OutClass { get; init; }
+
+        [CommandOption("--out-service <PATH>")]
+        [System.ComponentModel.Description("Output path for the AxService XML. Defaults to sibling of --out.")]
+        public string? OutService { get; init; }
+
+        [CommandOption("--out-group <PATH>")]
+        [System.ComponentModel.Description("Output path for the AxServiceGroup XML. Defaults to sibling of --out.")]
+        public string? OutGroup { get; init; }
+    }
+
+    public override int Execute(CommandContext ctx, Settings settings)
+    {
+        var kind = OutputMode.Resolve(settings.Output);
+
+        if (string.IsNullOrWhiteSpace(settings.Name))
+            return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "Service name required."));
+
+        var className = string.IsNullOrWhiteSpace(settings.ClassName) ? settings.Name + "Service" : settings.ClassName!;
+        var groupName = string.IsNullOrWhiteSpace(settings.GroupName) ? settings.Name + "Group"   : settings.GroupName!;
+
+        var hasInstall = !string.IsNullOrWhiteSpace(settings.InstallTo);
+        var hasOut     = !string.IsNullOrWhiteSpace(settings.Out);
+        if (!hasInstall && !hasOut)
+            return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "--out or --install-to is required."));
+
+        // Resolve the three output paths.
+        string? servicePath, classPath, groupPath;
+        if (hasInstall && !hasOut)
+        {
+            servicePath = GenerateInstaller.ResolveInstallPath(kind, "AxService", settings.Name, settings.InstallTo!, out var f1);
+            if (f1.HasValue) return f1.Value;
+            classPath = string.IsNullOrWhiteSpace(settings.OutClass)
+                ? GenerateInstaller.ResolveInstallPath(kind, "AxClass", className, settings.InstallTo!, out _)
+                : settings.OutClass;
+            groupPath = string.IsNullOrWhiteSpace(settings.OutGroup)
+                ? GenerateInstaller.ResolveInstallPath(kind, "AxServiceGroup", groupName, settings.InstallTo!, out _)
+                : settings.OutGroup;
+        }
+        else
+        {
+            var dir = System.IO.Path.GetDirectoryName(settings.Out!)!;
+            servicePath = settings.Out!;
+            classPath   = settings.OutClass   ?? System.IO.Path.Combine(dir, className   + ".xml");
+            groupPath   = settings.OutGroup   ?? System.IO.Path.Combine(dir, groupName   + ".xml");
+        }
+
+        var ops = ParseOperations(settings.Operations, settings.ContractParam);
+
+        try
+        {
+            var classResult = ScaffoldFileWriter.Write(
+                CustomServiceScaffolder.ServiceClass(className, ops),
+                classPath!, settings.Overwrite);
+
+            var serviceResult = ScaffoldFileWriter.Write(
+                CustomServiceScaffolder.ServiceXml(settings.Name, className, ops),
+                servicePath!, settings.Overwrite);
+
+            var groupResult = ScaffoldFileWriter.Write(
+                CustomServiceScaffolder.ServiceGroupXml(groupName, settings.Name),
+                groupPath!, settings.Overwrite);
+
+            return RenderHelpers.Render(kind, ToolResult<object>.Success(new
+            {
+                kind           = "CustomService",
+                name           = settings.Name,
+                className,
+                groupName,
+                operationCount = ops.Count,
+                operations     = ops.Select(o => new { o.Name, o.ReturnType, o.ContractParam }).ToList(),
+                serviceClass   = new { path = classResult.Path,   bytes = classResult.Bytes,   backup = classResult.BackupPath },
+                service        = new { path = serviceResult.Path, bytes = serviceResult.Bytes, backup = serviceResult.BackupPath },
+                serviceGroup   = new { path = groupResult.Path,   bytes = groupResult.Bytes,   backup = groupResult.BackupPath },
+                model          = settings.InstallTo,
+            }));
+        }
+        catch (Exception ex)
+        {
+            return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.WriteFailed, ex.Message));
+        }
+    }
+
+    private static List<OperationSpec> ParseOperations(string[] raw, string? contractParam)
+    {
+        if (raw.Length == 0)
+            return new List<OperationSpec> { new OperationSpec("process", "void", contractParam) };
+
+        return raw.Select(s =>
+        {
+            var parts      = s.Split(':', 2, StringSplitOptions.TrimEntries);
+            var opName     = parts.Length > 0 ? parts[0] : s;
+            var returnType = parts.Length > 1 ? parts[1] : "void";
+            return new OperationSpec(opName, returnType, contractParam);
+        }).ToList();
+    }
+}

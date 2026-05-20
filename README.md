@@ -20,7 +20,7 @@ Every AI assistant hallucinates D365 field names, method signatures, and label I
 | Agent invents `CustTable.CustomerName` (doesn't exist) | `d365fo get table CustTable` returns the real field list in <100 ms |
 | CoC wrapper copies default-param values → compile error | `d365fo find coc Class::method` returns exact signature — no guessing |
 | Label IDs typed by hand → `BPErrorUnknownLabel` BP failures | `d365fo search label "customer account"` finds the right `@SYS…` token |
-| 54 MCP tool definitions burn ~2,900 tokens every turn | 1 shell command + lazy-loaded Skills ≈ 100 tokens per turn |
+| ~70 MCP tool definitions burn ~3,500 tokens every turn | 1 shell command + lazy-loaded Skills ≈ 100 tokens per turn |
 | Scaffolded XML missing ActionPane / QuickFilter / PatternVersion | `d365fo generate form` uses validated pattern templates |
 | `today()` in generated X++ → `BPUpgradeCodeToday` failure | Agent receives the X++ rule canon from `.github/copilot-instructions.md` |
 
@@ -205,11 +205,11 @@ Reference the `SKILL.md` files from `skills/anthropic/` in your session prompt o
 
 ## Why CLI instead of MCP?
 
-MCP servers inject every tool definition into the model's context on every single turn. For this project that used to be **54 tools ≈ 2,900 tokens every turn**.
+MCP servers inject every tool definition into the model's context on every single turn. For this project that used to be **54 tools ≈ 2,900 tokens every turn** — and now stands at ~70 tools as new commands have been added.
 
 | | MCP server | CLI + Skills |
 |---|---|---|
-| Tool definitions per turn | 54 tools (~2,900 tokens) | 1 shell tool (~100 tokens) |
+| Tool definitions per turn | ~70 tools (~3,500 tokens) | 1 shell tool (~100 tokens) |
 | Discovery round-trips | 2–3 per task | often 1 (`d365fo get table X`) |
 | Scriptable (shell, CI/CD) | No | Yes |
 | Works in any AI harness | No — MCP hosts only | Yes — Copilot, Claude, Codex, Gemini, … |
@@ -223,18 +223,18 @@ See [`docs/TOKEN_ECONOMICS.md`](docs/TOKEN_ECONOMICS.md) for the full analysis a
 
 | Group | Commands |
 |---|---|
-| **Index** | `index build`, `index extract`, `index refresh`, `index status` |
-| **Discover** | `search any`, `search batch`, `search class\|table\|edt\|enum\|form\|query\|view\|entity\|report\|service\|workflow\|label` |
-| **Get** | `get object`, `get table\|class\|edt\|enum\|form\|menu-item\|security\|label\|role\|duty\|privilege\|query\|view\|entity\|report\|service` |
+| **Index** | `index build`, `index extract`, `index refresh`, `index status`, `index export`, `index import`, `index optimize`, `index history` |
+| **Discover** | `search any`, `search batch`, `search class\|table\|edt\|enum\|form\|query\|view\|entity\|report\|service\|workflow\|label\|business-event\|security-policy\|configuration-key\|tile\|workspace` |
+| **Get** | `get object`, `get table\|class\|edt\|enum\|form\|menu-item\|security\|label\|role\|duty\|privilege\|query\|view\|entity\|report\|service\|business-event\|security-policy` |
 | **Find** | `find related`, `find coc`, `find relations`, `find usages`, `find extensions`, `find handlers`, `find refs`, `find form-patterns` |
 | **Read** | `read class`, `read table`, `read form` |
 | **Resolve** | `resolve label` |
-| **Generate** | `generate table\|class\|coc\|form\|entity\|extension\|event-handler\|privilege\|duty\|role` |
+| **Generate** | `generate table\|class\|coc\|form\|entity\|extension\|event-handler\|privilege\|duty\|role\|report\|sysoperation\|number-sequence\|workflow\|menu-item\|edt\|enum\|query\|business-event\|custom-service\|migration-script\|runbase\|security-policy` |
 | **Analyze** | `analyze completeness`, `lint`, `suggest extension` |
 | **Review** | `review diff` |
-| **Models** | `models list`, `models deps` |
+| **Models** | `models list`, `models deps`, `models coupling` |
 | **Agent** | `agent-prompt`, `schema` |
-| **Daemon** | `daemon start\|status\|stop` |
+| **Daemon** | `daemon start\|status\|stop\|warmup` |
 | **Ops (Windows VM)** | `build`, `sync`, `test run`, `bp check` |
 
 See [`docs/EXAMPLES.md`](docs/EXAMPLES.md) for one worked example per command.
@@ -247,7 +247,8 @@ See [`docs/EXAMPLES.md`](docs/EXAMPLES.md) for one worked example per command.
 |---|---|
 | [docs/SETUP.md](docs/SETUP.md) | Install, configure, verify — dev alias vs. self-contained distribution |
 | [docs/EXAMPLES.md](docs/EXAMPLES.md) | One worked example per command (discover, scaffold, review, ops, agents, daemon, CI) |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Index schema (v9), guardrails, bridge, daemon file watcher |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Index schema, AOT type coverage table (22 types), 16 lint rules, bridge, daemon file watcher |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common failures, SQLite locking, bridge issues, label detection, schema migration |
 | [docs/TOKEN_ECONOMICS.md](docs/TOKEN_ECONOMICS.md) | Why CLI+Skills is cheaper per turn, with numbers |
 | [docs/MIGRATION_FROM_MCP.md](docs/MIGRATION_FROM_MCP.md) | Coming from `d365fo-mcp-server`? Read this first |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Planned and deferred items |
@@ -264,7 +265,7 @@ See [`docs/EXAMPLES.md`](docs/EXAMPLES.md) for one worked example per command.
 | Index appears stale after editing XML | Run `d365fo index refresh --model <Model>` |
 | Index file locked | Stop any running `d365fo daemon` or `d365fo-mcp` process; WAL sidecar files (`-wal`, `-shm`) are normal |
 
-More in [docs/SETUP.md](docs/SETUP.md#troubleshooting).
+More in [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) and [docs/SETUP.md](docs/SETUP.md#troubleshooting).
 
 ---
 

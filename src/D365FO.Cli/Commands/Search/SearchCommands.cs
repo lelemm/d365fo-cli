@@ -267,6 +267,10 @@ public sealed class SearchAnyCommand : Command<SearchAnyCommand.Settings>
 
         [CommandOption("-l|--limit <N>")]
         public int Limit { get; init; } = 100;
+
+        [CommandOption("--kind <KINDS>")]
+        [System.ComponentModel.Description("Comma-separated kind filter, e.g. 'table,class,edt'. Omit to search all kinds.")]
+        public string? Kind { get; init; }
     }
 
     public override int Execute(CommandContext ctx, Settings settings)
@@ -275,8 +279,12 @@ public sealed class SearchAnyCommand : Command<SearchAnyCommand.Settings>
         if (string.IsNullOrWhiteSpace(settings.Query))
             return RenderHelpers.Render(kind, ToolResult<object>.Fail("BAD_INPUT", "Query required."));
 
+        var kinds = string.IsNullOrWhiteSpace(settings.Kind)
+            ? null
+            : settings.Kind.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
         var repo = RepoFactory.Create();
-        var rows = repo.FindUsages(settings.Query, settings.Limit)
+        var rows = repo.FindUsagesFiltered(settings.Query, kinds, settings.Limit)
             .Select(t => new { kind = t.Kind, name = t.Name, model = t.Model })
             .ToList();
         var byKind = rows.GroupBy(r => r.kind).ToDictionary(g => g.Key, g => g.Count());

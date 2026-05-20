@@ -77,9 +77,18 @@ public sealed record ExtractedTableDeleteAction(string? Name, string RelatedTabl
 public sealed record ExtractedClass(string Name, string? Extends, bool IsAbstract, bool IsFinal, string? SourcePath, IReadOnlyList<ExtractedMethod> Methods, string? Declaration = null)
 {
     public IReadOnlyList<ExtractedClassAttribute> Attributes { get; init; } = Array.Empty<ExtractedClassAttribute>();
+    // v12 class-level lint flags
+    public bool IsRunBaseBatch { get; init; }
+    public bool HasCanGoBatch { get; init; }
+    public bool HasPublicInstanceFields { get; init; }
 }
 public sealed record ExtractedMethod(string Name, string? Signature, string? ReturnType, bool IsStatic,
-    bool HasDocComment = false, bool HasTodayCall = false, bool HasDoInsertOrUpdate = false);
+    bool HasDocComment = false, bool HasTodayCall = false, bool HasDoInsertOrUpdate = false,
+    // v12 method-level lint flags
+    bool HasInsertInLoop = false, bool HasNestedSelect = false, bool HasForceLiterals = false,
+    bool HasForUpdateWithoutUpdate = false, bool HasTryCatchInTts = false, bool HasEmptyLoop = false,
+    // v12 table-method-only flag
+    bool IsEmptyOverride = false);
 public sealed record ExtractedClassAttribute(string? MethodName, string AttributeName, string RawArgs);
 public sealed record ExtractedEventSubscriber(
     string SubscriberClass,

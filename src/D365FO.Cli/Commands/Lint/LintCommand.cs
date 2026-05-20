@@ -17,7 +17,7 @@ public sealed class LintCommand : Command<LintCommand.Settings>
     public sealed class Settings : D365OutputSettings
     {
         [CommandOption("--category <NAMES>")]
-        [System.ComponentModel.Description("Comma/semicolon-separated subset of: table-no-index, ext-named-not-attributed, string-without-edt, today-usage, do-insert-update, doc-comment-missing.")]
+        [System.ComponentModel.Description("Comma/semicolon-separated subset of: table-no-index, ext-named-not-attributed, string-without-edt, today-usage, do-insert-update, doc-comment-missing, nested-select, insert-in-loop, tts-try-catch, empty-table-method, batch-no-cango, force-literals, public-instance-field, cache-lookup-mismatch, missing-delete-action, no-alternate-key.")]
         public string? Category { get; init; }
 
         [CommandOption("--all-models")]
@@ -31,7 +31,10 @@ public sealed class LintCommand : Command<LintCommand.Settings>
 
     private static readonly string[] All =
         { "table-no-index", "ext-named-not-attributed", "string-without-edt",
-          "today-usage", "do-insert-update", "doc-comment-missing" };
+          "today-usage", "do-insert-update", "doc-comment-missing",
+          "nested-select", "insert-in-loop", "tts-try-catch", "empty-table-method",
+          "batch-no-cango", "force-literals", "public-instance-field",
+          "cache-lookup-mismatch", "missing-delete-action", "no-alternate-key" };
 
     public override int Execute(CommandContext ctx, Settings settings)
     {
@@ -49,12 +52,22 @@ public sealed class LintCommand : Command<LintCommand.Settings>
         {
             IReadOnlyList<LintHit> hits = cat switch
             {
-                "table-no-index" => repo.FindTablesWithoutIndex(onlyCustom),
+                "table-no-index"          => repo.FindTablesWithoutIndex(onlyCustom),
                 "ext-named-not-attributed" => repo.FindExtensionNamedButNotAttributed(onlyCustom),
-                "string-without-edt" => repo.FindStringFieldsWithoutEdt(onlyCustom),
-                "today-usage" => repo.FindTodayCallMethods(onlyCustom),
-                "do-insert-update" => repo.FindDoInsertOrUpdateMethods(onlyCustom),
-                "doc-comment-missing" => repo.FindMissingDocCommentMethods(onlyCustom),
+                "string-without-edt"      => repo.FindStringFieldsWithoutEdt(onlyCustom),
+                "today-usage"             => repo.FindTodayCallMethods(onlyCustom),
+                "do-insert-update"        => repo.FindDoInsertOrUpdateMethods(onlyCustom),
+                "doc-comment-missing"     => repo.FindMissingDocCommentMethods(onlyCustom),
+                "nested-select"           => repo.FindNestedSelectMethods(onlyCustom),
+                "insert-in-loop"          => repo.FindInsertInLoopMethods(onlyCustom),
+                "tts-try-catch"           => repo.FindTtsTryCatchMethods(onlyCustom),
+                "empty-table-method"      => repo.FindEmptyTableMethodOverrides(onlyCustom),
+                "batch-no-cango"          => repo.FindRunBaseBatchWithoutCanGoBatch(onlyCustom),
+                "force-literals"          => repo.FindForceLiteralsMethods(onlyCustom),
+                "public-instance-field"   => repo.FindPublicInstanceFieldClasses(onlyCustom),
+                "cache-lookup-mismatch"   => repo.FindCacheLookupMismatches(onlyCustom),
+                "missing-delete-action"   => repo.FindMissingDeleteActions(onlyCustom),
+                "no-alternate-key"        => repo.FindTablesWithoutAlternateKey(onlyCustom),
                 _ => Array.Empty<LintHit>(),
             };
             hitsByCat[cat] = hits;
@@ -116,6 +129,26 @@ public sealed class LintCommand : Command<LintCommand.Settings>
             "doInsert()/doUpdate()/doDelete() bypass overridden table methods and framework validation. Reserved for data-fix/migration scripts."),
         ["doc-comment-missing"] = ("note", "BPXmlDocNoDocumentationComments",
             "Public/protected methods should carry a meaningful /// <summary> XML doc comment."),
+        ["nested-select"] = ("warning", "NestedSelectStatement",
+            "Methods containing two or more 'while select' loops may indicate a nested query that should be replaced with a joined query."),
+        ["insert-in-loop"] = ("warning", "InsertInLoop",
+            ".insert() called inside a loop can cause excessive database round-trips. Use RecordInsertList/set-based operations instead."),
+        ["tts-try-catch"] = ("error", "TryCatchInsideTts",
+            "try/catch inside a ttsbegin/ttscommit block can silently swallow transaction errors. Handle exceptions outside the transaction scope."),
+        ["empty-table-method"] = ("note", "EmptyTableMethodOverride",
+            "Table method override has an empty body. Either implement the override or remove it to avoid confusion."),
+        ["batch-no-cango"] = ("warning", "RunBaseBatchMissingCanGoBatch",
+            "Classes extending RunBaseBatch should override canGoBatch() to return true to enable batch scheduling."),
+        ["force-literals"] = ("warning", "ForceLiteralsUsage",
+            "forceLiterals bypasses query parameter safety and can cause SQL injection risks. Use forcePlaceholders instead."),
+        ["public-instance-field"] = ("note", "PublicInstanceField",
+            "Public instance fields violate encapsulation. Use private/protected fields with accessor methods."),
+        ["cache-lookup-mismatch"] = ("note", "CacheLookupSet",
+            "Table has a non-default CacheLookup setting. Verify it is appropriate for the table's usage pattern."),
+        ["missing-delete-action"] = ("warning", "MissingDeleteAction",
+            "Table relation without a delete action may leave orphaned records. Add a delete action (Cascade/Restricted/Cascade+Restricted)."),
+        ["no-alternate-key"] = ("note", "UniqueIndexWithoutAlternateKey",
+            "Table has a unique index but no AlternateKey index. AlternateKey enables the framework to use the index as a surrogate key."),
     };
 
     private static object BuildSarif(Dictionary<string, IReadOnlyList<LintHit>> hitsByCat)

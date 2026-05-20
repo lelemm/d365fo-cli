@@ -89,10 +89,19 @@ When the user just wants to *understand* code, never edit:
 | Search multiple names at once | `d365fo search batch <q1> <q2> … --output json` |
 | Generic object fetch (agent shortcut) | `d365fo get object <kind> <name> --output json` |
 | Generic relation lookup (agent shortcut) | `d365fo find related <relation> <name> --output json` |
+| Find business events by name or category | `d365fo search business-event <query> --output json` |
+| Inspect a business event's contract class | `d365fo get business-event <Name> --output json` |
+| Find XDS security policies | `d365fo search security-policy <query> --output json` |
+| Inspect an XDS security policy | `d365fo get security-policy <Name> --output json` |
+| Find configuration keys | `d365fo search configuration-key <query> --output json` |
+| Find tiles by name | `d365fo search tile <query> --output json` |
+| Find workspace descriptors | `d365fo search workspace <query> --output json` |
 
 > **`--output json` is mandatory** in agent contexts. Without it the CLI may render rich console output that wastes tokens.
 
 ## 🧱 Scaffolding catalog
+
+### Core objects
 
 | Need | Command |
 |---|---|
@@ -104,6 +113,28 @@ When the user just wants to *understand* code, never edit:
 | Object extension (Table / Form / Edt / Enum) | `d365fo generate extension <Kind> <Target> <Suffix> --out …` |
 | Event handler class | `d365fo generate event-handler --source-kind <K> --source <Object> --event <E> --out …` |
 | Security: privilege / duty / role | `d365fo generate privilege/duty/role <Name> [--into-role <Role>] --out …` |
+
+### Phase 2 — additional scaffolding
+
+| Need | Command |
+|---|---|
+| SysOperation batch job (contract + service + controller) | `d365fo generate sysoperation <Name> --param "name:EdtType" --execution-mode Asynchronous --out-contract … --out-service … --out …` |
+| Number sequence integration (module extension + EDT + form handler) | `d365fo generate number-sequence <ModuleName> --edt <EdtName> --scope Company --table <Table> --out … --out-edt … --out-handler …` |
+| Workflow type (workflow XML + document class + submit stub) | `d365fo generate workflow <Name> --table <T> --approval-name <A> --out … --out-document … --out-submit …` |
+| Display / Action / Output menu item | `d365fo generate menu-item <Name> --kind Display --object <FormName> --object-type Form --label "@File:Key" --out …` |
+| EDT (Extended Data Type) | `d365fo generate edt <Name> --base-type String --size 20 --label "@File:Key" [--extends <BaseEdt>] --out …` |
+| Enum (extensible by default) | `d365fo generate enum <Name> --value "None:0:@SYS000" --value "Active:1:@SYS001" --out …` |
+| AOT Query with joins | `d365fo generate query <Name> --ds <RootTable> --join "<Table>:<JoinKind>:<ParentDs>" --out …` |
+
+### Phase 6 — integration and migration scaffolding
+
+| Need | Command |
+|---|---|
+| Custom business event (event class + contract class) | `d365fo generate business-event <Name> --contract-name <Contract> --payload "field:EdtType" --category <Cat> --primary-table <T> --out … --out-contract …` |
+| Custom JSON/SOAP service (service XML + class + service group) | `d365fo generate custom-service <Name> --class-name <Class> --group-name <Group> --operation "method:ReturnType" --out … --out-class … --out-group …` |
+| Data migration runnable with batching | `d365fo generate migration-script <Name> --source-table <Src> --target-table <Tgt> --batch-size 500 --mode Upsert --out …` |
+| Legacy RunBase/RunBaseBatch class | `d365fo generate runbase <Name> [--batch] --dialog-param "name:EdtType" --out …` |
+| XDS security policy | `d365fo generate security-policy <Name> --constrained-table <T> --policy-query <Q> --operation Select --context-type RoleName --context-value <Role> --out …` |
 
 `--install-to <Model>` swaps `--out` for atomic install into the model folder via the bridge.
 

@@ -440,3 +440,21 @@ public sealed class FindRelatedCommand : Command<FindRelatedCommand.Settings>
     private static int RenderItems<T>(OutputMode.Kind output, IReadOnlyList<T> items)
         => RenderHelpers.Render(output, ToolResult<object>.Success(new { count = items.Count, items }));
 }
+
+/// <summary>Find all RunBaseBatch / SysOperationServiceController subclasses in the index.</summary>
+public sealed class FindBatchJobsCommand : Command<FindBatchJobsCommand.Settings>
+{
+    public sealed class Settings : D365OutputSettings
+    {
+        [CommandOption("--model <NAME>")]
+        [System.ComponentModel.Description("Restrict to a single model.")]
+        public string? Model { get; init; }
+    }
+
+    public override int Execute(CommandContext ctx, Settings settings)
+    {
+        var kind = OutputMode.Resolve(settings.Output);
+        var jobs = RepoFactory.Create().FindBatchJobs(settings.Model);
+        return RenderHelpers.Render(kind, ToolResult<object>.Success(new { count = jobs.Count, items = jobs }));
+    }
+}

@@ -458,6 +458,10 @@ public sealed class MetadataExtractor
         };
     }
 
+    private static readonly System.Text.RegularExpressions.Regex PublicInstanceFieldRx = new(
+        @"^\s*public\s+\w[\w\s]*\s+\w+\s*;",
+        System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.Compiled);
+
     private static ExtractedClass? ParseClass(XDocument doc, string file)
     {
         var root = doc.Root;
@@ -483,16 +487,43 @@ public sealed class MetadataExtractor
                 attributes.Add(new ExtractedClassAttribute(mname, a.Name, a.Args));
         }
 
+        // v12: class-level lint flags
+        var isRunBaseBatch = string.Equals(extends, "RunBaseBatch", StringComparison.OrdinalIgnoreCase);
+        // HasCanGoBatch: class has a canGoBatch method that returns true
+        var hasCanGoBatch = false;
+        foreach (var (cbName, cbSrc) in methodSources)
+        {
+            if (string.Equals(cbName, "canGoBatch", StringComparison.OrdinalIgnoreCase))
+            {
+                if (cbSrc.Contains("return true", StringComparison.OrdinalIgnoreCase))
+                {
+                    hasCanGoBatch = true;
+                    break;
+                }
+            }
+        }
+        var hasPublicInstanceFields = !string.IsNullOrEmpty(decl) && PublicInstanceFieldRx.IsMatch(decl);
+
         return new ExtractedClass(name, extends, isAbstract, isFinal, file, methods, decl)
         {
             Attributes = attributes,
+            IsRunBaseBatch = isRunBaseBatch,
+            HasCanGoBatch = hasCanGoBatch,
+            HasPublicInstanceFields = hasPublicInstanceFields,
         };
     }
 
     private static IReadOnlyList<ExtractedMethod> ExtractMethods(XElement root)
     {
-        var (methods, _) = ExtractMethodsWithSources(root);
-        return methods;
+        var (methods, sources) = ExtractMethodsWithSources(root);
+        // For table methods, apply the IsEmptyOverride flag based on body contents.
+        var result = new List<ExtractedMethod>(methods.Count);
+        for (int i = 0; i < methods.Count; i++)
+        {
+            var src = i < sources.Count ? sources[i].Item2 : string.Empty;
+            result.Add(methods[i] with { IsEmptyOverride = IsMethodBodyEmpty(src) });
+        }
+        return result;
     }
 
     private static (IReadOnlyList<ExtractedMethod> Methods, List<(string Name, string Source)> Sources) ExtractMethodsWithSources(XElement root)
@@ -526,11 +557,114 @@ public sealed class MetadataExtractor
             var hasDoInsertUpdate = codeOnly.Contains("doInsert(", StringComparison.OrdinalIgnoreCase)
                                  || codeOnly.Contains("doUpdate(", StringComparison.OrdinalIgnoreCase)
                                  || codeOnly.Contains("doDelete(", StringComparison.OrdinalIgnoreCase);
+
+            // v12 lint flags
+            var hasInsertInLoop         = ContainsInsertInLoop(codeOnly);
+            var hasNestedSelect         = ContainsNestedSelect(codeOnly);
+            var hasForceLiterals        = codeOnly.Contains("forceLiterals", StringComparison.OrdinalIgnoreCase);
+            var hasForUpdateWithoutUpdate = HasForUpdateWithoutUpdateCall(codeOnly);
+            var hasTryCatchInTts        = HasTryCatchInsideTts(codeOnly);
+            var hasEmptyLoop            = HasEmptyLoopBody(codeOnly);
+            // IsEmptyOverride is only meaningful for table methods; always false here.
+
             methods.Add(new ExtractedMethod(mname!, signature, returnType, isStatic,
-                hasDocComment, hasTodayCall, hasDoInsertUpdate));
+                hasDocComment, hasTodayCall, hasDoInsertUpdate,
+                hasInsertInLoop, hasNestedSelect, hasForceLiterals,
+                hasForUpdateWithoutUpdate, hasTryCatchInTts, hasEmptyLoop,
+                IsEmptyOverride: false));
             sources.Add((mname!, source));
         }
         return (methods, sources);
+    }
+
+    // ---- v12 lint heuristic helpers ----
+
+    /// <summary>
+    /// Heuristic: flags a method that calls .insert() AND contains a loop
+    /// keyword. A full parser would be needed for perfect accuracy; for lint
+    /// purposes the false-positive rate is acceptable.
+    /// </summary>
+    private static bool ContainsInsertInLoop(string stripped)
+    {
+        if (!stripped.Contains(".insert(", StringComparison.OrdinalIgnoreCase)) return false;
+        return stripped.Contains("while ", StringComparison.OrdinalIgnoreCase)
+            || stripped.Contains("for(", StringComparison.OrdinalIgnoreCase)
+            || stripped.Contains("for (", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Heuristic: if a method body contains two or more "while select" phrases,
+    /// it likely nests queries.
+    /// </summary>
+    private static bool ContainsNestedSelect(string stripped)
+    {
+        int idx = 0, count = 0;
+        while ((idx = stripped.IndexOf("while select", idx, StringComparison.OrdinalIgnoreCase)) >= 0)
+        {
+            count++;
+            if (count >= 2) return true;
+            idx++;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Heuristic: forUpdate in a select statement but no subsequent .update()/.delete()/.write().
+    /// Only fires when the method also contains a "select" keyword.
+    /// </summary>
+    private static bool HasForUpdateWithoutUpdateCall(string stripped)
+    {
+        if (!stripped.Contains("forUpdate", StringComparison.OrdinalIgnoreCase)) return false;
+        if (!stripped.Contains("select", StringComparison.OrdinalIgnoreCase)) return false;
+        var hasWrite = stripped.Contains(".update(", StringComparison.OrdinalIgnoreCase)
+                    || stripped.Contains(".delete(", StringComparison.OrdinalIgnoreCase)
+                    || stripped.Contains(".write(", StringComparison.OrdinalIgnoreCase);
+        return !hasWrite;
+    }
+
+    /// <summary>
+    /// Heuristic: a try block inside a ttsbegin…ttscommit scope.
+    /// </summary>
+    private static bool HasTryCatchInsideTts(string stripped)
+    {
+        return stripped.Contains("ttsbegin", StringComparison.OrdinalIgnoreCase)
+            && stripped.Contains("try", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex EmptyLoopRx = new(
+        @"(while|for)\s*\([^)]*\)\s*\{\s*\}",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// Heuristic: while/for loop with an immediately empty body `{ }`.
+    /// </summary>
+    private static bool HasEmptyLoopBody(string stripped) => EmptyLoopRx.IsMatch(stripped);
+
+    /// <summary>
+    /// Checks whether a method body is effectively empty (only whitespace or
+    /// a bare `{}`). Used to flag table-method overrides that do nothing.
+    /// </summary>
+    private static bool IsMethodBodyEmpty(string source)
+    {
+        // Remove the first non-empty line (signature), then check what's left.
+        using var reader = new StringReader(source);
+        bool pastSignature = false;
+        var bodyLines = new System.Text.StringBuilder();
+        string? line;
+        while ((line = reader.ReadLine()) is not null)
+        {
+            if (!pastSignature)
+            {
+                var t = line.Trim();
+                if (t.Length > 0) { pastSignature = true; continue; }
+                continue;
+            }
+            bodyLines.Append(line);
+        }
+        var body = bodyLines.ToString()
+            .Replace("{", "").Replace("}", "")
+            .Replace(";", "").Trim();
+        return body.Length == 0;
     }
 
     private static ExtractedEdt? ParseEdt(XDocument doc, string file)

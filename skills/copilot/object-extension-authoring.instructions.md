@@ -57,6 +57,57 @@ hand-edit the XML to add `<Fields>`, `<Controls>`, `<EnumValues>`, etc.
 Re-run `d365fo index refresh --model <Model>` so subsequent
 `d365fo get` calls reflect the changes.
 
+## Scaffolding new EDTs and enums
+
+When you need a standalone EDT or enum (not an extension of an existing one), use the generate commands directly:
+
+```sh
+# New string EDT — check for an existing one first
+d365fo search edt <NamePart> --output json
+
+d365fo generate edt CustCustomId \
+  --base-type String --size 20 --label "@MyModel:CustCustomId" \
+  --out c:/AOT/MyModel/AxEdt/CustCustomId.xml
+
+# Derive from an existing EDT (inherits base type and format)
+d365fo generate edt CustCustomAccount \
+  --extends CustAccount \
+  --label "@MyModel:CustCustomAccount" \
+  --out c:/AOT/MyModel/AxEdt/CustCustomAccount.xml
+
+# New extensible enum — check for existing first
+d365fo search enum <NamePart> --output json
+
+d365fo generate enum CustCustomStatus \
+  --value "None:0:@SYS000" --value "Active:1:@SYS001" --value "Closed:2:@SYS002" \
+  --out c:/AOT/MyModel/AxEnum/CustCustomStatus.xml
+```
+
+`--base-type` accepts `String`, `Integer`, `Real`, `Int64`, `Date`, `UtcDateTime`, `Enum`, `Guid`. Enums are `IsExtensible=Yes` by default — pass `--no-extensible` to opt out.
+
+## XDS Security Policy scaffolding
+
+When adding row-level security via Extensible Data Security (XDS):
+
+```sh
+# Check for existing policies on the same table first
+d365fo search security-policy <ConstrainedTableName> --output json
+
+d365fo generate security-policy CustCustomSecurityPolicy \
+  --constrained-table CustCustomTable \
+  --policy-query CustCustomPolicyQuery \
+  --operation Select \
+  --context-type RoleName --context-value CustCustomRole \
+  --out c:/AOT/MyModel/AxSecurityPolicy/CustCustomSecurityPolicy.xml
+```
+
+`--operation` accepts `All`, `Select`, `Insert`, `Update`, `Delete`. The policy query (`--policy-query`) is a separate `AxQuery` AOT object that must already exist or be scaffolded with `d365fo generate query`.
+
+After scaffolding, verify with:
+```sh
+d365fo get security-policy CustCustomSecurityPolicy --output json
+```
+
 ## Hard rules
 
 - Never have two extensions with the same `<Target>.<Suffix>` in the same
@@ -68,4 +119,6 @@ Re-run `d365fo index refresh --model <Model>` so subsequent
   contractual permission.
 - Always pass labels (`@File:Key`) for added fields' captions — never
   hardcoded text (BP `BPErrorLabelIsText`).
+- Never guess EDT base types — `d365fo get edt <Name>` first.
+- Always check for existing security policies before adding a new one — `d365fo search security-policy` first.
 - After scaffolding, run `d365fo build` only on user request.

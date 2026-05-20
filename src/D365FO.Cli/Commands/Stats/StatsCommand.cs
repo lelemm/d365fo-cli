@@ -17,12 +17,27 @@ public sealed class StatsCommand : Command<StatsCommand.Settings>
         [CommandOption("-n|--top <N>")]
         [System.ComponentModel.Description("Rows to return per ranking section (default 10).")]
         public int TopN { get; init; } = 10;
+
+        [CommandOption("--perf")]
+        [System.ComponentModel.Description("Show per-command execution time summary instead of index statistics.")]
+        public bool Perf { get; init; }
     }
 
     public override int Execute(CommandContext ctx, Settings settings)
     {
         var kind = OutputMode.Resolve(settings.Output);
         var repo = RepoFactory.Create();
+
+        if (settings.Perf)
+        {
+            var timings = repo.GetCommandTimings(settings.TopN > 0 ? settings.TopN : 50);
+            return RenderHelpers.Render(kind, ToolResult<object>.Success(new
+            {
+                count = timings.Count,
+                timings,
+            }));
+        }
+
         var stats = repo.GetStats(settings.TopN);
         var counts = repo.CountAll();
 

@@ -14,7 +14,7 @@ namespace D365FO.Core.Index;
 public sealed class MetadataRepository
 {
     /// <summary>Current schema version tracked in PRAGMA user_version.</summary>
-    public const int CurrentSchemaVersion = 11;
+    public const int CurrentSchemaVersion = 13;
 
     private static readonly Lazy<string> SchemaSql = new(LoadEmbeddedSchema);
 
@@ -204,6 +204,42 @@ public sealed class MetadataRepository
                 if (!edtCols.Contains("FormHelp"))       conn.Execute("ALTER TABLE Edts ADD COLUMN FormHelp TEXT", transaction: tx);
                 if (!edtCols.Contains("AnalysisUsage"))  conn.Execute("ALTER TABLE Edts ADD COLUMN AnalysisUsage TEXT", transaction: tx);
                 if (!edtCols.Contains("EnumType"))       conn.Execute("ALTER TABLE Edts ADD COLUMN EnumType TEXT", transaction: tx);
+            }
+        }
+
+        if (current < 12)
+        {
+            // v12: Additional lint-flag columns on Methods, TableMethods, and Classes.
+            var methodCols12 = conn.Query<string>("SELECT name FROM pragma_table_info('Methods')", transaction: tx)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (methodCols12.Count > 0)
+            {
+                if (!methodCols12.Contains("HasInsertInLoop"))           conn.Execute("ALTER TABLE Methods ADD COLUMN HasInsertInLoop           INTEGER NOT NULL DEFAULT 0", transaction: tx);
+                if (!methodCols12.Contains("HasNestedSelect"))           conn.Execute("ALTER TABLE Methods ADD COLUMN HasNestedSelect           INTEGER NOT NULL DEFAULT 0", transaction: tx);
+                if (!methodCols12.Contains("HasForceLiterals"))          conn.Execute("ALTER TABLE Methods ADD COLUMN HasForceLiterals          INTEGER NOT NULL DEFAULT 0", transaction: tx);
+                if (!methodCols12.Contains("HasForUpdateWithoutUpdate")) conn.Execute("ALTER TABLE Methods ADD COLUMN HasForUpdateWithoutUpdate INTEGER NOT NULL DEFAULT 0", transaction: tx);
+                if (!methodCols12.Contains("HasTryCatchInTts"))          conn.Execute("ALTER TABLE Methods ADD COLUMN HasTryCatchInTts          INTEGER NOT NULL DEFAULT 0", transaction: tx);
+                if (!methodCols12.Contains("HasEmptyLoop"))              conn.Execute("ALTER TABLE Methods ADD COLUMN HasEmptyLoop              INTEGER NOT NULL DEFAULT 0", transaction: tx);
+            }
+
+            var tmCols12 = conn.Query<string>("SELECT name FROM pragma_table_info('TableMethods')", transaction: tx)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (tmCols12.Count > 0)
+            {
+                if (!tmCols12.Contains("IsEmptyOverride"))  conn.Execute("ALTER TABLE TableMethods ADD COLUMN IsEmptyOverride  INTEGER NOT NULL DEFAULT 0", transaction: tx);
+                if (!tmCols12.Contains("HasInsertInLoop"))  conn.Execute("ALTER TABLE TableMethods ADD COLUMN HasInsertInLoop  INTEGER NOT NULL DEFAULT 0", transaction: tx);
+                if (!tmCols12.Contains("HasNestedSelect"))  conn.Execute("ALTER TABLE TableMethods ADD COLUMN HasNestedSelect  INTEGER NOT NULL DEFAULT 0", transaction: tx);
+                if (!tmCols12.Contains("HasForceLiterals")) conn.Execute("ALTER TABLE TableMethods ADD COLUMN HasForceLiterals INTEGER NOT NULL DEFAULT 0", transaction: tx);
+                if (!tmCols12.Contains("HasTryCatchInTts")) conn.Execute("ALTER TABLE TableMethods ADD COLUMN HasTryCatchInTts INTEGER NOT NULL DEFAULT 0", transaction: tx);
+            }
+
+            var classCols12 = conn.Query<string>("SELECT name FROM pragma_table_info('Classes')", transaction: tx)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (classCols12.Count > 0)
+            {
+                if (!classCols12.Contains("IsRunBaseBatch"))          conn.Execute("ALTER TABLE Classes ADD COLUMN IsRunBaseBatch          INTEGER NOT NULL DEFAULT 0", transaction: tx);
+                if (!classCols12.Contains("HasCanGoBatch"))           conn.Execute("ALTER TABLE Classes ADD COLUMN HasCanGoBatch           INTEGER NOT NULL DEFAULT 0", transaction: tx);
+                if (!classCols12.Contains("HasPublicInstanceFields")) conn.Execute("ALTER TABLE Classes ADD COLUMN HasPublicInstanceFields INTEGER NOT NULL DEFAULT 0", transaction: tx);
             }
         }
 
@@ -754,6 +790,229 @@ public sealed class MetadataRepository
             .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)).ToList();
     }
 
+    // ---- v12 lint methods ----
+
+    /// <summary>
+    /// Methods that use "while select" two or more times (nested queries).
+    /// </summary>
+    public IReadOnlyList<LintHit> FindNestedSelectMethods(bool onlyCustom = true)
+    {
+        using var conn = OpenReadOnly();
+        var rows = new List<LintHit>();
+        rows.AddRange(conn.Query(@"
+            SELECT (c.Name || '::' || mt.Name) AS TargetName, m.Name AS Model, 'Class method' AS Detail
+            FROM Methods mt
+            JOIN Classes c ON c.ClassId = mt.ClassId
+            JOIN Models m ON m.ModelId = c.ModelId
+            WHERE mt.HasNestedSelect = 1
+              AND (@only = 0 OR m.IsCustom = 1)
+            ORDER BY c.Name, mt.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)));
+        rows.AddRange(conn.Query(@"
+            SELECT (t.Name || '::' || tm.Name) AS TargetName, m.Name AS Model, 'Table method' AS Detail
+            FROM TableMethods tm
+            JOIN Tables t ON t.TableId = tm.TableId
+            JOIN Models m ON m.ModelId = t.ModelId
+            WHERE tm.HasNestedSelect = 1
+              AND (@only = 0 OR m.IsCustom = 1)
+            ORDER BY t.Name, tm.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)));
+        return rows;
+    }
+
+    /// <summary>
+    /// Methods that call .insert() inside a loop.
+    /// </summary>
+    public IReadOnlyList<LintHit> FindInsertInLoopMethods(bool onlyCustom = true)
+    {
+        using var conn = OpenReadOnly();
+        var rows = new List<LintHit>();
+        rows.AddRange(conn.Query(@"
+            SELECT (c.Name || '::' || mt.Name) AS TargetName, m.Name AS Model, 'Class method' AS Detail
+            FROM Methods mt
+            JOIN Classes c ON c.ClassId = mt.ClassId
+            JOIN Models m ON m.ModelId = c.ModelId
+            WHERE mt.HasInsertInLoop = 1
+              AND (@only = 0 OR m.IsCustom = 1)
+            ORDER BY c.Name, mt.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)));
+        rows.AddRange(conn.Query(@"
+            SELECT (t.Name || '::' || tm.Name) AS TargetName, m.Name AS Model, 'Table method' AS Detail
+            FROM TableMethods tm
+            JOIN Tables t ON t.TableId = tm.TableId
+            JOIN Models m ON m.ModelId = t.ModelId
+            WHERE tm.HasInsertInLoop = 1
+              AND (@only = 0 OR m.IsCustom = 1)
+            ORDER BY t.Name, tm.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)));
+        return rows;
+    }
+
+    /// <summary>
+    /// Methods with a try block inside a ttsbegin/ttscommit scope.
+    /// </summary>
+    public IReadOnlyList<LintHit> FindTtsTryCatchMethods(bool onlyCustom = true)
+    {
+        using var conn = OpenReadOnly();
+        var rows = new List<LintHit>();
+        rows.AddRange(conn.Query(@"
+            SELECT (c.Name || '::' || mt.Name) AS TargetName, m.Name AS Model, 'Class method' AS Detail
+            FROM Methods mt
+            JOIN Classes c ON c.ClassId = mt.ClassId
+            JOIN Models m ON m.ModelId = c.ModelId
+            WHERE mt.HasTryCatchInTts = 1
+              AND (@only = 0 OR m.IsCustom = 1)
+            ORDER BY c.Name, mt.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)));
+        rows.AddRange(conn.Query(@"
+            SELECT (t.Name || '::' || tm.Name) AS TargetName, m.Name AS Model, 'Table method' AS Detail
+            FROM TableMethods tm
+            JOIN Tables t ON t.TableId = tm.TableId
+            JOIN Models m ON m.ModelId = t.ModelId
+            WHERE tm.HasTryCatchInTts = 1
+              AND (@only = 0 OR m.IsCustom = 1)
+            ORDER BY t.Name, tm.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)));
+        return rows;
+    }
+
+    /// <summary>
+    /// Table methods that override a base method but have an empty body.
+    /// </summary>
+    public IReadOnlyList<LintHit> FindEmptyTableMethodOverrides(bool onlyCustom = true)
+    {
+        using var conn = OpenReadOnly();
+        return conn.Query(@"
+            SELECT (t.Name || '::' || tm.Name) AS TargetName, m.Name AS Model, 'Empty method override' AS Detail
+            FROM TableMethods tm
+            JOIN Tables t ON t.TableId = tm.TableId
+            JOIN Models m ON m.ModelId = t.ModelId
+            WHERE tm.IsEmptyOverride = 1
+              AND (@only = 0 OR m.IsCustom = 1)
+            ORDER BY t.Name, tm.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)).ToList();
+    }
+
+    /// <summary>
+    /// Classes extending RunBaseBatch that do not have a canGoBatch() method returning true.
+    /// </summary>
+    public IReadOnlyList<LintHit> FindRunBaseBatchWithoutCanGoBatch(bool onlyCustom = true)
+    {
+        using var conn = OpenReadOnly();
+        return conn.Query(@"
+            SELECT c.Name AS TargetName, m.Name AS Model, 'Extends RunBaseBatch but canGoBatch() not detected' AS Detail
+            FROM Classes c
+            JOIN Models m ON m.ModelId = c.ModelId
+            WHERE c.IsRunBaseBatch = 1
+              AND c.HasCanGoBatch = 0
+              AND (@only = 0 OR m.IsCustom = 1)
+            ORDER BY c.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)).ToList();
+    }
+
+    /// <summary>
+    /// Methods that use the forceLiterals keyword (bypasses query param safety).
+    /// </summary>
+    public IReadOnlyList<LintHit> FindForceLiteralsMethods(bool onlyCustom = true)
+    {
+        using var conn = OpenReadOnly();
+        var rows = new List<LintHit>();
+        rows.AddRange(conn.Query(@"
+            SELECT (c.Name || '::' || mt.Name) AS TargetName, m.Name AS Model, 'Class method' AS Detail
+            FROM Methods mt
+            JOIN Classes c ON c.ClassId = mt.ClassId
+            JOIN Models m ON m.ModelId = c.ModelId
+            WHERE mt.HasForceLiterals = 1
+              AND (@only = 0 OR m.IsCustom = 1)
+            ORDER BY c.Name, mt.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)));
+        rows.AddRange(conn.Query(@"
+            SELECT (t.Name || '::' || tm.Name) AS TargetName, m.Name AS Model, 'Table method' AS Detail
+            FROM TableMethods tm
+            JOIN Tables t ON t.TableId = tm.TableId
+            JOIN Models m ON m.ModelId = t.ModelId
+            WHERE tm.HasForceLiterals = 1
+              AND (@only = 0 OR m.IsCustom = 1)
+            ORDER BY t.Name, tm.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)));
+        return rows;
+    }
+
+    /// <summary>
+    /// Classes that have public instance fields (should be private/protected with accessors).
+    /// </summary>
+    public IReadOnlyList<LintHit> FindPublicInstanceFieldClasses(bool onlyCustom = true)
+    {
+        using var conn = OpenReadOnly();
+        return conn.Query(@"
+            SELECT c.Name AS TargetName, m.Name AS Model, 'Class has public instance fields' AS Detail
+            FROM Classes c
+            JOIN Models m ON m.ModelId = c.ModelId
+            WHERE c.HasPublicInstanceFields = 1
+              AND (@only = 0 OR m.IsCustom = 1)
+            ORDER BY c.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)).ToList();
+    }
+
+    /// <summary>
+    /// Tables where CacheLookup is set but the value may not be appropriate
+    /// (e.g. EntireTable on a frequently-updated table). Flags tables with
+    /// CacheLookup = 'EntireTable' as a simple conservative heuristic.
+    /// </summary>
+    public IReadOnlyList<LintHit> FindCacheLookupMismatches(bool onlyCustom = true)
+    {
+        using var conn = OpenReadOnly();
+        return conn.Query(@"
+            SELECT t.Name AS TargetName, m.Name AS Model, ('CacheLookup=' || t.CacheLookup) AS Detail
+            FROM Tables t
+            JOIN Models m ON m.ModelId = t.ModelId
+            WHERE t.CacheLookup IS NOT NULL
+              AND t.CacheLookup <> ''
+              AND t.CacheLookup <> 'None'
+              AND (@only = 0 OR m.IsCustom = 1)
+            ORDER BY t.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)).ToList();
+    }
+
+    /// <summary>
+    /// Relations (FK) that do not have a corresponding TableDeleteAction entry.
+    /// </summary>
+    public IReadOnlyList<LintHit> FindMissingDeleteActions(bool onlyCustom = true)
+    {
+        using var conn = OpenReadOnly();
+        return conn.Query(@"
+            SELECT t.Name AS TargetName, m.Name AS Model, ('Relation to ' || r.ToTable) AS Detail
+            FROM Relations r
+            JOIN Tables t ON t.Name = r.FromTable
+            JOIN Models m ON m.ModelId = t.ModelId
+            LEFT JOIN TableDeleteActions da ON da.TableId = t.TableId AND da.RelatedTable = r.ToTable
+            WHERE da.Id IS NULL
+              AND (@only = 0 OR m.IsCustom = 1)
+            ORDER BY t.Name, r.ToTable", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)).ToList();
+    }
+
+    /// <summary>
+    /// Tables that have at least one unique index but no AlternateKey index.
+    /// </summary>
+    public IReadOnlyList<LintHit> FindTablesWithoutAlternateKey(bool onlyCustom = true)
+    {
+        using var conn = OpenReadOnly();
+        return conn.Query(@"
+            SELECT DISTINCT t.Name AS TargetName, m.Name AS Model, 'Has unique index but no AlternateKey' AS Detail
+            FROM TableIndexes ix
+            JOIN Tables t ON t.TableId = ix.TableId
+            JOIN Models m ON m.ModelId = t.ModelId
+            WHERE ix.AllowDuplicates = 0
+              AND (@only = 0 OR m.IsCustom = 1)
+              AND NOT EXISTS (
+                SELECT 1 FROM TableIndexes ix2
+                WHERE ix2.TableId = t.TableId AND ix2.AlternateKey = 1
+              )
+            ORDER BY t.Name", new { only = onlyCustom ? 1 : 0 })
+            .Select(r => new LintHit((string)r.TargetName, (string)r.Model, (string?)r.Detail)).ToList();
+    }
+
     // ---- v4: queries / views / data entities / reports / services / workflow ----
 
     public IReadOnlyList<QueryInfo> SearchQueries(string query, int limit = 50)
@@ -1027,6 +1286,230 @@ public sealed class MetadataRepository
             WHERE ws.Name LIKE @like
             ORDER BY ws.Name LIMIT @limit",
             new { like, limit }).ToList();
+    }
+
+    // ---- Phase 7: developer experience ----
+
+    /// <summary>
+    /// Find all batch job classes: RunBaseBatch subclasses and
+    /// SysOperationServiceController subclasses. Requires Phase 4 v12 flags.
+    /// </summary>
+    public IReadOnlyList<ClassInfo> FindBatchJobs(string? model = null)
+    {
+        using var conn = OpenReadOnly();
+        return conn.Query<ClassInfo>(@"
+            SELECT c.ClassId, c.Name, m.Name AS Model, c.ExtendsName AS Extends,
+                   c.IsAbstract, c.IsFinal, c.SourcePath
+            FROM Classes c JOIN Models m ON m.ModelId = c.ModelId
+            WHERE (c.IsRunBaseBatch = 1
+               OR c.ExtendsName LIKE '%SysOperationServiceController%'
+               OR c.ExtendsName LIKE '%RunBase%')
+              AND (@model IS NULL OR m.Name = @model)
+            ORDER BY c.Name",
+            new { model }).ToList();
+    }
+
+    /// <summary>
+    /// Variant of <see cref="FindUsages"/> that filters to specific object kinds.
+    /// <paramref name="kinds"/> should be values like "Table", "Class", "EDT".
+    /// When empty, falls back to all kinds.
+    /// </summary>
+    public IReadOnlyList<(string Kind, string Name, string Model)> FindUsagesFiltered(
+        string needle, IReadOnlyList<string>? kinds, int limit = 100)
+    {
+        var all = FindUsages(needle, limit);
+        if (kinds is null || kinds.Count == 0) return all;
+
+        var kindSet = kinds.Select(k => k.Trim().ToLowerInvariant()).ToHashSet();
+        return all.Where(r => kindSet.Contains(r.Kind.ToLowerInvariant())).ToList();
+    }
+
+    /// <summary>
+    /// Produce a change-impact report for an AOT object: CoC wrappers, event handlers,
+    /// extensions, form datasources, data entities, queries, and reports that reference it.
+    /// </summary>
+    public ImpactReport AnalyzeImpact(string objectName)
+    {
+        using var conn = OpenReadOnly();
+
+        var coc = FindCocExtensions(objectName);
+        var handlers = FindEventSubscribers(objectName);
+        var extensions = FindExtensions(objectName);
+
+        // Forms that use the object as a datasource (by table name).
+        var formDs = conn.Query<FormDataSourceRow>(@"
+            SELECT f.Name AS FormName, m.Name AS Model
+            FROM FormDataSources fds
+            JOIN Forms f ON f.FormId = fds.FormId
+            JOIN Models m ON m.ModelId = f.ModelId
+            WHERE fds.TableName = @n",
+            new { n = objectName }).ToList();
+
+        // Data entities backed by this table via QueryName or staging.
+        var entities = conn.Query<DataEntityInfo>(@"
+            SELECT de.EntityId, de.Name, m.Name AS Model, de.PublicEntityName,
+                   de.PublicCollectionName, de.StagingTable, de.QueryName, de.Label, de.SourcePath
+            FROM DataEntities de JOIN Models m ON m.ModelId = de.ModelId
+            WHERE de.StagingTable = @n OR de.QueryName = @n",
+            new { n = objectName }).ToList();
+
+        // Queries that join the object as a datasource table.
+        var queries = conn.Query<QueryDataSourceRow>(@"
+            SELECT q.Name AS QueryName, m.Name AS Model
+            FROM QueryDataSources qds
+            JOIN Queries q ON q.QueryId = qds.QueryId
+            JOIN Models m ON m.ModelId = q.ModelId
+            WHERE qds.TableName = @n",
+            new { n = objectName }).ToList();
+
+        return new ImpactReport(
+            objectName,
+            Direct:   coc.Cast<object>().Concat(extensions).Concat(handlers).ToList(),
+            CocWrappers: coc.ToList(),
+            EventHandlers: handlers.ToList(),
+            Extensions: extensions.ToList(),
+            FormDataSources: formDs.Select(r => new { r.FormName, r.Model }).Cast<object>().ToList(),
+            DataEntities: entities.Cast<object>().ToList(),
+            Queries: queries.Select(r => new { r.QueryName, r.Model }).Cast<object>().ToList());
+    }
+
+    private sealed class FormDataSourceRow { public string FormName { get; set; } = ""; public string Model { get; set; } = ""; }
+    private sealed class QueryDataSourceRow { public string QueryName { get; set; } = ""; public string Model { get; set; } = ""; }
+
+    // ---- Phase 7.4: command performance counters ----
+
+    public void RecordCommandTiming(string command, long elapsedMs)
+    {
+        using var conn = Open();
+        conn.Execute(@"INSERT INTO CommandTimings(Command, ElapsedMs, ExecutedUtc)
+                       VALUES(@c, @ms, @ts)",
+            new { c = command, ms = elapsedMs, ts = DateTime.UtcNow.ToString("O") });
+    }
+
+    public IReadOnlyList<CommandTimingRow> GetCommandTimings(int limit = 50)
+    {
+        using var conn = OpenReadOnly();
+        return conn.Query<CommandTimingRow>(@"
+            SELECT Command,
+                   COUNT(*) AS Calls,
+                   AVG(ElapsedMs) AS AvgMs,
+                   MAX(ElapsedMs) AS MaxMs,
+                   MIN(ElapsedMs) AS MinMs
+            FROM CommandTimings
+            GROUP BY Command
+            ORDER BY AvgMs DESC
+            LIMIT @limit", new { limit }).ToList();
+    }
+
+    // ---- Phase 5: integration analysis ----
+
+    /// <summary>
+    /// Cross-checks all indexed data entities for integration-readiness issues.
+    /// Optional <paramref name="model"/> restricts to a single model.
+    /// </summary>
+    public IReadOnlyList<IntegrationIssue> AnalyzeIntegration(string? model = null)
+    {
+        using var conn = OpenReadOnly();
+
+        // Pull all entities (optionally filtered by model).
+        var entities = conn.Query<DataEntityInfo>(@"
+            SELECT e.EntityId, e.Name, m.Name AS Model, e.PublicEntityName, e.PublicCollectionName,
+                   e.StagingTable, e.QueryName, e.Label, e.SourcePath
+            FROM DataEntities e JOIN Models m ON m.ModelId = e.ModelId
+            WHERE (@model IS NULL OR m.Name = @model)
+            ORDER BY e.Name",
+            new { model }).ToList();
+
+        var issues = new List<IntegrationIssue>();
+
+        // Detect duplicate PublicEntityName values.
+        var publicNames = entities
+            .Where(e => !string.IsNullOrEmpty(e.PublicEntityName))
+            .GroupBy(e => e.PublicEntityName!, StringComparer.OrdinalIgnoreCase)
+            .Where(g => g.Count() > 1);
+        foreach (var g in publicNames)
+            foreach (var e in g)
+                issues.Add(new IntegrationIssue(e.Name, e.Model, "DUPLICATE_PUBLIC_NAME",
+                    $"PublicEntityName '{g.Key}' is shared with {g.Count() - 1} other entity(ies)."));
+
+        foreach (var e in entities)
+        {
+            // Missing PublicCollectionName when OData-exposed.
+            if (!string.IsNullOrEmpty(e.PublicEntityName) && string.IsNullOrEmpty(e.PublicCollectionName))
+                issues.Add(new IntegrationIssue(e.Name, e.Model, "MISSING_COLLECTION_NAME",
+                    "Entity has PublicEntityName but no PublicCollectionName — OData collection route will be missing."));
+
+            // Missing staging table reference.
+            if (e.StagingTable is null && !string.IsNullOrEmpty(e.PublicEntityName))
+                issues.Add(new IntegrationIssue(e.Name, e.Model, "NO_STAGING_TABLE",
+                    "OData-exposed entity has no StagingTable — DMF import/export will not be available."));
+
+            // Zero fields mapped.
+            var fieldCount = conn.ExecuteScalar<long>(
+                "SELECT COUNT(*) FROM DataEntityFields WHERE EntityId = @id", new { id = e.EntityId });
+            if (fieldCount == 0)
+                issues.Add(new IntegrationIssue(e.Name, e.Model, "NO_FIELDS",
+                    "Entity has no fields mapped — likely incomplete scaffold."));
+
+            // No mandatory fields.
+            if (fieldCount > 0)
+            {
+                var mandatoryCount = conn.ExecuteScalar<long>(
+                    "SELECT COUNT(*) FROM DataEntityFields WHERE EntityId = @id AND IsMandatory = 1",
+                    new { id = e.EntityId });
+                if (mandatoryCount == 0)
+                    issues.Add(new IntegrationIssue(e.Name, e.Model, "NO_MANDATORY_FIELDS",
+                        "Entity has no mandatory fields — key identification may be ambiguous for data management."));
+            }
+        }
+
+        return issues.OrderBy(i => i.EntityName).ToList();
+    }
+
+    /// <summary>
+    /// Builds a full integration surface report: OData entities, custom services,
+    /// business events, workflow types, and batch jobs.
+    /// Optional <paramref name="model"/> restricts all lists to one model.
+    /// </summary>
+    public IntegrationReport GetIntegrationReport(string? model = null)
+    {
+        using var conn = OpenReadOnly();
+
+        var odataEntities = conn.Query<DataEntityInfo>(@"
+            SELECT e.EntityId, e.Name, m.Name AS Model, e.PublicEntityName, e.PublicCollectionName,
+                   e.StagingTable, e.QueryName, e.Label, e.SourcePath
+            FROM DataEntities e JOIN Models m ON m.ModelId = e.ModelId
+            WHERE e.PublicEntityName IS NOT NULL
+              AND (@model IS NULL OR m.Name = @model)
+            ORDER BY e.Name", new { model }).ToList();
+
+        var services = conn.Query<ServiceInfo>(@"
+            SELECT s.ServiceId, s.Name, s.Class, m.Name AS Model, s.SourcePath
+            FROM Services s JOIN Models m ON m.ModelId = s.ModelId
+            WHERE @model IS NULL OR m.Name = @model
+            ORDER BY s.Name", new { model }).ToList();
+
+        var businessEvents = conn.Query<BusinessEventInfo>(@"
+            SELECT be.Id, be.Name, be.Category, be.ContractClass, m.Name AS Model, be.SourcePath
+            FROM BusinessEvents be JOIN Models m ON m.ModelId = be.ModelId
+            WHERE @model IS NULL OR m.Name = @model
+            ORDER BY be.Category, be.Name", new { model }).ToList();
+
+        var workflowTypes = conn.Query<WorkflowTypeInfo>(@"
+            SELECT w.Name, w.Category, w.DocumentClass, m.Name AS Model, w.SourcePath
+            FROM WorkflowTypes w JOIN Models m ON m.ModelId = w.ModelId
+            WHERE @model IS NULL OR m.Name = @model
+            ORDER BY w.Name", new { model }).ToList();
+
+        var batchJobs = conn.Query<ClassInfo>(@"
+            SELECT c.ClassId, c.Name, m.Name AS Model, c.ExtendsName AS Extends,
+                   c.IsAbstract, c.IsFinal, c.SourcePath
+            FROM Classes c JOIN Models m ON m.ModelId = c.ModelId
+            WHERE c.IsRunBaseBatch = 1
+              AND (@model IS NULL OR m.Name = @model)
+            ORDER BY c.Name", new { model }).ToList();
+
+        return new IntegrationReport(odataEntities, services, businessEvents, workflowTypes, batchJobs);
     }
 
     public IReadOnlyList<ModelInfo> ListModels()
@@ -1517,7 +2000,7 @@ public sealed class MetadataRepository
 
         using var tableMtdCmd = conn.CreateCommand();
         tableMtdCmd.Transaction = (Microsoft.Data.Sqlite.SqliteTransaction)tx;
-        tableMtdCmd.CommandText = "INSERT INTO TableMethods(TableId, Name, Signature, IsStatic, ReturnType, HasDocComment, HasTodayCall, HasDoInsertOrUpdate) VALUES($tid, $n, $s, $st, $rt, $hd, $ht, $hi)";
+        tableMtdCmd.CommandText = "INSERT INTO TableMethods(TableId, Name, Signature, IsStatic, ReturnType, HasDocComment, HasTodayCall, HasDoInsertOrUpdate, IsEmptyOverride) VALUES($tid, $n, $s, $st, $rt, $hd, $ht, $hi, $ieo)";
         var tmTid         = tableMtdCmd.Parameters.Add("$tid", Microsoft.Data.Sqlite.SqliteType.Integer);
         var tmName        = tableMtdCmd.Parameters.Add("$n",   Microsoft.Data.Sqlite.SqliteType.Text);
         var tmSig         = tableMtdCmd.Parameters.Add("$s",   Microsoft.Data.Sqlite.SqliteType.Text);
@@ -1526,6 +2009,7 @@ public sealed class MetadataRepository
         var tmHasDoc      = tableMtdCmd.Parameters.Add("$hd",  Microsoft.Data.Sqlite.SqliteType.Integer);
         var tmHasToday    = tableMtdCmd.Parameters.Add("$ht",  Microsoft.Data.Sqlite.SqliteType.Integer);
         var tmHasDoInsert = tableMtdCmd.Parameters.Add("$hi",  Microsoft.Data.Sqlite.SqliteType.Integer);
+        var tmIsEmptyOvr  = tableMtdCmd.Parameters.Add("$ieo", Microsoft.Data.Sqlite.SqliteType.Integer);
         tableMtdCmd.Prepare();
 
         foreach (var t in batch.Tables)
@@ -1565,6 +2049,7 @@ public sealed class MetadataRepository
                 tmHasDoc.Value      = mtd.HasDocComment ? 1 : 0;
                 tmHasToday.Value    = mtd.HasTodayCall ? 1 : 0;
                 tmHasDoInsert.Value = mtd.HasDoInsertOrUpdate ? 1 : 0;
+                tmIsEmptyOvr.Value  = mtd.IsEmptyOverride ? 1 : 0;
                 tableMtdCmd.ExecuteNonQuery();
             }
             foreach (var ix in t.Indexes)
@@ -1594,13 +2079,16 @@ public sealed class MetadataRepository
         // × ~10 methods in ApplicationSuite/Foundation).
         using var classCmd = conn.CreateCommand();
         classCmd.Transaction = (Microsoft.Data.Sqlite.SqliteTransaction)tx;
-        classCmd.CommandText = "INSERT INTO Classes(Name, ModelId, ExtendsName, IsAbstract, IsFinal, SourcePath) VALUES($n, $m, $e, $a, $f, $p)";
-        var clsName     = classCmd.Parameters.Add("$n", Microsoft.Data.Sqlite.SqliteType.Text);
-        var clsModel    = classCmd.Parameters.Add("$m", Microsoft.Data.Sqlite.SqliteType.Integer);
-        var clsExtends  = classCmd.Parameters.Add("$e", Microsoft.Data.Sqlite.SqliteType.Text);
-        var clsAbstract = classCmd.Parameters.Add("$a", Microsoft.Data.Sqlite.SqliteType.Integer);
-        var clsFinal    = classCmd.Parameters.Add("$f", Microsoft.Data.Sqlite.SqliteType.Integer);
-        var clsPath     = classCmd.Parameters.Add("$p", Microsoft.Data.Sqlite.SqliteType.Text);
+        classCmd.CommandText = "INSERT INTO Classes(Name, ModelId, ExtendsName, IsAbstract, IsFinal, SourcePath, IsRunBaseBatch, HasCanGoBatch, HasPublicInstanceFields) VALUES($n, $m, $e, $a, $f, $p, $rb, $cgb, $pif)";
+        var clsName     = classCmd.Parameters.Add("$n",   Microsoft.Data.Sqlite.SqliteType.Text);
+        var clsModel    = classCmd.Parameters.Add("$m",   Microsoft.Data.Sqlite.SqliteType.Integer);
+        var clsExtends  = classCmd.Parameters.Add("$e",   Microsoft.Data.Sqlite.SqliteType.Text);
+        var clsAbstract = classCmd.Parameters.Add("$a",   Microsoft.Data.Sqlite.SqliteType.Integer);
+        var clsFinal    = classCmd.Parameters.Add("$f",   Microsoft.Data.Sqlite.SqliteType.Integer);
+        var clsPath     = classCmd.Parameters.Add("$p",   Microsoft.Data.Sqlite.SqliteType.Text);
+        var clsRunBase  = classCmd.Parameters.Add("$rb",  Microsoft.Data.Sqlite.SqliteType.Integer);
+        var clsCanGo    = classCmd.Parameters.Add("$cgb", Microsoft.Data.Sqlite.SqliteType.Integer);
+        var clsPubField = classCmd.Parameters.Add("$pif", Microsoft.Data.Sqlite.SqliteType.Integer);
         classCmd.Prepare();
 
         using var attrCmd = conn.CreateCommand();
@@ -1614,7 +2102,7 @@ public sealed class MetadataRepository
 
         using var methodCmd = conn.CreateCommand();
         methodCmd.Transaction = (Microsoft.Data.Sqlite.SqliteTransaction)tx;
-        methodCmd.CommandText = "INSERT INTO Methods(ClassId, Name, Signature, IsStatic, ReturnType, HasDocComment, HasTodayCall, HasDoInsertOrUpdate) VALUES($cid, $n, $s, $st, $rt, $hd, $ht, $hi)";
+        methodCmd.CommandText = "INSERT INTO Methods(ClassId, Name, Signature, IsStatic, ReturnType, HasDocComment, HasTodayCall, HasDoInsertOrUpdate, HasInsertInLoop, HasNestedSelect, HasForceLiterals, HasForUpdateWithoutUpdate, HasTryCatchInTts, HasEmptyLoop) VALUES($cid, $n, $s, $st, $rt, $hd, $ht, $hi, $hil, $hns, $hfl, $hfu, $htt, $hel)";
         var mtdCid         = methodCmd.Parameters.Add("$cid", Microsoft.Data.Sqlite.SqliteType.Integer);
         var mtdName        = methodCmd.Parameters.Add("$n",   Microsoft.Data.Sqlite.SqliteType.Text);
         var mtdSig         = methodCmd.Parameters.Add("$s",   Microsoft.Data.Sqlite.SqliteType.Text);
@@ -1623,6 +2111,12 @@ public sealed class MetadataRepository
         var mtdHasDoc      = methodCmd.Parameters.Add("$hd",  Microsoft.Data.Sqlite.SqliteType.Integer);
         var mtdHasToday    = methodCmd.Parameters.Add("$ht",  Microsoft.Data.Sqlite.SqliteType.Integer);
         var mtdHasDoInsert = methodCmd.Parameters.Add("$hi",  Microsoft.Data.Sqlite.SqliteType.Integer);
+        var mtdInsertLoop  = methodCmd.Parameters.Add("$hil", Microsoft.Data.Sqlite.SqliteType.Integer);
+        var mtdNestedSel   = methodCmd.Parameters.Add("$hns", Microsoft.Data.Sqlite.SqliteType.Integer);
+        var mtdForceLit    = methodCmd.Parameters.Add("$hfl", Microsoft.Data.Sqlite.SqliteType.Integer);
+        var mtdForUpdNoUpd = methodCmd.Parameters.Add("$hfu", Microsoft.Data.Sqlite.SqliteType.Integer);
+        var mtdTtsTry      = methodCmd.Parameters.Add("$htt", Microsoft.Data.Sqlite.SqliteType.Integer);
+        var mtdEmptyLoop   = methodCmd.Parameters.Add("$hel", Microsoft.Data.Sqlite.SqliteType.Integer);
         methodCmd.Prepare();
 
         foreach (var c in batch.Classes)
@@ -1633,6 +2127,9 @@ public sealed class MetadataRepository
             clsAbstract.Value = c.IsAbstract ? 1 : 0;
             clsFinal.Value    = c.IsFinal    ? 1 : 0;
             clsPath.Value     = (object?)c.SourcePath ?? DBNull.Value;
+            clsRunBase.Value  = c.IsRunBaseBatch ? 1 : 0;
+            clsCanGo.Value    = c.HasCanGoBatch ? 1 : 0;
+            clsPubField.Value = c.HasPublicInstanceFields ? 1 : 0;
             classCmd.ExecuteNonQuery();
             var classId = conn.ExecuteScalar<long>("SELECT last_insert_rowid()", transaction: tx);
             mtdCid.Value = classId;
@@ -1645,6 +2142,12 @@ public sealed class MetadataRepository
                 mtdHasDoc.Value      = mtd.HasDocComment ? 1 : 0;
                 mtdHasToday.Value    = mtd.HasTodayCall ? 1 : 0;
                 mtdHasDoInsert.Value = mtd.HasDoInsertOrUpdate ? 1 : 0;
+                mtdInsertLoop.Value  = mtd.HasInsertInLoop ? 1 : 0;
+                mtdNestedSel.Value   = mtd.HasNestedSelect ? 1 : 0;
+                mtdForceLit.Value    = mtd.HasForceLiterals ? 1 : 0;
+                mtdForUpdNoUpd.Value = mtd.HasForUpdateWithoutUpdate ? 1 : 0;
+                mtdTtsTry.Value      = mtd.HasTryCatchInTts ? 1 : 0;
+                mtdEmptyLoop.Value   = mtd.HasEmptyLoop ? 1 : 0;
                 methodCmd.ExecuteNonQuery();
             }
             attrCid.Value = classId;
@@ -1976,7 +2479,7 @@ public sealed class MetadataRepository
     {
         using var conn = OpenReadOnly();
 
-        var perModel = conn.Query<PerModelStat>(@"
+        var perModel = conn.Query(@"
             SELECT m.Name AS Model, m.IsCustom AS IsCustom,
                    COALESCE(t.Cnt, 0) AS Tables,
                    COALESCE(c.Cnt, 0) AS Classes,
@@ -1986,7 +2489,7 @@ public sealed class MetadataRepository
                    COALESCE(f.Cnt, 0) AS Forms,
                    COALESCE(ox.Cnt, 0) AS Extensions,
                    COALESCE(cx.Cnt, 0) AS Coc,
-                   COALESCE(lb.Cnt, 0) AS Labels
+                   0 AS Labels
             FROM Models m
             LEFT JOIN (SELECT ModelId, COUNT(*) AS Cnt FROM Tables GROUP BY ModelId) t ON t.ModelId = m.ModelId
             LEFT JOIN (SELECT ModelId, COUNT(*) AS Cnt FROM Classes GROUP BY ModelId) c ON c.ModelId = m.ModelId
@@ -1996,33 +2499,40 @@ public sealed class MetadataRepository
             LEFT JOIN (SELECT ModelId, COUNT(*) AS Cnt FROM Forms GROUP BY ModelId) f ON f.ModelId = m.ModelId
             LEFT JOIN (SELECT ModelId, COUNT(*) AS Cnt FROM ObjectExtensions GROUP BY ModelId) ox ON ox.ModelId = m.ModelId
             LEFT JOIN (SELECT ModelId, COUNT(*) AS Cnt FROM CocExtensions GROUP BY ModelId) cx ON cx.ModelId = m.ModelId
-            LEFT JOIN (SELECT ModelId, COUNT(*) AS Cnt FROM Labels GROUP BY ModelId) lb ON lb.ModelId = m.ModelId
-            ORDER BY m.Name").ToList();
+            ORDER BY m.Name")
+            .Select(r => new PerModelStat(
+                (string)r.Model, r.IsCustom == 1L,
+                (long)r.Tables, (long)r.Classes, (long)r.Edts,
+                (long)r.Enums, (long)r.MenuItems, (long)r.Forms,
+                (long)r.Extensions, (long)r.Coc, 0L)).ToList();
 
-        var topTables = conn.Query<TopTableStat>(@"
+        var topTables = conn.Query(@"
             SELECT t.Name AS Name, m.Name AS Model, COUNT(f.FieldId) AS FieldCount
             FROM Tables t
             JOIN Models m ON m.ModelId = t.ModelId
             LEFT JOIN TableFields f ON f.TableId = t.TableId
             GROUP BY t.TableId, t.Name, m.Name
             ORDER BY FieldCount DESC, t.Name
-            LIMIT @topN", new { topN }).ToList();
+            LIMIT @topN", new { topN })
+            .Select(r => new TopTableStat((string)r.Name, (string)r.Model, (long)r.FieldCount)).ToList();
 
-        var topClasses = conn.Query<TopClassStat>(@"
+        var topClasses = conn.Query(@"
             SELECT c.Name AS Name, m.Name AS Model, COUNT(mt.MethodId) AS MethodCount
             FROM Classes c
             JOIN Models m ON m.ModelId = c.ModelId
             LEFT JOIN Methods mt ON mt.ClassId = c.ClassId
             GROUP BY c.ClassId, c.Name, m.Name
             ORDER BY MethodCount DESC, c.Name
-            LIMIT @topN", new { topN }).ToList();
+            LIMIT @topN", new { topN })
+            .Select(r => new TopClassStat((string)r.Name, (string)r.Model, (long)r.MethodCount)).ToList();
 
-        var topCoc = conn.Query<TopCocStat>(@"
+        var topCoc = conn.Query(@"
             SELECT c.TargetClass AS Target, COUNT(*) AS ExtensionCount
             FROM CocExtensions c
             GROUP BY c.TargetClass
             ORDER BY ExtensionCount DESC, c.TargetClass
-            LIMIT @topN", new { topN }).ToList();
+            LIMIT @topN", new { topN })
+            .Select(r => new TopCocStat((string)r.Target, (long)r.ExtensionCount)).ToList();
 
         return new IndexStats(perModel, topTables, topClasses, topCoc);
     }

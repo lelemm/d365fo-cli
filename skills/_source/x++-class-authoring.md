@@ -66,6 +66,34 @@ Modern replacement for `RunBaseBatch`. **Always use SysOperation for new batch c
 5. For SSRS report data providers: extend `SRSReportDataProviderBase` instead of `SysOperationServiceBase`.
 6. Custom dialog: use `SysOperationAutomaticUIBuilder`; link via `[SysOperationContractProcessingAttribute(classStr(MyUIBuilder))]` on the DataContract.
 
+**Scaffold with the CLI** — generates the DataContract, Service, and Controller XML in one command:
+
+```sh
+d365fo generate sysoperation <Name> \
+  --param "fromDate:TransDate" --param "toDate:TransDate" \
+  --execution-mode Asynchronous \
+  --out-contract c:/AOT/MyModel/AxClass/<Name>Contract.xml \
+  --out-service  c:/AOT/MyModel/AxClass/<Name>Service.xml \
+  --out          c:/AOT/MyModel/AxClass/<Name>Controller.xml
+```
+
+## RunBase / RunBaseBatch — legacy batch operations
+
+For teams maintaining older codebases that cannot yet migrate to SysOperation. New code should use SysOperation instead.
+
+Key overrides: `pack()`, `unpack()`, `dialog()`, `getFromDialog()`, `canGoBatch()` (must return `true` for batch-capable jobs), `run()`.
+
+**Scaffold with the CLI:**
+
+```sh
+d365fo generate runbase <Name> \
+  --batch \
+  --dialog-param "fromDate:TransDate" --dialog-param "toDate:TransDate" \
+  --out c:/AOT/MyModel/AxClass/<Name>.xml
+```
+
+`--batch` adds `canGoBatch() { return true; }` and the `pack()`/`unpack()` container member list automatically.
+
 ## SysPlugin — extensible dispatch without `if`/`else`
 
 For enum-based strategy dispatching where new implementations must be addable without changing existing code:
