@@ -1,0 +1,15 @@
+<linker>
+  <!--
+    Spectre.Console.Cli resolves CommandSettings types via reflection on generic
+    type arguments at runtime.  The .NET trimmer cannot see these reflection-based
+    lookups statically, so it silently removes the Settings inner classes, which
+    causes CommandRuntimeException: "could not get settings type for command of
+    type …" when the trimmed binary starts.
+
+    Preserving the whole CLI assembly ensures every Command<TSettings> and its
+    nested Settings class survives trimming regardless of which /p:PublishTrimmed
+    flag the caller passes.  Core and Bridge are untouched — they are plain data
+    libraries whose referenced members the trimmer can track statically.
+  -->
+  <assembly fullname="d365fo" preserve="all" />
+</linker>
