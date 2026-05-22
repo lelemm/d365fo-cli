@@ -643,13 +643,47 @@ public static class XppScaffolder
             };
         }
 
+        // D365FO's DataContractSerializer requires the root element to be the concrete
+        // subtype name (e.g. AxEdtString) — not the abstract base AxEdt.  Without the
+        // concrete root element the metadata parser throws "Cannot create an abstract class".
+        // Derive the concrete type suffix from --base-type; when only --extends is given,
+        // apply a heuristic over well-known system EDTs so common cases work without flags.
+        var concreteTypeSuffix = !string.IsNullOrEmpty(baseType)
+            ? baseType.ToLowerInvariant() switch
+            {
+                "int" or "integer"          => "Int",
+                "int64"                     => "Int64",
+                "real"                      => "Real",
+                "date"                      => "Date",
+                "utcdatetime" or "datetime" => "DateTime",
+                "boolean" or "bool"         => "Boolean",
+                _                           => "String",
+            }
+            : InferConcreteTypeSuffixFromExtends(effectiveExtends);
+
         return new XDocument(
-            new XElement("AxEdt",
+            new XElement($"AxEdt{concreteTypeSuffix}",
                 new XElement("Name", name),
                 string.IsNullOrEmpty(effectiveExtends) ? null : new XElement("Extends", effectiveExtends),
                 stringSize.HasValue ? new XElement("StringSize", stringSize.Value.ToString()) : null,
                 string.IsNullOrEmpty(label) ? null : new XElement("Label", label)));
     }
+
+    /// <summary>
+    /// Infers the concrete <c>AxEdt*</c> type suffix from a well-known system EDT name.
+    /// Returns <c>"String"</c> as the safe default for unknown or custom parent EDTs.
+    /// </summary>
+    private static string InferConcreteTypeSuffixFromExtends(string? extends) =>
+        extends?.ToLowerInvariant() switch
+        {
+            "integer" or "int"                                      => "Int",
+            "int64" or "recid"                                      => "Int64",
+            "amount" or "amountmst" or "qty" or "weight" or "real"  => "Real",
+            "date" or "transdate"                                   => "Date",
+            "utcdatetime"                                           => "DateTime",
+            "noyes" or "noyesid" or "boolean"                      => "Boolean",
+            _                                                       => "String",
+        } ?? "String";
 
     /// <summary>Scaffolds an <c>AxEnum</c> with optional values.</summary>
     public static XDocument Enum(

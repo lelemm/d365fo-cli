@@ -53,7 +53,7 @@ public class ScaffoldingSnapshotTests
     {
         var doc = XppScaffolder.Edt("MyEdt", "Name");
         var root = doc.Root!;
-        Assert.Equal("AxEdt", root.Name.LocalName);
+        Assert.Equal("AxEdtString", root.Name.LocalName);
         Assert.Equal("MyEdt", root.Element("Name")!.Value);
         Assert.Equal("Name", root.Element("Extends")!.Value);
     }

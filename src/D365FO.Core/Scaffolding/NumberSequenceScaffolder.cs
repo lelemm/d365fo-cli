@@ -68,7 +68,7 @@ public static class NumberSequenceScaffolder
         string? label = null)
     {
         return new XDocument(
-            new XElement("AxEdt",
+            new XElement("AxEdtString",
                 new XElement("Name", edtName),
                 new XElement("Extends", "Num"),
                 string.IsNullOrEmpty(label) ? null : new XElement("Label", label),
