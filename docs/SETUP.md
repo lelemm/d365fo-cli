@@ -188,6 +188,14 @@ External Tools let you run any CLI command from the **Tools** menu without leavi
 
 > **Tip.** Add a second entry with **Arguments** = `doctor --output json` to run a health check straight from the menu.
 
+### How Copilot Chat works in Visual Studio vs VS Code
+
+> ⚠️ **Important limitation:** GitHub Copilot Chat in Visual Studio runs in **chat mode only** — it cannot execute terminal commands or use agent tools. When you ask it to add a table, it will try to search the codebase with built-in "code search", which **always fails on AOT XML files** with "There was an error executing code search". If you then see "Since I cannot access the codebase…" followed by generic X++ guidance, the instructions are not being followed correctly.
+>
+> **Correct VS Chat behaviour:** Copilot should ask you to run `d365fo` commands in your terminal and paste back the JSON output. It must never generate raw X++ code without first seeing real metadata from `d365fo`.
+>
+> **To get full agent capabilities** (Copilot runs `d365fo` commands automatically), use **VS Code** with the GitHub Copilot extension in agent mode.
+
 ### Copy Skills and Copilot instructions to your X++ project
 
 GitHub Copilot in Visual Studio reads `.github/copilot-instructions.md` and `.github/instructions/*.instructions.md` from the root of your solution (repository). Deploying these files gives Copilot the full X++ rule canon — D365FO table/method names, CoC rules, BP rules, label rules — without burning context tokens.
@@ -308,6 +316,7 @@ git commit -m "chore: update d365fo Copilot skills"
 | `PACKAGES_PATH_NOT_FOUND` | Set `D365FO_PACKAGES_PATH` or pass `--packages <PATH>`. |
 | `UNSUPPORTED_PLATFORM` | `build` / `sync` / `test` / `bp` require Windows + a D365FO dev VM. Run them there. |
 | Index file appears locked | Stop any running `d365fo daemon` or `d365fo-mcp` process. WAL sidecar files (`-wal`, `-shm`) are normal. |
+| Copilot Chat in VS gives "There was an error executing code search" then generic X++ advice | VS Copilot Chat cannot search AOT XML (it always errors). The `.github/copilot-instructions.md` should prevent the code-search attempt — re-run `Install-D365FoCopilotSkills.ps1` to deploy the latest instructions. For full agent capabilities (auto-running `d365fo`), switch to **VS Code agent mode**. |
 | Extract missed a package | Confirm the `<root>/<Package>/<Model>/AxTable/…` layout and point `--packages` at the real `PackagesLocalDirectory`. |
 | Label values contain junk | `search label` / `get label` strip control characters by default — pass `--raw-text` to see the unfiltered value. |
 | Self-contained binary won't start on Linux | `chmod +x d365fo` after copying out of the publish folder. |
