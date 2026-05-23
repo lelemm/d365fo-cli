@@ -1,13 +1,17 @@
 ---
 id: object-extension-authoring
-description: Create a Table / Form / Edt / Enum extension (NOT a class CoC extension) in D365 Finance & Operations. Use when the user asks to "extend a table", "add a field to standard CustTable", "extend an EDT", "add an enum value", or "extend a form via FormExtension".
+description: Create a Table / Form / Edt / Enum extension, a new EDT (Extended Data Type), or a new base enum in D365 Finance & Operations. Use when the user asks to "extend a table", "add a field to standard CustTable", "extend an EDT", "add an enum value", "extend a form via FormExtension", "create an EDT", "create a new EDT", "create an enum", "generate edt", or "generate enum".
 applyTo:
   - "**/AxTableExtension/**"
   - "**/AxFormExtension/**"
   - "**/AxEdtExtension/**"
   - "**/AxEnumExtension/**"
+  - "**/AxEdt/**"
+  - "**/AxEnum/**"
   - "**/*.Extension.xml"
-appliesWhen: User intent mentions extending a Table / Form / Edt / Enum (not a class) — adding fields to a standard table, adding controls to a standard form, extending an enum or EDT.
+  - "**/*Edt.xml"
+  - "**/*Enum.xml"
+appliesWhen: User intent mentions extending a Table / Form / Edt / Enum, adding fields to a standard table, adding controls to a standard form, extending an enum or EDT, creating a new EDT (Extended Data Type), or creating a new base enum.
 ---
 
 > ⛔ **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema (`<AxClass>`, `<AxTable>`, `<AxForm>`, `<Methods>`, `<SourceCode>`) is proprietary — LLMs have not been trained on it reliably. **ALWAYS use `d365fo generate …` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
