@@ -124,3 +124,20 @@ Six categories are now available: `table-no-index`, `ext-named-not-attributed`, 
 - **Never** ship a table without an alternate key.
 - **Never** reference a label without verifying it exists.
 - **Never** auto-run `d365fo bp check`.
+
+## CLI object-discovery best practices
+
+When the user asks a **functional** question — "which classes print a free invoice", "which classes process sales orders" — translate it into **2–4 English keyword fragments** and run a single targeted batch search. Always add `--kind class` (or the relevant kind) to avoid scanning all 13 object types.
+
+```sh
+# ✅ CORRECT — kind-filtered, fast
+d365fo search batch FreeTextInvoice PrintFreeTxt FreeInv --kind class --output json
+
+# ❌ WRONG — full scan across Tables/Classes/EDTs/Enums/Forms/… slow and noisy
+d365fo search batch FreeTextInvoice PrintFreeTxt FreeInv --output json
+```
+
+- Use **at most 4 fragments** per call. More fragments add tokens, not precision.
+- Use the **English AOT name** (`FreeTextInvoice`, not `volná faktura`).
+- If the result set has >50 hits, refine with a tighter fragment instead of adding more queries.
+- After identifying candidate names, resolve details with `d365fo get class <Name> --output json`.

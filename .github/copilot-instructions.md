@@ -73,6 +73,7 @@ Copilot: "Since I cannot access the codebase, I'll provide generic guidance…"
 | Read form controls / data sources | `d365fo get form <Name> --output json` |
 | Search objects by name | `d365fo search class\|table\|form\|edt\|enum <query> --output json` |
 | Multiple searches in one call | `d365fo search batch <q1> <q2> … --output json` |
+| Multiple searches limited to one kind | `d365fo search batch <q1> <q2> … --kind class --output json` |
 | Check existing CoC wrappers | `d365fo find coc <Class>::<method> --output json` |
 | Find event handlers | `d365fo find handlers <Target> --output json` |
 | Find label | `d365fo search label "<text>" --output json` |

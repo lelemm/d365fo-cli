@@ -428,7 +428,7 @@ public sealed class ToolHandlers
         return "No existing extensions — prefer the least-invasive option: an event handler or a CoC on a virtual method.";
     }
 
-    public ToolResult<object> BatchSearch(string[] queries, int limit = 50)
+    public ToolResult<object> BatchSearch(string[] queries, int limit = 50, string[]? kinds = null)
     {
         if (queries is null || queries.Length == 0)
             return ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "queries must be a non-empty array.");
@@ -436,12 +436,13 @@ public sealed class ToolHandlers
         foreach (var q in queries)
         {
             if (string.IsNullOrWhiteSpace(q)) continue;
-            var hits = _repo.FindUsages(q, limit)
+            var hits = _repo.FindUsagesFiltered(q, kinds, limit)
                 .Select(t => new { kind = t.Kind, name = t.Name, model = t.Model })
                 .ToList();
-            results.Add(new { query = q, count = hits.Count, items = hits });
+            var byKind = hits.GroupBy(h => h.kind).ToDictionary(g => g.Key, g => g.Count());
+            results.Add(new { query = q, count = hits.Count, byKind, items = hits });
         }
-        return ToolResult<object>.Success(new { count = results.Count, results });
+        return ToolResult<object>.Success(new { count = results.Count, kinds = kinds ?? ["all"], results });
     }
 
     public ToolResult<object> Lint(string[]? categories = null, bool onlyCustomModels = true)
