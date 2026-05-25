@@ -212,7 +212,7 @@ To activate agent mode in Visual Studio: open the Copilot Chat pane, click the m
 2. **Copilot** runs pre-flight checks autonomously:
    ```sh
    d365fo doctor --output json
-   d365fo list models --output json
+   d365fo models list --output json
    ```
 
 3. **Copilot** confirms the index is healthy and model exists, then scaffolds directly:
@@ -241,7 +241,7 @@ Yes — *if* `copilot-instructions.md` is deployed to your X++ project's `.githu
    Please run these commands in Developer PowerShell and paste the output:
 
    d365fo doctor --output json
-   d365fo list models --output json
+   d365fo models list --output json
    ```
 
 3. **You run** them and paste the JSON.
