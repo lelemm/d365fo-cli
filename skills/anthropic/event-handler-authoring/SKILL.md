@@ -1,28 +1,28 @@
-﻿---
+---
 name: event-handler-authoring
 description: Subscribe to a D365FO event (data event on a table, form / form-data-source / form-data-field event, custom delegate on a class) by scaffolding an event-handler class. Use when the user asks to "subscribe to an event", "react to inserted/deleted/updated", or "hook a delegate".
 applies_when: User intent mentions event handler, SubscribesTo, DataEventHandler, FormEventHandler, FormDataSourceEventHandler, or reacting to a D365FO platform event.
 ---
-> â›” **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema (`<AxClass>`, `<AxTable>`, `<AxForm>`, `<Methods>`, `<SourceCode>`) is proprietary â€” LLMs have not been trained on it reliably. **ALWAYS use `d365fo generate â€¦` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
+> ⛔ **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema (`<AxClass>`, `<AxTable>`, `<AxForm>`, `<Methods>`, `<SourceCode>`) is proprietary — LLMs have not been trained on it reliably. **ALWAYS use `d365fo generate …` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
 
 # Subscribing to D365FO events safely
 
 > Event handlers are the right choice when you need to **react** to a
-> platform-emitted event without changing call ordering â€” choose CoC if you
+> platform-emitted event without changing call ordering — choose CoC if you
 > need to *modify* a method's behaviour, choose a handler if you need to
 > *observe*.
 
 ## Pre-flight
 
 ```sh
-# 1) Discover existing handlers on the target â€” avoid duplicates
+# 1) Discover existing handlers on the target — avoid duplicates
 d365fo find handlers <TargetObject> --output json
 
 # 2) Confirm the target exists (for tables) and which events it emits
 d365fo get table <Table> --output json
 ```
 
-## Standard data events on tables â†’ `[DataEventHandler]`
+## Standard data events on tables → `[DataEventHandler]`
 
 ```sh
 d365fo generate event-handler MyClass_CustTableHandler \
@@ -39,7 +39,7 @@ D365FO `DataEventType` values: `ValidatingFieldValue`, `ValidatedField`,
 `Inserting`, `Inserted`, `Updating`, `Updated`, `Deleting`, `Deleted`,
 `InitializingRecord`, `InitializedRecord`, `Modifying`, `Modified`.
 
-## Form / FormDataSource / FormControl events â†’ form-specific attributes
+## Form / FormDataSource / FormControl events → form-specific attributes
 
 ```sh
 d365fo generate event-handler MyClass_FormHandler \
@@ -58,11 +58,11 @@ d365fo generate event-handler MyClass_FormDsHandler \
 Attribute shapes: `[FormEventHandler(formStr(...), FormEventType::...)]`,
 `[FormDataSourceEventHandler(formDataSourceStr(form, ds), FormDataSourceEventType::...)]`.
 
-## Custom delegates on classes â†’ `[SubscribesTo + delegateStr]`
+## Custom delegates on classes → `[SubscribesTo + delegateStr]`
 
 `delegateStr` is **only** for *custom* delegates (your own or a Microsoft-
 declared delegate on a framework class). It is **NOT** for standard data
-events â€” those are `DataEventHandler`.
+events — those are `DataEventHandler`.
 
 ```sh
 d365fo generate event-handler MyClass_DelegateHandler \
@@ -78,10 +78,10 @@ Attribute: `[SubscribesTo(classStr(SalesFormLetter), delegateStr(SalesFormLetter
 
 - Standard data events use `[DataEventHandler]`, NEVER `[SubscribesTo + delegateStr]`.
 - `delegateStr` is for *custom* delegates only.
-- Handlers do NOT chain via `next` â€” they are notification-only.
+- Handlers do NOT chain via `next` — they are notification-only.
 - Handler methods must be `public static` (the runtime invokes them
   reflectively).
-- Never modify the buffer in a `Validating*` / `*ing` event without intent â€”
+- Never modify the buffer in a `Validating*` / `*ing` event without intent —
   changes leak into the persisted record.
 - Pre-flight `find handlers <Target>` to detect duplicates and ordering risks.
 - After scaffolding, run `d365fo build` only on user request.

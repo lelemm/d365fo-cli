@@ -1,9 +1,9 @@
-﻿---
+---
 name: x++-class-authoring
 description: Guidance for authoring or extending X++ classes in D365 Finance & Operations. Invoke whenever the user asks to "create a class", "extend a class", "add a method", or write any X++ that touches CoC.
 applies_when: User intent mentions X++ classes, Chain-of-Command, SysOperation, controller/service patterns, or method overrides.
 ---
-> â›” **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema (`<AxClass>`, `<AxTable>`, `<AxForm>`, `<Methods>`, `<SourceCode>`) is proprietary â€” LLMs have not been trained on it reliably. **ALWAYS use `d365fo generate â€¦` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
+> ⛔ **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema (`<AxClass>`, `<AxTable>`, `<AxForm>`, `<Methods>`, `<SourceCode>`) is proprietary — LLMs have not been trained on it reliably. **ALWAYS use `d365fo generate …` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
 
 # Authoring X++ classes with the d365fo index
 
@@ -35,8 +35,8 @@ conversation with long metadata dumps.
 
 4. **Validate at the end**:
    ```sh
-   d365fo review diff          # (when available) â€” best-practice delta
-   d365fo bp check             # (when available) â€” xppbp.exe runner
+   d365fo review diff          # (when available) — best-practice delta
+   d365fo bp check             # (when available) — xppbp.exe runner
    ```
 
 ## Hard rules
@@ -44,13 +44,13 @@ conversation with long metadata dumps.
 - **Never** emit X++ that references a field you have not verified with
   `d365fo get table <Name>`.
 - **Never** create a CoC wrapper without first running `d365fo find coc`.
-- **Prefer** EDTs over primitive types â€” resolve with `d365fo get edt <Name>`.
+- **Prefer** EDTs over primitive types — resolve with `d365fo get edt <Name>`.
 - **Expect** a `ToolResult` envelope on every command. On `ok:false`, surface
   `error.message` to the user and stop the task.
 
 ---
 
-## SysOperation â€” standard for new batch operations
+## SysOperation — standard for new batch operations
 
 Modern replacement for `RunBaseBatch`. **Always use SysOperation for new batch code.**
 
@@ -61,7 +61,7 @@ Modern replacement for `RunBaseBatch`. **Always use SysOperation for new batch c
 5. For SSRS report data providers: extend `SRSReportDataProviderBase` instead of `SysOperationServiceBase`.
 6. Custom dialog: use `SysOperationAutomaticUIBuilder`; link via `[SysOperationContractProcessingAttribute(classStr(MyUIBuilder))]` on the DataContract.
 
-**Scaffold with the CLI** â€” generates the DataContract, Service, and Controller XML in one command:
+**Scaffold with the CLI** — generates the DataContract, Service, and Controller XML in one command:
 
 ```sh
 d365fo generate sysoperation <Name> \
@@ -72,7 +72,7 @@ d365fo generate sysoperation <Name> \
   --out          c:/AOT/MyModel/AxClass/<Name>Controller.xml
 ```
 
-## RunBase / RunBaseBatch â€” legacy batch operations
+## RunBase / RunBaseBatch — legacy batch operations
 
 For teams maintaining older codebases that cannot yet migrate to SysOperation. New code should use SysOperation instead.
 
@@ -89,7 +89,7 @@ d365fo generate runbase <Name> \
 
 `--batch` adds `canGoBatch() { return true; }` and the `pack()`/`unpack()` container member list automatically.
 
-## SysPlugin â€” extensible dispatch without `if`/`else`
+## SysPlugin — extensible dispatch without `if`/`else`
 
 For enum-based strategy dispatching where new implementations must be addable without changing existing code:
 
@@ -98,7 +98,7 @@ For enum-based strategy dispatching where new implementations must be addable wi
 3. Decorate concrete implementations with `[ExportMetadataAttribute(enumStr(MyEnum), MyEnum::Value)]`.
 4. Resolve at runtime: `SysPluginFactory::Instance(enumStr(MyEnum), enumValue)`.
 
-New strategies require only a new class + enum value â€” no changes to callers.
+New strategies require only a new class + enum value — no changes to callers.
 
 ## Number Sequence Integration
 
@@ -122,11 +122,11 @@ numSeq.used();   // or numSeq.abort() to roll back
 Key base classes: `WorkflowDocument`, `WorkflowType`, `WorkflowApproval`, `WorkflowTask`.
 
 **Every workflow needs:**
-- `WorkflowDocument` subclass â€” defines which table fields are available as conditions.
-- `SubmitToWorkflowMenuItem` action menu item â€” the submit button on the form.
-- `canSubmitToWorkflow()` method on the table â€” controls when submit is enabled.
+- `WorkflowDocument` subclass — defines which table fields are available as conditions.
+- `SubmitToWorkflowMenuItem` action menu item — the submit button on the form.
+- `canSubmitToWorkflow()` method on the table — controls when submit is enabled.
 
-Structure: Document â†’ Type â†’ Approvals/Tasks â†’ EventHandlers.
+Structure: Document → Type → Approvals/Tasks → EventHandlers.
 Approval/Task event handlers use `WorkflowWorkItemActionManager` for complete/reject/delegate.
 
 ```sh
