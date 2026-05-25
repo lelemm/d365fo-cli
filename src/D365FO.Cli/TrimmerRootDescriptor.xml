@@ -10,6 +10,13 @@
     nested Settings class survives trimming regardless of which /p:PublishTrimmed
     flag the caller passes.  Core and Bridge are untouched — they are plain data
     libraries whose referenced members the trimmer can track statically.
+
+    Spectre.Console.Cli also registers internal built-in commands (ExplainCommand,
+    VersionCommand) whose Settings constructors are resolved by the framework at
+    startup.  The trimmer strips those constructors because it cannot trace the
+    reflection path inside the library.  Preserving the entire Spectre.Console.Cli
+    assembly keeps all framework-internal types intact.
   -->
   <assembly fullname="d365fo" preserve="all" />
+  <assembly fullname="Spectre.Console.Cli" preserve="all" />
 </linker>
