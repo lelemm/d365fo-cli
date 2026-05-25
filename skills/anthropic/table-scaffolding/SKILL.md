@@ -1,16 +1,16 @@
----
+﻿---
 name: table-scaffolding
 description: Create AxTable XML in D365 Finance & Operations using business-role pattern presets (Main / Transaction / Parameter / Group / Reference / WorksheetHeader / WorksheetLine), or add fields / indexes / relations to existing tables. Use whenever the user asks to "create a table", "scaffold a master/transaction/parameter table", "add a field", or "set TableGroup / TableType".
 applies_when: User intent mentions creating a table, choosing TableGroup / TableType, adding fields / indexes / relations, or temporary (TempDB / InMemory) tables.
 ---
-> ⛔ **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema (`<AxClass>`, `<AxTable>`, `<AxForm>`, `<Methods>`, `<SourceCode>`) is proprietary — LLMs have not been trained on it reliably. **ALWAYS use `d365fo generate …` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
+> â›” **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema (`<AxClass>`, `<AxTable>`, `<AxForm>`, `<Methods>`, `<SourceCode>`) is proprietary â€” LLMs have not been trained on it reliably. **ALWAYS use `d365fo generate â€¦` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
 
 # Creating & modifying AxTable definitions
 
 > The CLI's `d365fo generate table` mirrors `d365fo-mcp-server`'s
 > `generate_smart_table`. Pattern presets pre-populate the table with the
 > canonical `TableGroup`, a sensible default field skeleton, and an
-> alternate-key index — so the scaffold passes BP `BPCheckAlternateKeyAbsent`
+> alternate-key index â€” so the scaffold passes BP `BPCheckAlternateKeyAbsent`
 > out of the box.
 
 ## Pre-flight (always)
@@ -46,19 +46,19 @@ d365fo generate table FmParameters \
 d365fo generate table FmOrderHeader --pattern worksheet-header --install-to FleetManagement
 d365fo generate table FmOrderLine   --pattern worksheet-line   --install-to FleetManagement
 
-# Temp table — TempDB is a TableType, NOT a TableGroup. Combine:
+# Temp table â€” TempDB is a TableType, NOT a TableGroup. Combine:
 d365fo generate table FmTmpStaging \
     --pattern main \
     --table-type TempDB \
     --install-to FleetManagement
 ```
 
-Aliases recognised: `master` → Main, `setup`/`config` → Parameter,
-`transactional` → Transaction, `lookup` → Reference, `header`/`line` for
-worksheets, `misc` → Miscellaneous. Full list:
+Aliases recognised: `master` â†’ Main, `setup`/`config` â†’ Parameter,
+`transactional` â†’ Transaction, `lookup` â†’ Reference, `header`/`line` for
+worksheets, `misc` â†’ Miscellaneous. Full list:
 `main|transaction|parameter|group|worksheetheader|worksheetline|reference|framework|miscellaneous`.
 
-When `--field` is supplied, **caller fields win** — pattern defaults are
+When `--field` is supplied, **caller fields win** â€” pattern defaults are
 skipped entirely:
 
 ```sh
@@ -76,22 +76,22 @@ d365fo generate table FmVehicle \
 then "first field" so `BPCheckAlternateKeyAbsent` never trips.
 
 The CLI returns a JSON summary `{path, bytes, backup, pattern, tableType,
-usedPatternDefaults, fieldCount}` — never request the full XML back.
+usedPatternDefaults, fieldCount}` â€” never request the full XML back.
 
-## ❗ `TableGroup` vs `TableType`
+## â— `TableGroup` vs `TableType`
 
 | Property | Meaning | Allowed values |
 |---|---|---|
 | `TableGroup` | **Business role** | `Main`, `Transaction`, `Parameter`, `Group`, `WorksheetHeader`, `WorksheetLine`, `Reference`, `Framework`, `Miscellaneous` |
 | `TableType` | **Storage** kind | `RegularTable`, `TempDB`, `InMemory` |
 
-❌ Passing `--pattern TempDB` is **rejected** — the CLI returns
+âŒ Passing `--pattern TempDB` is **rejected** â€” the CLI returns
 `BAD_INPUT` with a hint to use `--table-type TempDB --pattern main` instead.
 
 ## Label-on-field exception
 
 When a field's EDT already carries a `Label`, do **NOT** pass a label on the
-field — it inherits from the EDT. Override only when the table genuinely
+field â€” it inherits from the EDT. Override only when the table genuinely
 needs a different caption.
 
 ## Pattern defaults (when no `--field` is supplied)
@@ -106,7 +106,7 @@ needs a different caption.
 | `worksheetline`   | `HeaderId`(mandatory), `LineNum`(mandatory), `Quantity`, `Amount` |
 | `reference`       | `Code`(mandatory), `Description` |
 
-Treat the defaults as a *starting point* — always replace placeholder fields
+Treat the defaults as a *starting point* â€” always replace placeholder fields
 (e.g. `Key`, `Code`) with names that fit the domain.
 
 ## Related AOT objects
@@ -116,7 +116,7 @@ Treat the defaults as a *starting point* — always replace placeholder fields
 After scaffolding a table, you often need an AOT Query to drive forms, reports, or data entities:
 
 ```sh
-# Inner join — SalesTable driving, SalesLine joined
+# Inner join â€” SalesTable driving, SalesLine joined
 d365fo generate query SalesTableWithLines \
   --ds SalesTable --join "SalesLine:InnerJoin:SalesTable" \
   --out c:/AOT/MyModel/AxQuery/SalesTableWithLines.xml
@@ -154,10 +154,10 @@ numSeq.used();   // or numSeq.abort() to roll back
 
 ## Hard rules
 
-- Never guess EDTs — `d365fo get edt <Name>` first.
-- Never duplicate a field name — `d365fo get table` first.
+- Never guess EDTs â€” `d365fo get edt <Name>` first.
+- Never duplicate a field name â€” `d365fo get table` first.
 - Never pass `tableGroup="TempDB"` (or `--pattern TempDB`).
 - Never override the EDT label on a field unless deliberately captioned.
 - Never ship a table without an alternate-key index (BP).
-- Never inline UI strings — labels only (BP `BPErrorLabelIsText`).
+- Never inline UI strings â€” labels only (BP `BPErrorLabelIsText`).
 - After scaffolding, run `d365fo build && d365fo sync` **only on user request**.

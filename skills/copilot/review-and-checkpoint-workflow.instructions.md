@@ -1,8 +1,8 @@
----
+﻿---
 description: Use Git as the review layer for AI-driven D365FO edits, and use `d365fo review diff` to get an AOT-semantic summary of XML changes. Invoke whenever the user is about to start a non-trivial change, before "accepting" AI edits, or wants a structural diff (added classes, modified table fields, new CoC wrappers).
 applyTo: '**/AxClass/**,**/AxTable/**,**/AxForm/**,**/*.xpp,**/*.xml'
 ---
-> ⛔ **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema (`<AxClass>`, `<AxTable>`, `<AxForm>`, `<Methods>`, `<SourceCode>`) is proprietary — LLMs have not been trained on it reliably. **ALWAYS use `d365fo generate …` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
+> â›” **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema (`<AxClass>`, `<AxTable>`, `<AxForm>`, `<Methods>`, `<SourceCode>`) is proprietary â€” LLMs have not been trained on it reliably. **ALWAYS use `d365fo generate â€¦` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
 
 # Git-checkpoint review workflow
 
@@ -20,25 +20,25 @@ git switch -c d365fo/<short-task>
 git commit -am "checkpoint before <task>"
 ```
 
-Do NOT create branches autonomously without telling the user — propose,
+Do NOT create branches autonomously without telling the user â€” propose,
 wait, then execute.
 
 ## 2. During the task
 
-Every `d365fo generate … --overwrite` writes a `.bak` next to the original
+Every `d365fo generate â€¦ --overwrite` writes a `.bak` next to the original
 so you can recover the previous version if Git history isn't enough.
 
 After each scaffold or edit, run a quick `git diff` to confirm the change is
 contained.
 
-## 3. After the task — AOT-semantic review
+## 3. After the task â€” AOT-semantic review
 
 ```sh
 # Raw byte diff (as usual)
 git diff --stat
 git diff <ref> -- AxClass/ AxTable/ AxForm/
 
-# AOT-semantic diff — added classes, modified table fields, new CoC wrappers …
+# AOT-semantic diff â€” added classes, modified table fields, new CoC wrappers â€¦
 d365fo review diff --base <ref> --output json
 d365fo review diff --base HEAD~1 --output json | jq '.data.added,.data.modified'
 ```
@@ -52,18 +52,18 @@ d365fo review diff --base HEAD~1 --output json | jq '.data.added,.data.modified'
 
 ## 4. Accept / reject
 
-- **Accept** — `git add -A && git commit && git switch main && git merge <branch>`.
-- **Reject** — `git restore` (working-tree changes) or `git branch -D` (whole branch).
+- **Accept** â€” `git add -A && git commit && git switch main && git merge <branch>`.
+- **Reject** â€” `git restore` (working-tree changes) or `git branch -D` (whole branch).
   The `.bak` files remain to recover individual files.
 
 ## Hard rules
 
-- Never bypass safety checks — no `git push --force`, no `--no-verify`, no
+- Never bypass safety checks â€” no `git push --force`, no `--no-verify`, no
   `git reset --hard` on shared branches. Discard with `git restore` or branch deletion.
 - Never run `d365fo build` / `bp check` automatically as part of the review
-  flow — they block the user. Say *"Diff summarised. Run `d365fo build`
+  flow â€” they block the user. Say *"Diff summarised. Run `d365fo build`
   when you're ready."*
 - Always include the `.bak` files in `.gitignore` for the user's repo so
   scaffold-overwrite backups don't pollute commits.
 - Always show `d365fo review diff` output BEFORE asking the user to accept
-  — they need the structural summary to make a decision.
+  â€” they need the structural summary to make a decision.

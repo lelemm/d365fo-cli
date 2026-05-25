@@ -1,12 +1,12 @@
----
+﻿---
 description: Scaffold an AxDataEntityView (data entity) in D365 Finance & Operations for OData / DMF (Data Management Framework) integration. Use when the user asks to "create a data entity", "expose a table to OData", or "scaffold an entity for DMF".
 applyTo: '**/AxDataEntityView/**,**/*Entity.xml'
 ---
-> ⛔ **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema (`<AxClass>`, `<AxTable>`, `<AxForm>`, `<Methods>`, `<SourceCode>`) is proprietary — LLMs have not been trained on it reliably. **ALWAYS use `d365fo generate …` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
+> â›” **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema (`<AxClass>`, `<AxTable>`, `<AxForm>`, `<Methods>`, `<SourceCode>`) is proprietary â€” LLMs have not been trained on it reliably. **ALWAYS use `d365fo generate â€¦` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
 
 # Authoring AxDataEntityView XML
 
-> Data entities are the supported integration surface for D365FO — OData v4,
+> Data entities are the supported integration surface for D365FO â€” OData v4,
 > Power Platform, DMF imports/exports, and inbound/outbound async services
 > all consume them. `d365fo generate entity` emits a minimal but
 > compile-clean `AxDataEntityView` XML.
@@ -22,7 +22,7 @@ d365fo search edt  <Edt>        --output json    # for any EDT mappings
 ## Scaffolding
 
 ```sh
-# Minimal — exposes one table; OData names default to <Name>Entity / <Name>Entities
+# Minimal â€” exposes one table; OData names default to <Name>Entity / <Name>Entities
 d365fo generate entity FmVehicleEntity \
     --table FmVehicle \
     --all-fields \
@@ -48,15 +48,15 @@ publicCollectionName}`. Never request the full XML back.
 | `PublicEntityName` | `<Domain><Concept>` (singular) | OData entity type |
 | `PublicCollectionName` | `<Domain><Concept>s` (plural) | OData collection (`/data/<Plural>`) |
 
-If the singular ends in `s`, set the plural explicitly (`FleetStatus` →
+If the singular ends in `s`, set the plural explicitly (`FleetStatus` â†’
 `FleetStatuses`).
 
 ## Hard rules
 
 - Never expose a table without confirming `IsPublic = Yes` on the entity (the
-  scaffold emits this — preserve it).
-- Never hardcode label captions for entity fields — they inherit from the
+  scaffold emits this â€” preserve it).
+- Never hardcode label captions for entity fields â€” they inherit from the
   underlying EDT or table field.
-- Never duplicate an existing public entity / collection name across models —
+- Never duplicate an existing public entity / collection name across models â€”
   OData names are global. `d365fo search entity` first.
 - Run `d365fo build` (and the OData metadata refresh) only on user request.

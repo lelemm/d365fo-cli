@@ -412,6 +412,10 @@ public sealed class SearchBatchCommand : Command<SearchBatchCommand.Settings>
         [CommandOption("-l|--limit <N>")]
         [System.ComponentModel.Description("Maximum hits per query.")]
         public int Limit { get; init; } = 50;
+
+        [CommandOption("--kind <KINDS>")]
+        [System.ComponentModel.Description("Comma-separated kind filter, e.g. 'class' or 'table,class'. Omit to search all kinds. Restricts each query to the listed object types only — much faster when you only care about one kind.")]
+        public string? Kind { get; init; }
     }
 
     public override int Execute(CommandContext ctx, Settings settings)
@@ -426,10 +430,14 @@ public sealed class SearchBatchCommand : Command<SearchBatchCommand.Settings>
         if (queries.Length == 0)
             return RenderHelpers.Render(output, ToolResult<object>.Fail("BAD_INPUT", "At least one query is required."));
 
+        var kinds = string.IsNullOrWhiteSpace(settings.Kind)
+            ? null
+            : settings.Kind.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
         var repo = RepoFactory.Create();
         var results = queries.Select(q =>
         {
-            var hits = repo.FindUsages(q, settings.Limit)
+            var hits = repo.FindUsagesFiltered(q, kinds, settings.Limit)
                 .Select(t => new { kind = t.Kind, name = t.Name, model = t.Model })
                 .ToList();
             var byKind = hits.GroupBy(h => h.kind).ToDictionary(g => g.Key, g => g.Count());
@@ -440,6 +448,7 @@ public sealed class SearchBatchCommand : Command<SearchBatchCommand.Settings>
         {
             count = results.Count,
             limit = settings.Limit,
+            kinds = kinds ?? ["all"],
             results,
         }));
     }

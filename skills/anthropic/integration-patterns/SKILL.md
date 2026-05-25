@@ -1,9 +1,9 @@
----
+﻿---
 name: integration-patterns
 description: Guidance for building or debugging integrations between D365 Finance & Operations and external systems. Invoke when the user asks about OData, custom services, DMF/Data Management Framework, business events, Power Automate connectors, Service Bus, or external system connectivity.
 applies_when: User intent mentions OData, REST API, custom service, SOAP, DMF, Data Management Framework, business event, Power Automate, Service Bus, Event Grid, Logic Apps, or any integration with an external system.
 ---
-> ⛔ **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema is proprietary. **ALWAYS use `d365fo generate …` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
+> â›” **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema is proprietary. **ALWAYS use `d365fo generate â€¦` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
 
 # D365FO Integration Patterns
 
@@ -25,7 +25,7 @@ applies_when: User intent mentions OData, REST API, custom service, SOAP, DMF, D
 
 ## 1. OData REST API
 
-**Purpose:** real-time synchronous CRUD from external systems — Power Platform, Logic Apps, third-party ERPs.
+**Purpose:** real-time synchronous CRUD from external systems â€” Power Platform, Logic Apps, third-party ERPs.
 
 **Endpoint:** `https://{env}.cloudax.dynamics.com/data/{PublicEntityName}`
 
@@ -57,23 +57,23 @@ d365fo generate entity <Name> --table <T> \
 
 **Common mistakes:**
 
-- Duplicate `PublicEntityName` across models — OData names are global. Run `d365fo search entity <PublicEntityName>` first.
-- No `AlternateKey = Yes` index — the OData `$key` segment will fail.
-- Mandatory fields not mapped — `$metadata` will list them as required but writes will error.
+- Duplicate `PublicEntityName` across models â€” OData names are global. Run `d365fo search entity <PublicEntityName>` first.
+- No `AlternateKey = Yes` index â€” the OData `$key` segment will fail.
+- Mandatory fields not mapped â€” `$metadata` will list them as required but writes will error.
 
 ---
 
 ## 2. Custom Services (SOAP / JSON REST)
 
-**Purpose:** custom business logic exposed as a callable service — for B2B integrations, ISV connectors, and automation tools that need transactional semantics.
+**Purpose:** custom business logic exposed as a callable service â€” for B2B integrations, ISV connectors, and automation tools that need transactional semantics.
 
 **Pattern:**
 
 ```
 AxServiceGroup
-  └── AxService (ServiceGroup reference)
-        └── Service class (X++)
-              └── Operations decorated with [SysEntryPointAttribute(true)]
+  â””â”€â”€ AxService (ServiceGroup reference)
+        â””â”€â”€ Service class (X++)
+              â””â”€â”€ Operations decorated with [SysEntryPointAttribute(true)]
 ```
 
 **REST endpoint:** `https://{env}.cloudax.dynamics.com/api/services/{ServiceGroupName}/{ServiceName}/{OperationName}`
@@ -102,15 +102,15 @@ d365fo generate custom-service <Name> \
 
 **Hard rules:**
 
-- **Every exposed method must have `[SysEntryPointAttribute(true)]`** — without it the service is unreachable from external callers (security gate).
-- Use `[DataContractAttribute]` + `[DataMemberAttribute]` on parameter/return contract classes — not `pack()`/`unpack()`.
+- **Every exposed method must have `[SysEntryPointAttribute(true)]`** â€” without it the service is unreachable from external callers (security gate).
+- Use `[DataContractAttribute]` + `[DataMemberAttribute]` on parameter/return contract classes â€” not `pack()`/`unpack()`.
 - Service class must NOT hold state between calls (it is instantiated per request).
 
 ---
 
 ## 3. Data Management Framework (DMF)
 
-**Purpose:** bulk import/export and migration — nightly feeds, data migrations, staging loads, and periodic reconciliation. Not for real-time use.
+**Purpose:** bulk import/export and migration â€” nightly feeds, data migrations, staging loads, and periodic reconciliation. Not for real-time use.
 
 **Requirements for DMF-capable entity:**
 
@@ -128,7 +128,7 @@ d365fo search entity <Name> --output json
 d365fo get entity <Name> --output json | jq '{enableDMF: .data.enableDataManagementCapabilities, stagingTable: .data.stagingTable}'
 
 # 3. Scaffold a DMF-capable entity (staging table must be created separately)
-d365fo generate entity <Name> --table <T> --all-fields --out …
+d365fo generate entity <Name> --table <T> --all-fields --out â€¦
 # Then hand-edit to set EnableDataManagementCapabilities + StagingTable
 ```
 
@@ -142,14 +142,14 @@ d365fo generate entity <Name> --table <T> --all-fields --out …
 
 ## 4. Business Events
 
-**Purpose:** event-driven outbound notifications when something meaningful happens in D365FO — approved purchase orders, posted invoices, status changes. Subscribers can be Power Automate flows, Service Bus, Event Grid, Logic Apps, or HTTP endpoints.
+**Purpose:** event-driven outbound notifications when something meaningful happens in D365FO â€” approved purchase orders, posted invoices, status changes. Subscribers can be Power Automate flows, Service Bus, Event Grid, Logic Apps, or HTTP endpoints.
 
 **Pattern:**
 
 ```
-BusinessEventsBase subclass  ← the event
-  + [BusinessEvents(...)]    ← registers it in the catalog
-  + BusinessEventsContract   ← the payload schema
+BusinessEventsBase subclass  â† the event
+  + [BusinessEvents(...)]    â† registers it in the catalog
+  + BusinessEventsContract   â† the payload schema
 ```
 
 **CLI workflow:**
@@ -158,7 +158,7 @@ BusinessEventsBase subclass  ← the event
 # 1. Find existing events to reference or avoid duplication
 d365fo search business-event <Name> --output json
 
-# 2. Inspect a known event — see category + contract class
+# 2. Inspect a known event â€” see category + contract class
 d365fo get business-event <Name> --output json
 
 # 3. Scaffold a new business event
@@ -172,7 +172,7 @@ d365fo generate business-event <Name> \
 
 **After scaffolding:**
 
-1. Activate in **System Administration > Business events catalog** — find the event, activate it per legal entity.
+1. Activate in **System Administration > Business events catalog** â€” find the event, activate it per legal entity.
 2. Configure the endpoint (Service Bus, Event Grid, HTTP, Power Automate) in the catalog.
 3. Test by triggering the business process that fires the event.
 
@@ -187,11 +187,11 @@ d365fo generate business-event <Name> \
 ## Choosing the right pattern
 
 ```
-External system calls D365FO on demand → OData (simple CRUD) or Custom Service (complex logic)
-D365FO notifies external system when something happens → Business Events
-Bulk data transfer, migration, nightly feeds → DMF
-Power Platform (Power Apps / Power Automate) → OData or Business Events
-Legacy SOAP client → Custom Service
+External system calls D365FO on demand â†’ OData (simple CRUD) or Custom Service (complex logic)
+D365FO notifies external system when something happens â†’ Business Events
+Bulk data transfer, migration, nightly feeds â†’ DMF
+Power Platform (Power Apps / Power Automate) â†’ OData or Business Events
+Legacy SOAP client â†’ Custom Service
 ```
 
 **Reference:** https://learn.microsoft.com/en-us/dynamics365/fin-ops-core/dev-itpro/data-entities/integration-overview

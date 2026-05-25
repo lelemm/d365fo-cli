@@ -1310,18 +1310,56 @@ public sealed class MetadataRepository
     }
 
     /// <summary>
+    /// Per-kind SQL fragments used by <see cref="FindUsagesFiltered"/>.
+    /// Key is the canonical kind name in lower-case.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, string> KindSqlFragments =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["table"]      = "SELECT 'Table' AS Kind, t.Name AS Name, m.Name AS Model FROM Tables t JOIN Models m ON m.ModelId=t.ModelId WHERE t.Name LIKE @like",
+            ["class"]      = "SELECT 'Class' AS Kind, c.Name AS Name, m.Name AS Model FROM Classes c JOIN Models m ON m.ModelId=c.ModelId WHERE c.Name LIKE @like OR c.ExtendsName LIKE @like",
+            ["edt"]        = "SELECT 'EDT' AS Kind, e.Name AS Name, m.Name AS Model FROM Edts e JOIN Models m ON m.ModelId=e.ModelId WHERE e.Name LIKE @like OR e.ExtendsName LIKE @like",
+            ["enum"]       = "SELECT 'Enum' AS Kind, e.Name AS Name, m.Name AS Model FROM Enums e JOIN Models m ON m.ModelId=e.ModelId WHERE e.Name LIKE @like",
+            ["menuitem"]   = "SELECT 'MenuItem' AS Kind, mi.Name AS Name, m.Name AS Model FROM MenuItems mi JOIN Models m ON m.ModelId=mi.ModelId WHERE mi.Name LIKE @like OR mi.Object LIKE @like",
+            ["form"]       = "SELECT 'Form' AS Kind, f.Name AS Name, m.Name AS Model FROM Forms f JOIN Models m ON m.ModelId=f.ModelId WHERE f.Name LIKE @like",
+            ["query"]      = "SELECT 'Query' AS Kind, q.Name AS Name, m.Name AS Model FROM Queries q JOIN Models m ON m.ModelId=q.ModelId WHERE q.Name LIKE @like",
+            ["view"]       = "SELECT 'View' AS Kind, v.Name AS Name, m.Name AS Model FROM Views v JOIN Models m ON m.ModelId=v.ModelId WHERE v.Name LIKE @like",
+            ["dataentity"] = "SELECT 'DataEntity' AS Kind, de.Name AS Name, m.Name AS Model FROM DataEntities de JOIN Models m ON m.ModelId=de.ModelId WHERE de.Name LIKE @like OR de.PublicEntityName LIKE @like",
+            ["report"]     = "SELECT 'Report' AS Kind, r.Name AS Name, m.Name AS Model FROM Reports r JOIN Models m ON m.ModelId=r.ModelId WHERE r.Name LIKE @like",
+            ["service"]    = "SELECT 'Service' AS Kind, s.Name AS Name, m.Name AS Model FROM Services s JOIN Models m ON m.ModelId=s.ModelId WHERE s.Name LIKE @like",
+            ["workflow"]   = "SELECT 'Workflow' AS Kind, w.Name AS Name, m.Name AS Model FROM WorkflowTypes w JOIN Models m ON m.ModelId=w.ModelId WHERE w.Name LIKE @like",
+            ["map"]        = "SELECT 'Map' AS Kind, mp.Name AS Name, m.Name AS Model FROM Maps mp JOIN Models m ON m.ModelId=mp.ModelId WHERE mp.Name LIKE @like",
+        };
+
+    /// <summary>
     /// Variant of <see cref="FindUsages"/> that filters to specific object kinds.
     /// <paramref name="kinds"/> should be values like "Table", "Class", "EDT".
-    /// When empty, falls back to all kinds.
+    /// When empty or null, falls back to all kinds.
+    /// Unlike the old implementation this builds a targeted SQL query so only
+    /// the requested tables are scanned — much faster when searching a single kind.
     /// </summary>
     public IReadOnlyList<(string Kind, string Name, string Model)> FindUsagesFiltered(
         string needle, IReadOnlyList<string>? kinds, int limit = 100)
     {
-        var all = FindUsages(needle, limit);
-        if (kinds is null || kinds.Count == 0) return all;
+        if (kinds is null || kinds.Count == 0)
+            return FindUsages(needle, limit);
 
-        var kindSet = kinds.Select(k => k.Trim().ToLowerInvariant()).ToHashSet();
-        return all.Where(r => kindSet.Contains(r.Kind.ToLowerInvariant())).ToList();
+        var fragments = kinds
+            .Select(k => k.Trim().ToLowerInvariant())
+            .Where(k => KindSqlFragments.ContainsKey(k))
+            .Select(k => KindSqlFragments[k])
+            .ToList();
+
+        // If all requested kinds are unknown fall back to broad search so we
+        // don't silently return zero results due to a typo in --kind.
+        if (fragments.Count == 0)
+            return FindUsages(needle, limit);
+
+        using var conn = OpenReadOnly();
+        var like = $"%{needle}%";
+        var sql = string.Join("\nUNION ALL\n", fragments) + "\nORDER BY Name\nLIMIT @limit";
+        var rows = conn.Query<UsageRow>(sql, new { like, limit });
+        return rows.Select(r => (r.Kind, r.Name, r.Model)).ToList();
     }
 
     /// <summary>

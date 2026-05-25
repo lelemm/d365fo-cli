@@ -1,9 +1,9 @@
----
+﻿---
 name: sysoperation-batch-patterns
 description: Scaffold batch jobs, SysOperation triplets (DataContract + Service + Controller), RunBase/RunBaseBatch classes, or data migration scripts in D365 Finance & Operations. Invoke when the user asks to "create a batch job", "scaffold a SysOperation", "create a RunBase class", "build a batch class", "generate a migration script", "migrate data between tables", or "create a scheduled batch".
 applies_when: User intent mentions batch job, SysOperation, RunBase, RunBaseBatch, scheduled batch, data migration script, DataContract class, batch controller, or SysRunnable.
 ---
-> ⛔ **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema is proprietary. **ALWAYS use `d365fo generate …` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
+> â›” **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema is proprietary. **ALWAYS use `d365fo generate â€¦` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
 
 # Batch and SysOperation patterns
 
@@ -12,20 +12,20 @@ applies_when: User intent mentions batch job, SysOperation, RunBase, RunBaseBatc
 
 ---
 
-## 1. SysOperation — preferred pattern for new batch jobs
+## 1. SysOperation â€” preferred pattern for new batch jobs
 
 SysOperation separates concerns into three classes:
 
 | Class | Role |
 |---|---|
-| `DataContract` | Parameter bag — `[DataContractAttribute]` + `[DataMemberAttribute]` on each `parmXxx()` |
-| `Service` | Business logic — extends `SysOperationServiceBase`, contains the `process()` method |
-| `Controller` | Entry point — extends `SysOperationServiceController`, sets menu item and execution mode |
+| `DataContract` | Parameter bag â€” `[DataContractAttribute]` + `[DataMemberAttribute]` on each `parmXxx()` |
+| `Service` | Business logic â€” extends `SysOperationServiceBase`, contains the `process()` method |
+| `Controller` | Entry point â€” extends `SysOperationServiceController`, sets menu item and execution mode |
 
 **CLI workflow:**
 
 ```sh
-# Pre-flight — name collision check
+# Pre-flight â€” name collision check
 d365fo search class FmInvoiceBatch --output json
 
 # Scaffold all three classes in one command
@@ -55,14 +55,14 @@ d365fo generate sysoperation FmInvoiceBatch \
 **Hard rules:**
 
 - The `process()` method on the Service class is the only method that should contain business logic.
-- The Contract class must NOT hold state between calls — it is a simple data transfer object.
-- Do NOT use `today()` anywhere in the service — use `DateTimeUtil::getToday(DateTimeUtil::getUserPreferredTimeZone())`.
-- Never call `ttsbegin` / `ttscommit` in the Contract or Controller — only in the Service's `process()`.
+- The Contract class must NOT hold state between calls â€” it is a simple data transfer object.
+- Do NOT use `today()` anywhere in the service â€” use `DateTimeUtil::getToday(DateTimeUtil::getUserPreferredTimeZone())`.
+- Never call `ttsbegin` / `ttscommit` in the Contract or Controller â€” only in the Service's `process()`.
 - Add a `[SysEntryPointAttribute(true)]` on the Service entry method to control security access.
 
 ---
 
-## 2. RunBase / RunBaseBatch — legacy pattern
+## 2. RunBase / RunBaseBatch â€” legacy pattern
 
 Use only when extending existing code that inherits from `RunBase` or `RunBaseBatch`.
 
@@ -82,18 +82,18 @@ d365fo generate runbase FmLegacyBatch \
 
 **When to prefer SysOperation over RunBase:**
 
-- SysOperation supports `[DataContractAttribute]` serialisation — parameters survive AOS restart.
+- SysOperation supports `[DataContractAttribute]` serialisation â€” parameters survive AOS restart.
 - SysOperation is unit-testable without a dialog.
-- RunBase `pack()`/`unpack()` is fragile — adding a new parameter requires version bumping.
+- RunBase `pack()`/`unpack()` is fragile â€” adding a new parameter requires version bumping.
 
 ---
 
-## 3. Data migration scripts — `SysRunnable`
+## 3. Data migration scripts â€” `SysRunnable`
 
 Use for one-time data migration during upgrades or post-deployment data fixes.
 
 ```sh
-# Pre-flight — confirm source and target table structure
+# Pre-flight â€” confirm source and target table structure
 d365fo get table FmVehicleOld --output json
 d365fo get table FmVehicle    --output json
 
@@ -112,6 +112,6 @@ d365fo generate migration-script FmVehicleMigration \
 
 - Always run migration scripts in a test environment before production.
 - Use `--batch-size` to avoid long-running transactions. Default is 1000.
-- Migration classes implement `SysRunnable` — run via `SysRunnable::run()` or from a `RunBase` dialog.
-- Never delete source data in the same script — use a separate cleanup script after validation.
+- Migration classes implement `SysRunnable` â€” run via `SysRunnable::run()` or from a `RunBase` dialog.
+- Never delete source data in the same script â€” use a separate cleanup script after validation.
 - After migration, validate row counts: `select count(*) from FmVehicle`.

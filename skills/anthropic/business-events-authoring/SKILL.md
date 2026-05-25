@@ -1,9 +1,9 @@
----
+﻿---
 name: business-events-authoring
 description: Author or extend custom Business Events in D365 Finance & Operations. Invoke when the user asks to "create a business event", "add a business event", "build a custom business event", or wire D365FO outbound notifications to Power Automate / Service Bus / Event Grid.
 applies_when: User intent mentions business events, BusinessEventsBase, BusinessEventsContract, outbound notifications, Power Automate triggers, Service Bus events, or Event Grid from D365FO.
 ---
-> ⛔ **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema is proprietary. **ALWAYS use `d365fo generate …` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
+> â›” **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema is proprietary. **ALWAYS use `d365fo generate â€¦` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
 
 # Business Events Authoring in D365FO
 
@@ -21,12 +21,12 @@ applies_when: User intent mentions business events, BusinessEventsBase, Business
 A custom business event consists of exactly two classes:
 
 ```
-1. Event class — extends BusinessEventsBase
-   - Decorated with [BusinessEvents(...)] — registers it in the catalog
+1. Event class â€” extends BusinessEventsBase
+   - Decorated with [BusinessEvents(...)] â€” registers it in the catalog
    - Implements buildContract() to populate the payload
    - Has a static newFrom<Context>(...) factory
 
-2. Contract class — implements BusinessEventsContract
+2. Contract class â€” implements BusinessEventsContract
    - Decorated with [DataContractAttribute]
    - One parmXxx() accessor per payload field, decorated with [DataMemberAttribute]
 ```
@@ -78,7 +78,7 @@ public final class CustPaymentBusinessEvent extends BusinessEventsBase
 {
     private CustTrans custTrans;
 
-    // Factory method — called from the business process that fires the event
+    // Factory method â€” called from the business process that fires the event
     public static CustPaymentBusinessEvent newFromCustTrans(CustTrans _custTrans)
     {
         var event = new CustPaymentBusinessEvent();
@@ -143,7 +143,7 @@ public final class CustPaymentBusinessEventContract extends BusinessEventsContra
 
 ## Firing the event
 
-Call the static factory from the business process at the right lifecycle point — typically in a table `insert` / `update` override, a posting engine, or a workflow action:
+Call the static factory from the business process at the right lifecycle point â€” typically in a table `insert` / `update` override, a posting engine, or a workflow action:
 
 ```xpp
 // In CustTrans.insert() CoC or a posting service method:
@@ -169,18 +169,18 @@ final class CustTrans_MyExt
 
 After scaffolding and compiling:
 
-1. **System Administration > Business events catalog** — the event appears after a browser refresh or `iisreset`.
-2. **Activate** — select the event, click Activate, choose the legal entity scope.
-3. **Configure endpoint** — click Endpoints, create or reuse a Service Bus / Event Grid / HTTP / Power Automate connection.
-4. **Test** — trigger the business process; the event payload arrives at the endpoint within seconds.
+1. **System Administration > Business events catalog** â€” the event appears after a browser refresh or `iisreset`.
+2. **Activate** â€” select the event, click Activate, choose the legal entity scope.
+3. **Configure endpoint** â€” click Endpoints, create or reuse a Service Bus / Event Grid / HTTP / Power Automate connection.
+4. **Test** â€” trigger the business process; the event payload arrives at the endpoint within seconds.
 
 ---
 
 ## Hard rules
 
-- **`[BusinessEvents(...)]` must be on the event class declaration** — not on methods. Four arguments: `classStr(EventClass)`, `classStr(ContractClass)`, `"CategoryString"`, `"@File:DescriptionLabel"`.
-- **`buildContract()` is called by the framework** — return the populated contract instance; never return `null`.
-- **Contract `parmXxx()` accessors must be decorated with `[DataMemberAttribute]`** — the serialization layer uses these to build the JSON payload.
-- **Use EDTs for payload fields** (e.g. `CustAccount`, `AmountCur`) — not primitive types. Run `d365fo get edt <Name>` to confirm the EDT exists.
+- **`[BusinessEvents(...)]` must be on the event class declaration** â€” not on methods. Four arguments: `classStr(EventClass)`, `classStr(ContractClass)`, `"CategoryString"`, `"@File:DescriptionLabel"`.
+- **`buildContract()` is called by the framework** â€” return the populated contract instance; never return `null`.
+- **Contract `parmXxx()` accessors must be decorated with `[DataMemberAttribute]`** â€” the serialization layer uses these to build the JSON payload.
+- **Use EDTs for payload fields** (e.g. `CustAccount`, `AmountCur`) â€” not primitive types. Run `d365fo get edt <Name>` to confirm the EDT exists.
 - **Never call `BusinessEventsBase::publish()` inside a `ttsbegin`/`ttscommit` block** unless you intend to publish on rollback too. Call it after the outermost `ttscommit` or in the `postInsert`/`postUpdate` framework hook.
-- **Category string is free text** — use a meaningful module-scoped category (e.g. `"CustomerPayments"`, `"InventoryEvents"`) so the catalog is navigable.
+- **Category string is free text** â€” use a meaningful module-scoped category (e.g. `"CustomerPayments"`, `"InventoryEvents"`) so the catalog is navigable.

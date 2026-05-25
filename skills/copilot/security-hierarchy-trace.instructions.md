@@ -1,19 +1,19 @@
----
+﻿---
 description: Trace D365FO security from a Role all the way down to Entry Points, discover which roles reach a given object, or scaffold new security objects (privilege, duty, role, XDS policy). Use when the user asks about permissions, security coverage, roles, duties, privileges, "create a security privilege", "scaffold a security role", "generate a duty", or "create a security policy".
 applyTo: '**/AxSecurityRole/**,**/AxSecurityDuty/**,**/AxSecurityPrivilege/**'
 ---
-> ⛔ **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema (`<AxClass>`, `<AxTable>`, `<AxForm>`, `<Methods>`, `<SourceCode>`) is proprietary — LLMs have not been trained on it reliably. **ALWAYS use `d365fo generate …` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
+> â›” **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema (`<AxClass>`, `<AxTable>`, `<AxForm>`, `<Methods>`, `<SourceCode>`) is proprietary â€” LLMs have not been trained on it reliably. **ALWAYS use `d365fo generate â€¦` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
 
 # Tracing D365FO security hierarchies
 
 ## Workflow
 
-1. **Top-down** — which entry points does a role reach?
+1. **Top-down** â€” which entry points does a role reach?
    ```sh
    d365fo get security <RoleName> --type Role --output json
    ```
 
-2. **Bottom-up** — which roles reach this object?
+2. **Bottom-up** â€” which roles reach this object?
    ```sh
    d365fo get security <ObjectName> --type Menuitem --output json
    # type may be Table, Form, Report, Class, Menuitem
@@ -21,7 +21,7 @@ applyTo: '**/AxSecurityRole/**,**/AxSecurityDuty/**,**/AxSecurityPrivilege/**'
 
 3. The response contains `routes[*]` of shape
    `{ role, duty, privilege, entryPoint }`. Duplicate `role`s indicate multiple
-   paths — all must be removed to revoke access.
+   paths â€” all must be removed to revoke access.
 
 ## Hard rules
 
@@ -31,7 +31,7 @@ applyTo: '**/AxSecurityRole/**,**/AxSecurityDuty/**,**/AxSecurityPrivilege/**'
 
 ## Scaffolding security objects
 
-Trace first — understand the existing hierarchy — then scaffold new objects to fit it.
+Trace first â€” understand the existing hierarchy â€” then scaffold new objects to fit it.
 
 ```sh
 # 1. Create a privilege granting a specific access level to a menu item entry point
@@ -61,5 +61,5 @@ d365fo generate duty FmNewDuty --privilege FmSomePrivilege \
   --install-to FleetManagement
 ```
 
-**Scaffold order:** menu item → privilege (references the menu item) → duty (bundles privileges) → role (bundles duties).
+**Scaffold order:** menu item â†’ privilege (references the menu item) â†’ duty (bundles privileges) â†’ role (bundles duties).
 Always run `d365fo get security <Name> --type Role --output json` after to verify the new objects appear in the hierarchy.
