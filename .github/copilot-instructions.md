@@ -22,7 +22,7 @@ This file gives **GitHub Copilot** the rules for assisting with D365 Finance & O
 
 ```sh
 d365fo doctor --output json           # confirm index is healthy
-d365fo list models --output json      # confirm target model — NEVER guess it
+d365fo models list --output json      # confirm target model — NEVER guess it
 ```
 
 | Result | Action |
