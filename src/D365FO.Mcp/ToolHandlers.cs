@@ -600,7 +600,7 @@ public sealed class ToolHandlers
         });
     }
 
-    // ---- Phase 3: v11 search/get handlers ----
+    // ---- search / get handlers ----
 
     public ToolResult<object> SearchBusinessEvents(string query, string? category, int limit)
     {
@@ -640,7 +640,7 @@ public sealed class ToolHandlers
         return ToolResult<object>.Success(new { count = items.Count, items });
     }
 
-    // ---- Phase 5: integration analysis handlers ----
+    // ---- integration analysis handlers ----
 
     public ToolResult<object> AnalyzeIntegration(string? model)
     {
@@ -661,7 +661,7 @@ public sealed class ToolHandlers
         });
     }
 
-    // ---- Phase 7: developer experience handlers ----
+    // ---- developer experience handlers ----
 
     public ToolResult<object> AnalyzeImpact(string objectName)
     {
@@ -682,7 +682,7 @@ public sealed class ToolHandlers
         return ToolResult<object>.Success(new { count = items.Count, items });
     }
 
-    // ---- Phase 2 + 6: scaffolding handlers (return XML as string) ----
+    // ---- scaffolding handlers (return XML as string) ----
 
     public ToolResult<object> GenerateEdt(string name, string? extends, string? label, int size)
     {
@@ -767,5 +767,197 @@ public sealed class ToolHandlers
         var pq = string.IsNullOrWhiteSpace(policyQuery) ? name + "Query" : policyQuery!;
         var doc = D365FO.Core.Scaffolding.SecurityPolicyScaffolder.Policy(name, constrainedTable, pq);
         return ToolResult<object>.Success(new { name, xml = doc.ToString() });
+    }
+
+    // ---- write-to-disk scaffolding handlers ----
+
+    /// <summary>
+    /// Resolve the canonical AOT install path:
+    /// <c>&lt;PackagesPath&gt;/&lt;model&gt;/&lt;model&gt;/&lt;axSubfolder&gt;/&lt;name&gt;.xml</c>.
+    /// Returns <c>null</c> when <c>D365FO_PACKAGES_PATH</c> is not set.
+    /// </summary>
+    private static string? ResolveAotPath(string model, string axSubfolder, string name)
+    {
+        var cfg = D365FoSettings.FromEnvironment();
+        if (string.IsNullOrEmpty(cfg.PackagesPath)) return null;
+        return Path.Combine(cfg.PackagesPath, model, model, axSubfolder, name + ".xml");
+    }
+
+    private static ToolResult<object> WriteScaffold(
+        System.Xml.Linq.XDocument doc, string name, string kind, string axSubfolder,
+        string? installTo, string? outPath, bool overwrite, object extra)
+    {
+        var path = outPath;
+        if (string.IsNullOrWhiteSpace(path) && !string.IsNullOrWhiteSpace(installTo))
+        {
+            path = ResolveAotPath(installTo!, axSubfolder, name);
+            if (path is null)
+                return ToolResult<object>.Fail("INSTALL_FAILED",
+                    $"Cannot resolve install path for model '{installTo}': D365FO_PACKAGES_PATH is not set.",
+                    "Set D365FO_PACKAGES_PATH before using installTo.");
+        }
+        if (string.IsNullOrWhiteSpace(path))
+            return ToolResult<object>.Fail("BAD_INPUT", "Either 'out' or 'installTo' is required.");
+
+        try
+        {
+            var res = D365FO.Core.Scaffolding.ScaffoldFileWriter.Write(doc, path!, overwrite);
+            return ToolResult<object>.Success(new
+            {
+                kind,
+                name,
+                path = res.Path,
+                bytes = res.Bytes,
+                backup = res.BackupPath,
+                model = installTo,
+                extra,
+            });
+        }
+        catch (Exception ex)
+        {
+            return ToolResult<object>.Fail(D365FoErrorCodes.WriteFailed, ex.Message);
+        }
+    }
+
+    private static ToolResult<object> WriteScaffoldString(
+        string xml, string name, string kind, string axSubfolder,
+        string? installTo, string? outPath, bool overwrite, object extra)
+    {
+        var path = outPath;
+        if (string.IsNullOrWhiteSpace(path) && !string.IsNullOrWhiteSpace(installTo))
+        {
+            path = ResolveAotPath(installTo!, axSubfolder, name);
+            if (path is null)
+                return ToolResult<object>.Fail("INSTALL_FAILED",
+                    $"Cannot resolve install path for model '{installTo}': D365FO_PACKAGES_PATH is not set.",
+                    "Set D365FO_PACKAGES_PATH before using installTo.");
+        }
+        if (string.IsNullOrWhiteSpace(path))
+            return ToolResult<object>.Fail("BAD_INPUT", "Either 'out' or 'installTo' is required.");
+
+        try
+        {
+            var res = D365FO.Core.Scaffolding.ScaffoldFileWriter.Write(xml, path!, overwrite);
+            return ToolResult<object>.Success(new
+            {
+                kind,
+                name,
+                path = res.Path,
+                bytes = res.Bytes,
+                backup = res.BackupPath,
+                model = installTo,
+                extra,
+            });
+        }
+        catch (Exception ex)
+        {
+            return ToolResult<object>.Fail(D365FoErrorCodes.WriteFailed, ex.Message);
+        }
+    }
+
+    private static D365FO.Core.Scaffolding.TableFieldSpec ParseTableField(string raw)
+    {
+        var parts = raw.Split(':', StringSplitOptions.TrimEntries);
+        var fname = parts.Length > 0 ? parts[0] : "";
+        var edt   = parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[1]) ? parts[1] : null;
+        var mand  = parts.Length > 2 && string.Equals(parts[2], "mandatory", StringComparison.OrdinalIgnoreCase);
+        return new D365FO.Core.Scaffolding.TableFieldSpec(fname, edt, null, mand);
+    }
+
+    public ToolResult<object> GenerateTable(
+        string name, string? label, string[]? fields, string? pattern,
+        string? installTo, string? outPath, bool overwrite)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return ToolResult<object>.Fail("BAD_INPUT", "name is required.");
+
+        if (!D365FO.Core.Scaffolding.TablePatternNormalizer.TryNormalize(pattern, out var pat, out var perr))
+            return ToolResult<object>.Fail("BAD_INPUT", perr!);
+
+        var fieldSpecs = (fields ?? Array.Empty<string>()).Select(ParseTableField).ToList();
+
+        // Guardrail: warn if table already exists in index.
+        var warnings = new List<string>();
+        try
+        {
+            var existing = _repo.GetTableDetails(name);
+            if (existing is not null)
+                warnings.Add($"Table '{name}' already exists in the index (model: {existing.Table.Model}). Use overwrite=true to replace.");
+        }
+        catch { /* index may not contain the table — not fatal */ }
+
+        var doc = D365FO.Core.Scaffolding.XppScaffolder.Table(name, label, fieldSpecs, pat,
+            D365FO.Core.Scaffolding.TableStorage.RegularTable, null);
+        var extra = new { fieldCount = fieldSpecs.Count > 0 ? fieldSpecs.Count : (int?)null, pattern = pat == D365FO.Core.Scaffolding.TablePattern.None ? null : pat.ToString() };
+        return WriteScaffold(doc, name, "AxTable", "AxTable", installTo, outPath, overwrite, extra);
+    }
+
+    public ToolResult<object> GenerateClass(
+        string name, string? extends, bool nonFinal,
+        string? installTo, string? outPath, bool overwrite)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return ToolResult<object>.Fail("BAD_INPUT", "name is required.");
+        var doc = D365FO.Core.Scaffolding.XppScaffolder.Class(name, extends, !nonFinal);
+        return WriteScaffold(doc, name, "AxClass", "AxClass", installTo, outPath, overwrite, new { extends });
+    }
+
+    public ToolResult<object> GenerateCoc(
+        string target, string[] methods,
+        string? installTo, string? outPath, bool overwrite)
+    {
+        if (string.IsNullOrWhiteSpace(target))
+            return ToolResult<object>.Fail("BAD_INPUT", "target is required.");
+        if (methods is null || methods.Length == 0)
+            return ToolResult<object>.Fail("BAD_INPUT", "At least one method is required.");
+
+        // Guardrail: warn if CoC wrappers already exist.
+        var warnings = new List<string>();
+        try
+        {
+            var existing = _repo.FindCocExtensions(target);
+            if (existing.Count > 0)
+                warnings.Add($"There are already {existing.Count} CoC extension(s) of '{target}'. Consider extending an existing one instead.");
+        }
+        catch { /* not fatal */ }
+
+        var extensionName = target + "_Extension";
+        var doc = D365FO.Core.Scaffolding.XppScaffolder.CocExtension(target, methods);
+        var result = WriteScaffold(doc, extensionName, "AxClass", "AxClass", installTo, outPath, overwrite,
+            new { target, methodCount = methods.Length });
+
+        // Attach warnings to a successful result envelope.
+        if (warnings.Count > 0 && result.Ok)
+        {
+            return ToolResult<object>.Success(new
+            {
+                kind = "AxClass",
+                name = extensionName,
+                target,
+                methodCount = methods.Length,
+                model = installTo,
+                warnings,
+            });
+        }
+        return result;
+    }
+
+    public ToolResult<object> GenerateForm(
+        string name, string? table, string? pattern, string? caption,
+        string[]? fields, string? linesTable,
+        string? installTo, string? outPath, bool overwrite)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return ToolResult<object>.Fail("BAD_INPUT", "name is required.");
+
+        var fp = D365FO.Core.Scaffolding.FormPatternNormalizer.Normalize(pattern);
+
+        var xml = D365FO.Core.Scaffolding.XppScaffolder.Form(
+            name, table, fp, caption,
+            fields ?? Array.Empty<string>(),
+            Array.Empty<D365FO.Core.Scaffolding.FormSectionSpec>(), linesTable);
+
+        return WriteScaffoldString(xml, name, "AxForm", "AxForm", installTo, outPath, overwrite,
+            new { table, pattern = fp.ToString() });
     }
 }

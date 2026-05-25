@@ -314,7 +314,7 @@ public static class ToolCatalog
             Schema(("topN", "integer", false), ("onlyCycles", "boolean", false)),
             (h, p) => h.ModelsCoupling(Int(p, "topN", 20), Bool(p, "onlyCycles"))),
 
-        // ---- Phase 3: v11 search/get tools ----
+        // ---- search / get tools ----
 
         new Descriptor("search_business_events",
             "Search indexed D365FO business events by name or contract class.",
@@ -346,7 +346,7 @@ public static class ToolCatalog
             Schema(("query", "string", true), ("limit", "integer", false)),
             (h, p) => h.SearchWorkspaces(Str(p, "query"), Int(p, "limit", 50))),
 
-        // ---- Phase 5: integration analysis tools ----
+        // ---- integration analysis tools ----
 
         new Descriptor("analyze_integration",
             "Cross-check indexed data entities for OData/DMF integration readiness. Returns issues such as duplicate PublicEntityName, missing staging table, and zero-field entities.",
@@ -358,7 +358,7 @@ public static class ToolCatalog
             Schema(("model", "string", false)),
             (h, p) => h.ReportIntegrations(StrOrNull(p, "model"))),
 
-        // ---- Phase 7: developer experience tools ----
+        // ---- developer experience tools ----
 
         new Descriptor("analyze_impact",
             "Change-impact analysis: list all downstream consumers (CoC wrappers, event handlers, extensions, form datasources, data entities, queries) of an AOT object.",
@@ -370,7 +370,7 @@ public static class ToolCatalog
             Schema(("model", "string", false)),
             (h, p) => h.FindBatchJobs(StrOrNull(p, "model"))),
 
-        // ---- Phase 2 + 6: scaffolding tools (return XML content) ----
+        // ---- scaffolding tools (return XML content) ----
 
         new Descriptor("generate_edt",
             "Scaffold an AxEdt Extended Data Type. Returns the XML content as a string.",
@@ -406,6 +406,42 @@ public static class ToolCatalog
             "Scaffold an AxSecurityPolicy (XDS) XML. Returns XML content.",
             Schema(("name", "string", true), ("constrainedTable", "string", true), ("policyQuery", "string", false)),
             (h, p) => h.GenerateSecurityPolicy(Str(p, "name"), Str(p, "constrainedTable"), StrOrNull(p, "policyQuery"))),
+
+        // ---- write-to-disk scaffolding tools ----
+        // These tools generate XML AND write it directly into the AOT at
+        //   <D365FO_PACKAGES_PATH>/<model>/<model>/Ax<Kind>/<name>.xml
+        // Either `installTo` (model name) or `out` (explicit path) is required.
+
+        new Descriptor("generate_table",
+            "Scaffold an AxTable and write it into the AOT. Requires either installTo (model name, resolves path automatically from D365FO_PACKAGES_PATH) or out (explicit file path). Fields format: \"<name>:<edt>[:mandatory]\". Pattern aliases: main, transaction, parameter, group, reference, miscellaneous.",
+            Schema(("name", "string", true), ("label", "string", false), ("fields", "array", false),
+                   ("pattern", "string", false), ("installTo", "string", false),
+                   ("out", "string", false), ("overwrite", "boolean", false)),
+            (h, p) => h.GenerateTable(Str(p, "name"), StrOrNull(p, "label"), StrArray(p, "fields"),
+                StrOrNull(p, "pattern"), StrOrNull(p, "installTo"), StrOrNull(p, "out"), Bool(p, "overwrite"))),
+
+        new Descriptor("generate_class",
+            "Scaffold an AxClass and write it into the AOT. Requires either installTo (model name) or out (explicit path).",
+            Schema(("name", "string", true), ("extends", "string", false), ("nonFinal", "boolean", false),
+                   ("installTo", "string", false), ("out", "string", false), ("overwrite", "boolean", false)),
+            (h, p) => h.GenerateClass(Str(p, "name"), StrOrNull(p, "extends"), Bool(p, "nonFinal"),
+                StrOrNull(p, "installTo"), StrOrNull(p, "out"), Bool(p, "overwrite"))),
+
+        new Descriptor("generate_coc",
+            "Scaffold a Chain-of-Command extension class (<target>_Extension) and write it into the AOT. Wraps the given methods with next calls. Requires either installTo or out.",
+            Schema(("target", "string", true), ("methods", "array", true),
+                   ("installTo", "string", false), ("out", "string", false), ("overwrite", "boolean", false)),
+            (h, p) => h.GenerateCoc(Str(p, "target"), StrArray(p, "methods") ?? Array.Empty<string>(),
+                StrOrNull(p, "installTo"), StrOrNull(p, "out"), Bool(p, "overwrite"))),
+
+        new Descriptor("generate_form",
+            "Scaffold a pattern-correct AxForm and write it into the AOT. Patterns: SimpleList, SimpleListDetails, DetailsMaster, DetailsTransaction, Dialog, TableOfContents, Lookup, ListPage, Workspace. Requires either installTo or out.",
+            Schema(("name", "string", true), ("table", "string", false), ("pattern", "string", false),
+                   ("caption", "string", false), ("fields", "array", false), ("linesTable", "string", false),
+                   ("installTo", "string", false), ("out", "string", false), ("overwrite", "boolean", false)),
+            (h, p) => h.GenerateForm(Str(p, "name"), StrOrNull(p, "table"), StrOrNull(p, "pattern"),
+                StrOrNull(p, "caption"), StrArray(p, "fields"), StrOrNull(p, "linesTable"),
+                StrOrNull(p, "installTo"), StrOrNull(p, "out"), Bool(p, "overwrite"))),
     };
 
     // ---- JSON helpers ----
