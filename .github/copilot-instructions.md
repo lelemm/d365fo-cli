@@ -10,9 +10,11 @@
 
 This file gives **GitHub Copilot** the rules for assisting with D365 Finance & Operations X++ development. It is deployed to your X++ project's `.github/` folder by `Install-D365FoCopilotSkills.ps1` and is read automatically by Copilot in Visual Studio.
 
-> **Primary environment:** GitHub Copilot in **Visual Studio 2022 / 2026** in agent mode — has `run_command_in_terminal`, `replace_string_in_file`, `get_errors`, etc. Run `d365fo` commands directly via the terminal tool.
+> **Primary environment — VS 2022 / VS 2026 agent mode:** GitHub Copilot runs `d365fo` commands via the built-in terminal tool (`run_command_in_terminal`). Skills in `.github/instructions/` load on demand and tell Copilot exactly which commands to run. No copy-paste, no MCP overhead.
 >
-> **Secondary environment:** VS Code with Copilot in agent mode. Same capabilities, different tool names (`run_in_terminal` instead of `run_command_in_terminal`, `read_file` instead of `get_file`).
+> **Secondary environment — VS Code agent mode:** Same approach, different terminal tool name (`run_in_terminal`). Identical experience.
+>
+> **Fallback — VS Chat mode (no agent tools):** Copilot must ask the user to run `d365fo` commands manually and paste back JSON output. See the fallback workflow section below.
 
 ---
 
@@ -32,9 +34,19 @@ d365fo list models --output json      # confirm target model — NEVER guess it
 
 Models are ISV / customer policy boundaries — never infer from search results; always ask or read from `.rnrproj`.
 
-### ⛔ VS Chat mode (no agent tools) — fallback workflow
+### VS / VS Code operating modes
 
-If Copilot is running in **chat mode without agent tools** (no terminal access), it cannot execute `d365fo` directly. The built-in code search / `@workspace` **always fails on AOT XML** — do not attempt it.
+| Environment | How Copilot runs d365fo | Token cost |
+|---|---|---|
+| **VS 2022/2026 agent mode** | Built-in terminal tool → `d365fo` CLI | ~100 tokens |
+| **VS Code agent mode** | `run_in_terminal` → `d365fo` CLI | ~100 tokens |
+| **VS Chat mode** (no agent tools) | User runs manually, pastes JSON | collaborative |
+
+In agent mode Copilot calls `d365fo` commands autonomously — it reads skills from `.github/instructions/`, decides which commands to run, executes them in the terminal, and interprets the JSON output. No copy-paste required.
+
+### ⛔ Chat mode only (no agent tools) — fallback workflow
+
+If Copilot is running in **chat mode without agent tools** (no tool list visible), it cannot call `d365fo` directly. The built-in code search / `@workspace` **always fails on AOT XML** — do not attempt it.
 
 ```
 // ❌ WRONG — do not attempt this
