@@ -290,9 +290,11 @@ public static class ToolCatalog
             (h, p) => h.Lint(StrArray(p, "categories"), Bool(p, "onlyCustomModels", true))),
 
         new Descriptor("create_label",
-            "Create or update a key=value entry in a *.label.txt file. Fails with KEY_EXISTS unless overwrite=true.",
-            Schema(("file", "string", true), ("key", "string", true), ("value", "string", true), ("overwrite", "boolean", false)),
-            (h, p) => h.CreateLabel(Str(p, "file"), Str(p, "key"), Str(p, "value"), Bool(p, "overwrite"))),
+            "Create or update a key=value entry in a *.label.txt file. Supply either 'file' (absolute path to the .label.txt) or 'installTo' (model name — auto-resolves <PackagesPath>/<model>/<model>/AxLabelFile/LabelResources/<lang>/<model>.<lang>.label.txt from D365FO_PACKAGES_PATH). Fails with KEY_EXISTS unless overwrite=true.",
+            Schema(("file", "string", false), ("key", "string", true), ("value", "string", true), ("overwrite", "boolean", false),
+                   ("installTo", "string", false), ("lang", "string", false), ("labelFile", "string", false)),
+            (h, p) => h.CreateLabel(StrOrNull(p, "file"), Str(p, "key"), Str(p, "value"), Bool(p, "overwrite"),
+                StrOrNull(p, "installTo"), StrOrNull(p, "lang"), StrOrNull(p, "labelFile"))),
 
         new Descriptor("rename_label",
             "Rename a label key in place, preserving its value.",

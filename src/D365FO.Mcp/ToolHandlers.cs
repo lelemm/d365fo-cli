@@ -475,13 +475,26 @@ public sealed class ToolHandlers
 
     // ---- label write-ops (ROADMAP §4.2) ----
 
-    public ToolResult<object> CreateLabel(string file, string key, string value, bool overwrite = false)
+    public ToolResult<object> CreateLabel(string? file, string key, string value, bool overwrite = false, string? installTo = null, string? lang = null, string? labelFile = null)
     {
-        if (string.IsNullOrWhiteSpace(file)) return ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "file required");
+        var resolvedFile = file;
+        if (string.IsNullOrWhiteSpace(resolvedFile) && !string.IsNullOrWhiteSpace(installTo))
+        {
+            var resolvedLang = string.IsNullOrWhiteSpace(lang) ? "en-us" : lang!;
+            resolvedFile = ResolveLabelPath(installTo!, resolvedLang, labelFile);
+            if (resolvedFile is null)
+                return ToolResult<object>.Fail("INSTALL_FAILED",
+                    $"Cannot resolve label file path for model '{installTo}': D365FO_PACKAGES_PATH is not set.",
+                    "Set D365FO_PACKAGES_PATH before using installTo.");
+        }
+        if (string.IsNullOrWhiteSpace(resolvedFile))
+            return ToolResult<object>.Fail(D365FoErrorCodes.BadInput,
+                "Either 'file' (absolute path to the .label.txt) or 'installTo' (model name) is required.",
+                "Use 'file' for an explicit path, or 'installTo' to resolve the path automatically from D365FO_PACKAGES_PATH.");
         if (string.IsNullOrWhiteSpace(key)) return ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "key required");
         try
         {
-            var res = D365FO.Core.Labels.LabelFileWriter.CreateOrUpdate(file, key, value, overwrite);
+            var res = D365FO.Core.Labels.LabelFileWriter.CreateOrUpdate(resolvedFile!, key, value, overwrite);
             if (res.Outcome == D365FO.Core.Labels.WriteOutcome.KeyExists)
                 return ToolResult<object>.Fail("KEY_EXISTS",
                     $"Label '{key}' already exists; pass overwrite=true to replace.",
@@ -782,6 +795,19 @@ public sealed class ToolHandlers
         var cfg = D365FoSettings.FromEnvironment();
         if (string.IsNullOrEmpty(cfg.PackagesPath)) return null;
         return Path.Combine(cfg.PackagesPath, model, model, axSubfolder, name + ".xml");
+    }
+
+    /// <summary>
+    /// Resolve the canonical label file path:
+    /// <c>&lt;PackagesPath&gt;/&lt;model&gt;/&lt;model&gt;/AxLabelFile/LabelResources/&lt;lang&gt;/&lt;labelFile&gt;.&lt;lang&gt;.label.txt</c>.
+    /// Returns <c>null</c> when <c>D365FO_PACKAGES_PATH</c> is not set.
+    /// </summary>
+    private static string? ResolveLabelPath(string model, string lang, string? labelFile)
+    {
+        var cfg = D365FoSettings.FromEnvironment();
+        if (string.IsNullOrEmpty(cfg.PackagesPath)) return null;
+        var lf = string.IsNullOrWhiteSpace(labelFile) ? model : labelFile!;
+        return Path.Combine(cfg.PackagesPath, model, model, "AxLabelFile", "LabelResources", lang, $"{lf}.{lang}.label.txt");
     }
 
     private static ToolResult<object> WriteScaffold(

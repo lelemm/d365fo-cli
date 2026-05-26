@@ -19,8 +19,20 @@ public sealed class LabelCreateCommand : Command<LabelCreateCommand.Settings>
         public string Value { get; init; } = "";
 
         [CommandOption("--file <PATH>")]
-        [System.ComponentModel.Description("Target <Name>.<lang>.label.txt file. Created if missing.")]
+        [System.ComponentModel.Description("Target <Name>.<lang>.label.txt file (absolute path). Created if missing. Required unless --install-to is used.")]
         public string? File { get; init; }
+
+        [CommandOption("--install-to <MODEL>")]
+        [System.ComponentModel.Description("Model name. Auto-resolves the label file path to <PackagesPath>/<MODEL>/<MODEL>/AxLabelFile/LabelResources/<lang>/<MODEL>.<lang>.label.txt. Requires D365FO_PACKAGES_PATH.")]
+        public string? InstallTo { get; init; }
+
+        [CommandOption("--lang <LANG>")]
+        [System.ComponentModel.Description("Language code for --install-to path resolution (default: en-us).")]
+        public string? Lang { get; init; }
+
+        [CommandOption("--label-file <NAME>")]
+        [System.ComponentModel.Description("Label file name (without extension) used with --install-to (default: model name).")]
+        public string? LabelFile { get; init; }
 
         [CommandOption("--overwrite")]
         [System.ComponentModel.Description("Replace an existing value. Default: fail with KEY_EXISTS.")]
@@ -32,12 +44,36 @@ public sealed class LabelCreateCommand : Command<LabelCreateCommand.Settings>
         var kind = OutputMode.Resolve(settings.Output);
         if (string.IsNullOrWhiteSpace(settings.Key))
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "Label key required."));
-        if (string.IsNullOrWhiteSpace(settings.File))
-            return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "--file <PATH> required."));
+
+        var hasFile    = !string.IsNullOrWhiteSpace(settings.File);
+        var hasInstall = !string.IsNullOrWhiteSpace(settings.InstallTo);
+
+        if (!hasFile && !hasInstall)
+            return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput,
+                "--file <PATH> or --install-to <MODEL> is required.",
+                hint: "Use --file for an explicit absolute path, or --install-to <MODEL> to resolve the path automatically from D365FO_PACKAGES_PATH."));
+
+        string resolvedFile;
+        if (hasFile)
+        {
+            resolvedFile = settings.File!;
+        }
+        else
+        {
+            var cfg = D365FoSettings.FromEnvironment();
+            if (string.IsNullOrEmpty(cfg.PackagesPath))
+                return RenderHelpers.Render(kind, ToolResult<object>.Fail("INSTALL_FAILED",
+                    $"Cannot resolve label file path for model '{settings.InstallTo}': D365FO_PACKAGES_PATH is not set.",
+                    hint: "Set D365FO_PACKAGES_PATH to your PackagesLocalDirectory, or use --file with an absolute path."));
+
+            var lang = string.IsNullOrWhiteSpace(settings.Lang) ? "en-us" : settings.Lang!;
+            var lf   = string.IsNullOrWhiteSpace(settings.LabelFile) ? settings.InstallTo! : settings.LabelFile!;
+            resolvedFile = System.IO.Path.Combine(cfg.PackagesPath!, settings.InstallTo!, settings.InstallTo!, "AxLabelFile", "LabelResources", lang, $"{lf}.{lang}.label.txt");
+        }
 
         try
         {
-            var res = LabelFileWriter.CreateOrUpdate(settings.File!, settings.Key, settings.Value, settings.Overwrite);
+            var res = LabelFileWriter.CreateOrUpdate(resolvedFile, settings.Key, settings.Value, settings.Overwrite);
             if (res.Outcome == WriteOutcome.KeyExists)
                 return RenderHelpers.Render(kind, ToolResult<object>.Fail(
                     "KEY_EXISTS",
