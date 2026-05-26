@@ -10,7 +10,8 @@ public sealed record D365FoSettings(
     string? WorkspacePath,
     string DatabasePath,
     IReadOnlyList<string> CustomModels,
-    IReadOnlyList<string> LabelLanguages)
+    IReadOnlyList<string> LabelLanguages,
+    IReadOnlyList<string> ExtraPackagesPaths)
 {
     public const string DefaultDatabaseFile = "d365fo-index.sqlite";
 
@@ -33,7 +34,8 @@ public sealed record D365FoSettings(
             WorkspacePath: NullIfEmpty(Env("D365FO_WORKSPACE_PATH")),
             DatabasePath: db,
             CustomModels: models,
-            LabelLanguages: langs);
+            LabelLanguages: langs,
+            ExtraPackagesPaths: Split(Env("D365FO_EXTRA_PACKAGES_PATH")));
     }
 
     private static string? NullIfEmpty(string s) => string.IsNullOrWhiteSpace(s) ? null : s;
