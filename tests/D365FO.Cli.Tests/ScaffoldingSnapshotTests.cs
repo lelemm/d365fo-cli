@@ -32,7 +32,7 @@ public class ScaffoldingSnapshotTests
         Assert.Equal("AxClass", root.Name.LocalName);
         Assert.Equal("SysOperationServiceBase", root.Element("Extends")!.Value);
         var methods = root.Element("SourceCode")!.Element("Methods")!.Elements("Method").ToList();
-        Assert.True(methods.Any(m => m.Element("Source")!.Value.Contains("[SysEntryPointAttribute")));
+        Assert.Contains(methods, m => m.Element("Source")!.Value.Contains("[SysEntryPointAttribute"));
     }
 
     [Fact]
