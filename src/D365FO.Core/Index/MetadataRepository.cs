@@ -1,4 +1,4 @@
-using System.Data;
+﻿using System.Data;
 using System.Reflection;
 using Dapper;
 using Microsoft.Data.Sqlite;
@@ -278,13 +278,13 @@ public sealed class MetadataRepository
     public IReadOnlyList<ClassInfo> SearchClasses(string query, string? model = null, int limit = 50)
     {
         using var conn = OpenReadOnly();
-        var like = $"%{query}%";
+        var like = $"%{EscapeLike(query)}%";
         var sql = @"
             SELECT c.ClassId, c.Name, m.Name AS Model, c.ExtendsName AS Extends,
                    c.IsAbstract, c.IsFinal, c.SourcePath
             FROM Classes c
             JOIN Models m ON m.ModelId = c.ModelId
-            WHERE c.Name LIKE @like
+            WHERE c.Name LIKE @like ESCAPE '!'
               AND (@model IS NULL OR m.Name = @model)
             ORDER BY c.Name
             LIMIT @limit";
@@ -376,7 +376,7 @@ public sealed class MetadataRepository
     public IReadOnlyList<LabelMatch> SearchLabels(string query, IReadOnlyCollection<string>? languages = null, int limit = 100)
     {
         using var conn = OpenReadOnly();
-        var like = $"%{query}%";
+        var like = $"%{EscapeLike(query)}%";
         var langsLower = languages?.Select(l => l.ToLowerInvariant()).ToList();
         string sql;
         if (langsLower is null || langsLower.Count == 0)
@@ -384,7 +384,7 @@ public sealed class MetadataRepository
             sql = @"
             SELECT LabelFile AS File, Language, Key, Value
             FROM Labels
-            WHERE (Value LIKE @like OR Key LIKE @like)
+            WHERE (Value LIKE @like ESCAPE '!' OR Key LIKE @like ESCAPE '!')
             ORDER BY LabelFile, Key
             LIMIT @limit";
             return conn.Query<LabelMatch>(sql, new { like, limit }).ToList();
@@ -394,7 +394,7 @@ public sealed class MetadataRepository
             sql = @"
             SELECT LabelFile AS File, Language, Key, Value
             FROM Labels
-            WHERE (Value LIKE @like OR Key LIKE @like)
+            WHERE (Value LIKE @like ESCAPE '!' OR Key LIKE @like ESCAPE '!')
               AND LOWER(Language) IN @langs
             ORDER BY LabelFile, Key
             LIMIT @limit";
@@ -1018,11 +1018,11 @@ public sealed class MetadataRepository
     public IReadOnlyList<QueryInfo> SearchQueries(string query, int limit = 50)
     {
         using var conn = OpenReadOnly();
-        var like = $"%{query}%";
+        var like = $"%{EscapeLike(query)}%";
         return conn.Query<QueryInfo>(@"
             SELECT q.QueryId, q.Name, m.Name AS Model, q.SourcePath
             FROM Queries q JOIN Models m ON m.ModelId = q.ModelId
-            WHERE q.Name LIKE @like ORDER BY q.Name LIMIT @limit",
+            WHERE q.Name LIKE @like ESCAPE '!' ORDER BY q.Name LIMIT @limit",
             new { like, limit }).ToList();
     }
 
@@ -1043,11 +1043,11 @@ public sealed class MetadataRepository
     public IReadOnlyList<ViewInfo> SearchViews(string query, int limit = 50)
     {
         using var conn = OpenReadOnly();
-        var like = $"%{query}%";
+        var like = $"%{EscapeLike(query)}%";
         return conn.Query<ViewInfo>(@"
             SELECT v.ViewId, v.Name, m.Name AS Model, v.Label, v.QueryName, v.SourcePath
             FROM Views v JOIN Models m ON m.ModelId = v.ModelId
-            WHERE v.Name LIKE @like ORDER BY v.Name LIMIT @limit",
+            WHERE v.Name LIKE @like ESCAPE '!' ORDER BY v.Name LIMIT @limit",
             new { like, limit }).ToList();
     }
 
@@ -1068,12 +1068,12 @@ public sealed class MetadataRepository
     public IReadOnlyList<DataEntityInfo> SearchDataEntities(string query, int limit = 50)
     {
         using var conn = OpenReadOnly();
-        var like = $"%{query}%";
+        var like = $"%{EscapeLike(query)}%";
         return conn.Query<DataEntityInfo>(@"
             SELECT e.EntityId, e.Name, m.Name AS Model, e.PublicEntityName, e.PublicCollectionName,
                    e.StagingTable, e.QueryName, e.Label, e.SourcePath
             FROM DataEntities e JOIN Models m ON m.ModelId = e.ModelId
-            WHERE e.Name LIKE @like OR e.PublicEntityName LIKE @like OR e.PublicCollectionName LIKE @like
+            WHERE e.Name LIKE @like ESCAPE '!' OR e.PublicEntityName LIKE @like ESCAPE '!' OR e.PublicCollectionName LIKE @like ESCAPE '!'
             ORDER BY e.Name LIMIT @limit",
             new { like, limit }).ToList();
     }
@@ -1096,11 +1096,11 @@ public sealed class MetadataRepository
     public IReadOnlyList<ReportInfo> SearchReports(string query, int limit = 50)
     {
         using var conn = OpenReadOnly();
-        var like = $"%{query}%";
+        var like = $"%{EscapeLike(query)}%";
         return conn.Query<ReportInfo>(@"
             SELECT r.ReportId, r.Name, r.Kind, m.Name AS Model, r.SourcePath
             FROM Reports r JOIN Models m ON m.ModelId = r.ModelId
-            WHERE r.Name LIKE @like ORDER BY r.Name LIMIT @limit",
+            WHERE r.Name LIKE @like ESCAPE '!' ORDER BY r.Name LIMIT @limit",
             new { like, limit }).ToList();
     }
 
@@ -1121,11 +1121,11 @@ public sealed class MetadataRepository
     public IReadOnlyList<ServiceInfo> SearchServices(string query, int limit = 50)
     {
         using var conn = OpenReadOnly();
-        var like = $"%{query}%";
+        var like = $"%{EscapeLike(query)}%";
         return conn.Query<ServiceInfo>(@"
             SELECT s.ServiceId, s.Name, s.Class, m.Name AS Model, s.SourcePath
             FROM Services s JOIN Models m ON m.ModelId = s.ModelId
-            WHERE s.Name LIKE @like ORDER BY s.Name LIMIT @limit",
+            WHERE s.Name LIKE @like ESCAPE '!' ORDER BY s.Name LIMIT @limit",
             new { like, limit }).ToList();
     }
 
@@ -1160,11 +1160,11 @@ public sealed class MetadataRepository
     public IReadOnlyList<WorkflowTypeInfo> SearchWorkflowTypes(string query, int limit = 50)
     {
         using var conn = OpenReadOnly();
-        var like = $"%{query}%";
+        var like = $"%{EscapeLike(query)}%";
         return conn.Query<WorkflowTypeInfo>(@"
             SELECT w.Name, w.Category, w.DocumentClass, m.Name AS Model, w.SourcePath
             FROM WorkflowTypes w JOIN Models m ON m.ModelId = w.ModelId
-            WHERE w.Name LIKE @like OR w.DocumentClass LIKE @like
+            WHERE w.Name LIKE @like ESCAPE '!' OR w.DocumentClass LIKE @like ESCAPE '!'
             ORDER BY w.Name LIMIT @limit",
             new { like, limit }).ToList();
     }
@@ -1175,11 +1175,11 @@ public sealed class MetadataRepository
     public IReadOnlyList<MapInfo> SearchMaps(string query, int limit = 50)
     {
         using var conn = OpenReadOnly();
-        var like = $"%{query}%";
+        var like = $"%{EscapeLike(query)}%";
         return conn.Query<MapInfo>(@"
             SELECT mp.MapId, mp.Name, m.Name AS Model, mp.Label, mp.SourcePath
             FROM Maps mp JOIN Models m ON m.ModelId = mp.ModelId
-            WHERE mp.Name LIKE @like
+            WHERE mp.Name LIKE @like ESCAPE '!'
             ORDER BY mp.Name LIMIT @limit",
             new { like, limit }).ToList();
     }
@@ -1210,14 +1210,14 @@ public sealed class MetadataRepository
     public IReadOnlyList<BusinessEventInfo> SearchBusinessEvents(string query, string? category = null, int limit = 50)
     {
         using var conn = OpenReadOnly();
-        var like = $"%{query}%";
+        var like = $"%{EscapeLike(query)}%";
         return conn.Query<BusinessEventInfo>(@"
             SELECT be.Id, be.Name, be.Category, be.ContractClass, m.Name AS Model, be.SourcePath
             FROM BusinessEvents be JOIN Models m ON m.ModelId = be.ModelId
-            WHERE (be.Name LIKE @like OR be.ContractClass LIKE @like)
-              AND (@category IS NULL OR be.Category LIKE @catLike)
+            WHERE (be.Name LIKE @like ESCAPE '!' OR be.ContractClass LIKE @like ESCAPE '!')
+              AND (@category IS NULL OR be.Category LIKE @catLike ESCAPE '!')
             ORDER BY be.Name LIMIT @limit",
-            new { like, category, catLike = category is not null ? $"%{category}%" : null, limit }).ToList();
+            new { like, category, catLike = category is not null ? $"%{EscapeLike(category)}%" : null, limit }).ToList();
     }
 
     public BusinessEventInfo? GetBusinessEvent(string name)
@@ -1232,12 +1232,12 @@ public sealed class MetadataRepository
     public IReadOnlyList<SecurityPolicyInfo> SearchSecurityPolicies(string query, int limit = 50)
     {
         using var conn = OpenReadOnly();
-        var like = $"%{query}%";
+        var like = $"%{EscapeLike(query)}%";
         return conn.Query<SecurityPolicyInfo>(@"
             SELECT sp.Id, sp.Name, sp.ConstrainedTable, sp.PolicyQuery, sp.OperationType, sp.ContextType,
                    sp.IsEnabled, sp.IsMandatory, m.Name AS Model, sp.SourcePath
             FROM SecurityPolicies sp JOIN Models m ON m.ModelId = sp.ModelId
-            WHERE sp.Name LIKE @like OR sp.ConstrainedTable LIKE @like
+            WHERE sp.Name LIKE @like ESCAPE '!' OR sp.ConstrainedTable LIKE @like ESCAPE '!'
             ORDER BY sp.Name LIMIT @limit",
             new { like, limit }).ToList();
     }
@@ -1255,11 +1255,11 @@ public sealed class MetadataRepository
     public IReadOnlyList<ConfigurationKeyInfo> SearchConfigurationKeys(string query, int limit = 50)
     {
         using var conn = OpenReadOnly();
-        var like = $"%{query}%";
+        var like = $"%{EscapeLike(query)}%";
         return conn.Query<ConfigurationKeyInfo>(@"
             SELECT ck.Id, ck.Name, ck.Label, ck.IsEnabled, ck.ParentKey, ck.LicenseCode, m.Name AS Model
             FROM ConfigurationKeys ck JOIN Models m ON m.ModelId = ck.ModelId
-            WHERE ck.Name LIKE @like
+            WHERE ck.Name LIKE @like ESCAPE '!'
             ORDER BY ck.Name LIMIT @limit",
             new { like, limit }).ToList();
     }
@@ -1267,11 +1267,11 @@ public sealed class MetadataRepository
     public IReadOnlyList<TileInfo> SearchTiles(string query, int limit = 50)
     {
         using var conn = OpenReadOnly();
-        var like = $"%{query}%";
+        var like = $"%{EscapeLike(query)}%";
         return conn.Query<TileInfo>(@"
             SELECT t.Id, t.Name, t.MenuItemName, t.MenuItemType, t.Label, t.TileType, m.Name AS Model, t.SourcePath
             FROM Tiles t JOIN Models m ON m.ModelId = t.ModelId
-            WHERE t.Name LIKE @like OR t.MenuItemName LIKE @like
+            WHERE t.Name LIKE @like ESCAPE '!' OR t.MenuItemName LIKE @like ESCAPE '!'
             ORDER BY t.Name LIMIT @limit",
             new { like, limit }).ToList();
     }
@@ -1279,11 +1279,11 @@ public sealed class MetadataRepository
     public IReadOnlyList<WorkspaceInfo> SearchWorkspaces(string query, int limit = 50)
     {
         using var conn = OpenReadOnly();
-        var like = $"%{query}%";
+        var like = $"%{EscapeLike(query)}%";
         return conn.Query<WorkspaceInfo>(@"
             SELECT ws.Id, ws.Name, ws.Label, m.Name AS Model, ws.SourcePath
             FROM Workspaces ws JOIN Models m ON m.ModelId = ws.ModelId
-            WHERE ws.Name LIKE @like
+            WHERE ws.Name LIKE @like ESCAPE '!'
             ORDER BY ws.Name LIMIT @limit",
             new { like, limit }).ToList();
     }
@@ -1316,19 +1316,19 @@ public sealed class MetadataRepository
     private static readonly IReadOnlyDictionary<string, string> KindSqlFragments =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["table"]      = "SELECT 'Table' AS Kind, t.Name AS Name, m.Name AS Model FROM Tables t JOIN Models m ON m.ModelId=t.ModelId WHERE t.Name LIKE @like",
-            ["class"]      = "SELECT 'Class' AS Kind, c.Name AS Name, m.Name AS Model FROM Classes c JOIN Models m ON m.ModelId=c.ModelId WHERE c.Name LIKE @like OR c.ExtendsName LIKE @like",
-            ["edt"]        = "SELECT 'EDT' AS Kind, e.Name AS Name, m.Name AS Model FROM Edts e JOIN Models m ON m.ModelId=e.ModelId WHERE e.Name LIKE @like OR e.ExtendsName LIKE @like",
-            ["enum"]       = "SELECT 'Enum' AS Kind, e.Name AS Name, m.Name AS Model FROM Enums e JOIN Models m ON m.ModelId=e.ModelId WHERE e.Name LIKE @like",
-            ["menuitem"]   = "SELECT 'MenuItem' AS Kind, mi.Name AS Name, m.Name AS Model FROM MenuItems mi JOIN Models m ON m.ModelId=mi.ModelId WHERE mi.Name LIKE @like OR mi.Object LIKE @like",
-            ["form"]       = "SELECT 'Form' AS Kind, f.Name AS Name, m.Name AS Model FROM Forms f JOIN Models m ON m.ModelId=f.ModelId WHERE f.Name LIKE @like",
-            ["query"]      = "SELECT 'Query' AS Kind, q.Name AS Name, m.Name AS Model FROM Queries q JOIN Models m ON m.ModelId=q.ModelId WHERE q.Name LIKE @like",
-            ["view"]       = "SELECT 'View' AS Kind, v.Name AS Name, m.Name AS Model FROM Views v JOIN Models m ON m.ModelId=v.ModelId WHERE v.Name LIKE @like",
-            ["dataentity"] = "SELECT 'DataEntity' AS Kind, de.Name AS Name, m.Name AS Model FROM DataEntities de JOIN Models m ON m.ModelId=de.ModelId WHERE de.Name LIKE @like OR de.PublicEntityName LIKE @like",
-            ["report"]     = "SELECT 'Report' AS Kind, r.Name AS Name, m.Name AS Model FROM Reports r JOIN Models m ON m.ModelId=r.ModelId WHERE r.Name LIKE @like",
-            ["service"]    = "SELECT 'Service' AS Kind, s.Name AS Name, m.Name AS Model FROM Services s JOIN Models m ON m.ModelId=s.ModelId WHERE s.Name LIKE @like",
-            ["workflow"]   = "SELECT 'Workflow' AS Kind, w.Name AS Name, m.Name AS Model FROM WorkflowTypes w JOIN Models m ON m.ModelId=w.ModelId WHERE w.Name LIKE @like",
-            ["map"]        = "SELECT 'Map' AS Kind, mp.Name AS Name, m.Name AS Model FROM Maps mp JOIN Models m ON m.ModelId=mp.ModelId WHERE mp.Name LIKE @like",
+            ["table"]      = "SELECT 'Table' AS Kind, t.Name AS Name, m.Name AS Model FROM Tables t JOIN Models m ON m.ModelId=t.ModelId WHERE t.Name LIKE @like ESCAPE '!'",
+            ["class"]      = "SELECT 'Class' AS Kind, c.Name AS Name, m.Name AS Model FROM Classes c JOIN Models m ON m.ModelId=c.ModelId WHERE c.Name LIKE @like ESCAPE '!' OR c.ExtendsName LIKE @like ESCAPE '!'",
+            ["edt"]        = "SELECT 'EDT' AS Kind, e.Name AS Name, m.Name AS Model FROM Edts e JOIN Models m ON m.ModelId=e.ModelId WHERE e.Name LIKE @like ESCAPE '!' OR e.ExtendsName LIKE @like ESCAPE '!'",
+            ["enum"]       = "SELECT 'Enum' AS Kind, e.Name AS Name, m.Name AS Model FROM Enums e JOIN Models m ON m.ModelId=e.ModelId WHERE e.Name LIKE @like ESCAPE '!'",
+            ["menuitem"]   = "SELECT 'MenuItem' AS Kind, mi.Name AS Name, m.Name AS Model FROM MenuItems mi JOIN Models m ON m.ModelId=mi.ModelId WHERE mi.Name LIKE @like ESCAPE '!' OR mi.Object LIKE @like ESCAPE '!'",
+            ["form"]       = "SELECT 'Form' AS Kind, f.Name AS Name, m.Name AS Model FROM Forms f JOIN Models m ON m.ModelId=f.ModelId WHERE f.Name LIKE @like ESCAPE '!'",
+            ["query"]      = "SELECT 'Query' AS Kind, q.Name AS Name, m.Name AS Model FROM Queries q JOIN Models m ON m.ModelId=q.ModelId WHERE q.Name LIKE @like ESCAPE '!'",
+            ["view"]       = "SELECT 'View' AS Kind, v.Name AS Name, m.Name AS Model FROM Views v JOIN Models m ON m.ModelId=v.ModelId WHERE v.Name LIKE @like ESCAPE '!'",
+            ["dataentity"] = "SELECT 'DataEntity' AS Kind, de.Name AS Name, m.Name AS Model FROM DataEntities de JOIN Models m ON m.ModelId=de.ModelId WHERE de.Name LIKE @like ESCAPE '!' OR de.PublicEntityName LIKE @like ESCAPE '!'",
+            ["report"]     = "SELECT 'Report' AS Kind, r.Name AS Name, m.Name AS Model FROM Reports r JOIN Models m ON m.ModelId=r.ModelId WHERE r.Name LIKE @like ESCAPE '!'",
+            ["service"]    = "SELECT 'Service' AS Kind, s.Name AS Name, m.Name AS Model FROM Services s JOIN Models m ON m.ModelId=s.ModelId WHERE s.Name LIKE @like ESCAPE '!'",
+            ["workflow"]   = "SELECT 'Workflow' AS Kind, w.Name AS Name, m.Name AS Model FROM WorkflowTypes w JOIN Models m ON m.ModelId=w.ModelId WHERE w.Name LIKE @like ESCAPE '!'",
+            ["map"]        = "SELECT 'Map' AS Kind, mp.Name AS Name, m.Name AS Model FROM Maps mp JOIN Models m ON m.ModelId=mp.ModelId WHERE mp.Name LIKE @like ESCAPE '!'",
         };
 
     /// <summary>
@@ -1356,7 +1356,7 @@ public sealed class MetadataRepository
             return FindUsages(needle, limit);
 
         using var conn = OpenReadOnly();
-        var like = $"%{needle}%";
+        var like = $"%{EscapeLike(needle)}%";
         var sql = string.Join("\nUNION ALL\n", fragments) + "\nORDER BY Name\nLIMIT @limit";
         var rows = conn.Query<UsageRow>(sql, new { like, limit });
         return rows.Select(r => (r.Kind, r.Name, r.Model)).ToList();
@@ -1613,13 +1613,13 @@ public sealed class MetadataRepository
     public IReadOnlyList<TableInfo> SearchTables(string query, string? model = null, int limit = 50)
     {
         using var conn = OpenReadOnly();
-        var like = $"%{query}%";
+        var like = $"%{EscapeLike(query)}%";
         return conn.Query<TableInfo>(@"
             SELECT t.TableId, t.Name, m.Name AS Model, t.Label, t.SourcePath,
                    t.SaveDataPerCompany, t.CacheLookup, t.OccEnabled, t.ValidTimeStateFieldType,
                    t.TableExtends, t.AOSAuthorization, t.FormRef, t.ListPageRef, t.SystemTable
             FROM Tables t JOIN Models m ON m.ModelId = t.ModelId
-            WHERE t.Name LIKE @like
+            WHERE t.Name LIKE @like ESCAPE '!'
               AND (@model IS NULL OR m.Name = @model)
             ORDER BY t.Name
             LIMIT @limit", new { like, model, limit }).ToList();
@@ -1628,13 +1628,13 @@ public sealed class MetadataRepository
     public IReadOnlyList<EdtInfo> SearchEdts(string query, int limit = 50)
     {
         using var conn = OpenReadOnly();
-        var like = $"%{query}%";
+        var like = $"%{EscapeLike(query)}%";
         return conn.Query<EdtInfo>(@"
             SELECT e.Name, m.Name AS Model, e.ExtendsName AS Extends,
                    e.BaseType, e.Label, e.StringSize,
                    e.ReferenceTable, e.FormHelp, e.AnalysisUsage, e.EnumType
             FROM Edts e JOIN Models m ON m.ModelId = e.ModelId
-            WHERE e.Name LIKE @like
+            WHERE e.Name LIKE @like ESCAPE '!'
             ORDER BY e.Name
             LIMIT @limit", new { like, limit }).ToList();
     }
@@ -1642,11 +1642,11 @@ public sealed class MetadataRepository
     public IReadOnlyList<EnumInfo> SearchEnums(string query, int limit = 50)
     {
         using var conn = OpenReadOnly();
-        var like = $"%{query}%";
+        var like = $"%{EscapeLike(query)}%";
         return conn.Query<EnumInfo>(@"
             SELECT e.Name, m.Name AS Model, e.Label
             FROM Enums e JOIN Models m ON m.ModelId = e.ModelId
-            WHERE e.Name LIKE @like
+            WHERE e.Name LIKE @like ESCAPE '!'
             ORDER BY e.Name
             LIMIT @limit", new { like, limit }).ToList();
     }
@@ -1757,33 +1757,33 @@ public sealed class MetadataRepository
     public IReadOnlyList<(string Kind, string Name, string Model)> FindUsages(string needle, int limit = 100)
     {
         using var conn = OpenReadOnly();
-        var like = $"%{needle}%";
+        var like = $"%{EscapeLike(needle)}%";
         var rows = conn.Query<UsageRow>(@"
-            SELECT 'Table' AS Kind, t.Name AS Name, m.Name AS Model FROM Tables t JOIN Models m ON m.ModelId=t.ModelId WHERE t.Name LIKE @like
+            SELECT 'Table' AS Kind, t.Name AS Name, m.Name AS Model FROM Tables t JOIN Models m ON m.ModelId=t.ModelId WHERE t.Name LIKE @like ESCAPE '!'
             UNION ALL
-            SELECT 'Class', c.Name, m.Name FROM Classes c JOIN Models m ON m.ModelId=c.ModelId WHERE c.Name LIKE @like OR c.ExtendsName LIKE @like
+            SELECT 'Class', c.Name, m.Name FROM Classes c JOIN Models m ON m.ModelId=c.ModelId WHERE c.Name LIKE @like ESCAPE '!' OR c.ExtendsName LIKE @like ESCAPE '!'
             UNION ALL
-            SELECT 'EDT',   e.Name, m.Name FROM Edts e JOIN Models m ON m.ModelId=e.ModelId WHERE e.Name LIKE @like OR e.ExtendsName LIKE @like
+            SELECT 'EDT',   e.Name, m.Name FROM Edts e JOIN Models m ON m.ModelId=e.ModelId WHERE e.Name LIKE @like ESCAPE '!' OR e.ExtendsName LIKE @like ESCAPE '!'
             UNION ALL
-            SELECT 'Enum',  e.Name, m.Name FROM Enums e JOIN Models m ON m.ModelId=e.ModelId WHERE e.Name LIKE @like
+            SELECT 'Enum',  e.Name, m.Name FROM Enums e JOIN Models m ON m.ModelId=e.ModelId WHERE e.Name LIKE @like ESCAPE '!'
             UNION ALL
-            SELECT 'MenuItem', mi.Name, m.Name FROM MenuItems mi JOIN Models m ON m.ModelId=mi.ModelId WHERE mi.Name LIKE @like OR mi.Object LIKE @like
+            SELECT 'MenuItem', mi.Name, m.Name FROM MenuItems mi JOIN Models m ON m.ModelId=mi.ModelId WHERE mi.Name LIKE @like ESCAPE '!' OR mi.Object LIKE @like ESCAPE '!'
             UNION ALL
-            SELECT 'Form',  f.Name, m.Name FROM Forms f JOIN Models m ON m.ModelId=f.ModelId WHERE f.Name LIKE @like
+            SELECT 'Form',  f.Name, m.Name FROM Forms f JOIN Models m ON m.ModelId=f.ModelId WHERE f.Name LIKE @like ESCAPE '!'
             UNION ALL
-            SELECT 'Query', q.Name, m.Name FROM Queries q JOIN Models m ON m.ModelId=q.ModelId WHERE q.Name LIKE @like
+            SELECT 'Query', q.Name, m.Name FROM Queries q JOIN Models m ON m.ModelId=q.ModelId WHERE q.Name LIKE @like ESCAPE '!'
             UNION ALL
-            SELECT 'View',  v.Name, m.Name FROM Views v JOIN Models m ON m.ModelId=v.ModelId WHERE v.Name LIKE @like
+            SELECT 'View',  v.Name, m.Name FROM Views v JOIN Models m ON m.ModelId=v.ModelId WHERE v.Name LIKE @like ESCAPE '!'
             UNION ALL
-            SELECT 'DataEntity', de.Name, m.Name FROM DataEntities de JOIN Models m ON m.ModelId=de.ModelId WHERE de.Name LIKE @like OR de.PublicEntityName LIKE @like
+            SELECT 'DataEntity', de.Name, m.Name FROM DataEntities de JOIN Models m ON m.ModelId=de.ModelId WHERE de.Name LIKE @like ESCAPE '!' OR de.PublicEntityName LIKE @like ESCAPE '!'
             UNION ALL
-            SELECT 'Report', r.Name, m.Name FROM Reports r JOIN Models m ON m.ModelId=r.ModelId WHERE r.Name LIKE @like
+            SELECT 'Report', r.Name, m.Name FROM Reports r JOIN Models m ON m.ModelId=r.ModelId WHERE r.Name LIKE @like ESCAPE '!'
             UNION ALL
-            SELECT 'Service', s.Name, m.Name FROM Services s JOIN Models m ON m.ModelId=s.ModelId WHERE s.Name LIKE @like
+            SELECT 'Service', s.Name, m.Name FROM Services s JOIN Models m ON m.ModelId=s.ModelId WHERE s.Name LIKE @like ESCAPE '!'
             UNION ALL
-            SELECT 'Workflow', w.Name, m.Name FROM WorkflowTypes w JOIN Models m ON m.ModelId=w.ModelId WHERE w.Name LIKE @like
+            SELECT 'Workflow', w.Name, m.Name FROM WorkflowTypes w JOIN Models m ON m.ModelId=w.ModelId WHERE w.Name LIKE @like ESCAPE '!'
             UNION ALL
-            SELECT 'Map', mp.Name, m.Name FROM Maps mp JOIN Models m ON m.ModelId=mp.ModelId WHERE mp.Name LIKE @like
+            SELECT 'Map', mp.Name, m.Name FROM Maps mp JOIN Models m ON m.ModelId=mp.ModelId WHERE mp.Name LIKE @like ESCAPE '!'
             ORDER BY Name
             LIMIT @limit", new { like, limit });
         return rows.Select(r => (r.Kind, r.Name, r.Model)).ToList();
@@ -2594,6 +2594,16 @@ public sealed class MetadataRepository
     /// (i.e. during <see cref="EnsureSchema"/> bootstrapping) — callers of
     /// this method must therefore have previously called EnsureSchema().
     /// </summary>
+
+    /// <summary>
+    /// Escapes SQLite LIKE wildcard characters (<c>%</c>, <c>_</c>, and the
+    /// chosen escape character <c>!</c>) in a user-supplied query fragment so
+    /// that they are treated as literals.
+    /// Use together with <c>ESCAPE '!'</c> in the SQL statement.
+    /// </summary>
+    private static string EscapeLike(string value) =>
+        value.Replace("!", "!!").Replace("%", "!%").Replace("_", "!_");
+
     private SqliteConnection OpenReadOnly()
     {
         var conn = new SqliteConnection(_readOnlyConnectionString);
