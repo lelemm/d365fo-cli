@@ -108,16 +108,25 @@ public sealed class IndexExtractCommand : Command<IndexExtractCommand.Settings>
         [CommandOption("--parallelism <N>")]
         [System.ComponentModel.Description("Number of models to parse in parallel. Defaults to half the CPU core count. SQLite writes are always serialized.")]
         public int? Parallelism { get; init; }
+
+        [CommandOption("--extra-packages <PATH>")]
+        [System.ComponentModel.Description("Additional PackagesLocalDirectory root(s) to include alongside --packages. Repeatable. Also reads D365FO_EXTRA_PACKAGES_PATH (semicolon/comma-separated). Supports UDE setups with two separate metadata folders.")]
+        public string[]? ExtraPackagesPaths { get; init; }
     }
 
     public override int Execute(CommandContext ctx, Settings settings)
-        => ExtractCore(
+    {
+        var cfg = D365FoSettings.FromEnvironment(settings.DatabasePath);
+        var extraPaths = MergeExtraPaths(settings.ExtraPackagesPaths, cfg.ExtraPackagesPaths);
+        return ExtractCore(
             OutputMode.Resolve(settings.Output),
             settings.PackagesPath,
             settings.DatabasePath,
             settings.OnlyModel,
             settings.Since,
+            extraPackagesPaths: extraPaths,
             parallelism: settings.Parallelism);
+    }
 
     internal static int ExtractCore(
         OutputMode.Kind kind,
@@ -126,7 +135,8 @@ public sealed class IndexExtractCommand : Command<IndexExtractCommand.Settings>
         string? onlyModel,
         string? sinceIso,
         IReadOnlyDictionary<string, string?>? fingerprintsByModel = null,
-        int? parallelism = null)
+        int? parallelism = null,
+        IReadOnlyList<string>? extraPackagesPaths = null)
     {
         var cfg = D365FoSettings.FromEnvironment(databaseOverride);
         var root = packagesOverride ?? cfg.PackagesPath;
@@ -174,7 +184,22 @@ public sealed class IndexExtractCommand : Command<IndexExtractCommand.Settings>
         // Pre-enumerate candidate model folders so we can report progress
         // *before* each model is parsed (useful when a single model like
         // ApplicationSuite takes many minutes).
+        // For UDE setups (two separate PackagesLocalDirectory folders), callers
+        // can pass extra roots via --extra-packages / D365FO_EXTRA_PACKAGES_PATH.
         var modelDirs = EnumerateModelDirs(root, onlyModel).ToList();
+        var validExtraRoots = new List<string>();
+        foreach (var extra in extraPackagesPaths ?? Array.Empty<string>())
+        {
+            if (string.IsNullOrWhiteSpace(extra)) continue;
+            if (!Directory.Exists(extra)) continue; // silently skip missing extra roots
+            validExtraRoots.Add(extra);
+            modelDirs.AddRange(EnumerateModelDirs(extra, onlyModel));
+        }
+        // Deduplicate: same model dir from overlapping roots should only extract once.
+        modelDirs = modelDirs
+            .GroupBy(d => d, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .ToList();
         var showProgress = kind != OutputMode.Kind.Json && !System.Console.IsOutputRedirected;
 
         // Per-model fingerprint-based skip list for refresh (§1.1). Callers
@@ -315,6 +340,7 @@ public sealed class IndexExtractCommand : Command<IndexExtractCommand.Settings>
         return RenderHelpers.Render(kind, ToolResult<object>.Success(new
         {
             packagesRoot = root,
+            extraPackagesRoots = validExtraRoots.Count > 0 ? validExtraRoots : null,
             modelsProcessed = modelCount,
             modelsSkipped = skippedCount,
             since = since?.ToString("O"),
@@ -385,8 +411,21 @@ public sealed class IndexExtractCommand : Command<IndexExtractCommand.Settings>
         return $"{count}:{newestTicks}:{langs}";
     }
 
-    private static IEnumerable<string> EnumerateModelDirs(string packagesRoot, string? onlyModel)
+    /// <summary>
+    /// Merges CLI-specified extra packages paths with those from the environment.
+    /// Returns null if the combined list is empty (to avoid allocations in the common case).
+    /// </summary>
+    internal static IReadOnlyList<string>? MergeExtraPaths(string[]? cliPaths, IReadOnlyList<string> envPaths)
     {
+        var all = (cliPaths ?? Array.Empty<string>())
+            .Concat(envPaths)
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return all.Count > 0 ? all : null;
+    }
+
+    private static IEnumerable<string> EnumerateModelDirs(string packagesRoot, string? onlyModel)    {
         IEnumerable<string> SafeDirs(string d)
         {
             try { return Directory.EnumerateDirectories(d); }
@@ -454,6 +493,10 @@ public sealed class IndexRefreshCommand : Command<IndexRefreshCommand.Settings>
         [CommandOption("--parallelism <N>")]
         [System.ComponentModel.Description("Number of models to parse in parallel. Defaults to half the CPU core count.")]
         public int? Parallelism { get; init; }
+
+        [CommandOption("--extra-packages <PATH>")]
+        [System.ComponentModel.Description("Additional PackagesLocalDirectory root(s). Repeatable. Also reads D365FO_EXTRA_PACKAGES_PATH.")]
+        public string[]? ExtraPackagesPaths { get; init; }
     }
 
     public override int Execute(CommandContext ctx, Settings settings)
@@ -484,6 +527,8 @@ public sealed class IndexRefreshCommand : Command<IndexRefreshCommand.Settings>
                 }
             }
         }
+        var cfg2 = D365FoSettings.FromEnvironment(settings.DatabasePath);
+        var extraPaths = IndexExtractCommand.MergeExtraPaths(settings.ExtraPackagesPaths, cfg2.ExtraPackagesPaths);
         return IndexExtractCommand.ExtractCore(
             OutputMode.Resolve(settings.Output),
             settings.PackagesPath,
@@ -491,7 +536,8 @@ public sealed class IndexRefreshCommand : Command<IndexRefreshCommand.Settings>
             settings.OnlyModel,
             since,
             fingerprints,
-            parallelism: settings.Parallelism);
+            parallelism: settings.Parallelism,
+            extraPackagesPaths: extraPaths);
     }
 }
 

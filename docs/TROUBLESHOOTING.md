@@ -14,7 +14,27 @@ The `D365FO_PACKAGES_PATH` environment variable (or `--packages <PATH>`) must po
 | Local Hyper-V devbox | `C:\AOSService\PackagesLocalDirectory` |
 | Azure Files share (mounted) | `Z:\PackagesLocalDirectory` (drive letter varies) |
 | Docker container | `/mnt/packages` (depends on volume mount) |
+| UDE (primary — shared drive) | `K:\AosService\PackagesLocalDirectory` |
+| UDE (extra — local laptop) | `C:\LocalMetadata\PackagesLocalDirectory` — set in `D365FO_EXTRA_PACKAGES_PATH` |
 | Custom override | Set `D365FO_PACKAGES_PATH` to any absolute path |
+
+### UDE — two separate `PackagesLocalDirectory` folders
+
+UDE setups split standard Microsoft metadata (on a shared drive) from your custom model XML (on the local laptop). The CLI supports this via `D365FO_EXTRA_PACKAGES_PATH` or `--extra-packages`:
+
+```powershell
+# Environment variables (persist in $PROFILE)
+$env:D365FO_PACKAGES_PATH         = 'K:\AosService\PackagesLocalDirectory'
+$env:D365FO_EXTRA_PACKAGES_PATH   = 'C:\LocalMetadata\PackagesLocalDirectory'
+d365fo index extract
+
+# — or — one-shot CLI flags
+d365fo index extract `
+    --packages       K:\AosService\PackagesLocalDirectory `
+    --extra-packages C:\LocalMetadata\PackagesLocalDirectory
+```
+
+`D365FO_EXTRA_PACKAGES_PATH` accepts semicolon- or comma-separated paths. Extra roots that don't exist are silently skipped. See [SETUP.md — UDE setup](SETUP.md#ude-unified-developer-experience-setup) for the full walkthrough.
 
 ```sh
 # PowerShell — set for the current session
