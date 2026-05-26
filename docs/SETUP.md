@@ -62,11 +62,55 @@ Three variables matter before you run `index extract`. Set them in your shell pr
 
 | Variable | Purpose | Notes |
 |---|---|---|
-| `D365FO_PACKAGES_PATH` | Root of `PackagesLocalDirectory` | **Required** for indexing |
+| `D365FO_PACKAGES_PATH` | Primary root of `PackagesLocalDirectory` | **Required** for indexing |
+| `D365FO_EXTRA_PACKAGES_PATH` | Additional `PackagesLocalDirectory` root(s) | Optional. Semicolon- or comma-separated. UDE setups typically need this — see [UDE setup](#ude-unified-developer-experience-setup) below. |
 | `D365FO_LABEL_LANGUAGES` | Languages to extract (e.g. `en-us,cs`) | Default: `en-us` only. **Directly controls index size** — each extra language adds significant data. Set this before the first extract. |
 | `D365FO_INDEX_DB` | Path to the SQLite index | Defaults to `%LOCALAPPDATA%\d365fo-cli\d365fo-index.sqlite` (`~/.local/share/…` on Linux/macOS) |
 
 All other variables (`D365FO_CUSTOM_MODELS`, `D365FO_BRIDGE_*`, `D365FO_WORKSPACE_PATH`, `D365FO_XREF_CONNECTIONSTRING`) are optional — see [ARCHITECTURE.md](ARCHITECTURE.md) for details.
+
+### UDE (Unified Developer Experience) setup
+
+The UDE developer topology provides **two separate `PackagesLocalDirectory` folders**:
+
+| Folder | Contents |
+|---|---|
+| Shared / UDE drive (e.g. `K:\AosService\PackagesLocalDirectory`) | Standard Microsoft metadata (ApplicationSuite, Foundation, …) |
+| Local laptop folder (e.g. `C:\LocalMetadata\PackagesLocalDirectory`) | Your custom model XML (edited in VS 2022 locally) |
+
+Visual Studio merges both transparently, but `d365fo-cli` needs to know about both to build a complete index.
+
+**PowerShell (one session):**
+
+```powershell
+$env:D365FO_PACKAGES_PATH         = 'K:\AosService\PackagesLocalDirectory'
+$env:D365FO_EXTRA_PACKAGES_PATH   = 'C:\LocalMetadata\PackagesLocalDirectory'
+d365fo index extract
+```
+
+**Persist in `$PROFILE`:**
+
+```powershell
+Add-Content -Path $PROFILE -Value @"
+
+# d365fo-cli — UDE dual-packages config
+`$env:D365FO_PACKAGES_PATH         = 'K:\AosService\PackagesLocalDirectory'
+`$env:D365FO_EXTRA_PACKAGES_PATH   = 'C:\LocalMetadata\PackagesLocalDirectory'
+"@
+. $PROFILE
+```
+
+**CLI flags (one-shot, no env vars):**
+
+```powershell
+d365fo index extract `
+    --packages       K:\AosService\PackagesLocalDirectory `
+    --extra-packages C:\LocalMetadata\PackagesLocalDirectory
+```
+
+> `--extra-packages` is repeatable. Multiple extra roots can also be given as a single semicolon-separated string in `D365FO_EXTRA_PACKAGES_PATH`. Missing extra roots are silently skipped (the primary root still produces an error if absent). Duplicate model directories across roots are deduplicated automatically.
+
+`d365fo index refresh` supports the same `--extra-packages` / `D365FO_EXTRA_PACKAGES_PATH` mechanism.
 
 ### Step 2 — Build and populate the index
 
