@@ -235,6 +235,49 @@ public class ExtractPipelineTests : IDisposable
     }
 
     [Fact]
+    public void MetadataExtractor_reads_data_entity_fields_when_FieldGroups_precede_Fields()
+    {
+        // Regression: AxDataEntityView can contain FieldGroups with nested <Fields>.
+        // The extractor must pick the root-level <Fields> with AxDataEntityViewField nodes.
+        var model = Path.Combine(_workRoot, "PkgEntityFG", "PkgEntityFG");
+        Directory.CreateDirectory(Path.Combine(model, "AxDataEntityView"));
+        File.WriteAllText(Path.Combine(model, "AxDataEntityView", "VendVendorGroupEntity.xml"), """
+            <AxDataEntityView>
+              <Name>VendVendorGroupEntity</Name>
+              <FieldGroups>
+                <AxTableFieldGroup>
+                  <Name>AutoReport</Name>
+                  <Fields>
+                    <AxTableFieldGroupField><DataField>VendorGroupId</DataField></AxTableFieldGroupField>
+                  </Fields>
+                </AxTableFieldGroup>
+              </FieldGroups>
+              <Fields>
+                <AxDataEntityViewField>
+                  <Name>VendorGroupId</Name>
+                  <DataField>VendGroup</DataField>
+                  <DataSource>VendGroup</DataSource>
+                  <IsMandatory>Yes</IsMandatory>
+                </AxDataEntityViewField>
+                <AxDataEntityViewField>
+                  <Name>Description</Name>
+                  <DataField>Name</DataField>
+                  <DataSource>VendGroup</DataSource>
+                </AxDataEntityViewField>
+              </Fields>
+            </AxDataEntityView>
+            """);
+
+        var batches = new MetadataExtractor().ExtractAll(_workRoot).ToList();
+        var batch = batches.Single(b => b.Model == "PkgEntityFG");
+        var entity = Assert.Single(batch.DataEntities);
+        Assert.Equal(2, entity.Fields.Count);
+        Assert.Equal("VendorGroupId", entity.Fields[0].Name);
+        Assert.Equal("Description", entity.Fields[1].Name);
+        Assert.True(entity.Fields[0].IsMandatory);
+    }
+
+    [Fact]
     public void MetadataExtractor_detects_abstract_with_newline_in_declaration()
     {
         var model = Path.Combine(_workRoot, "PkgFix4", "PkgFix4");
