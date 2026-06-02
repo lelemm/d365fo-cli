@@ -23,15 +23,19 @@ public sealed class IndexBuildCommand : Command<IndexBuildCommand.Settings>
         var repo = new MetadataRepository(cfg.DatabasePath);
         var applied = repo.EnsureSchema();
 
+        var extraNote = cfg.ExtraPackagesPaths.Count > 0
+            ? $" Extra roots ({cfg.ExtraPackagesPaths.Count}): {string.Join("; ", cfg.ExtraPackagesPaths)}."
+            : string.Empty;
         var result = ToolResult<object>.Success(new
         {
             databasePath = cfg.DatabasePath,
             packagesPath = cfg.PackagesPath,
+            extraPackagesPaths = cfg.ExtraPackagesPaths.Count > 0 ? cfg.ExtraPackagesPaths : null,
             schemaVersion = MetadataRepository.CurrentSchemaVersion,
             schemaApplied = applied,
             note = applied
-                ? $"Schema v{MetadataRepository.CurrentSchemaVersion} applied. Run 'd365fo index extract' to ingest metadata from PACKAGES_PATH."
-                : $"Schema already at v{MetadataRepository.CurrentSchemaVersion}. Run 'd365fo index extract' to ingest metadata from PACKAGES_PATH.",
+                ? $"Schema v{MetadataRepository.CurrentSchemaVersion} applied. Run 'd365fo index extract' to ingest metadata from PACKAGES_PATH.{extraNote}"
+                : $"Schema already at v{MetadataRepository.CurrentSchemaVersion}. Run 'd365fo index extract' to ingest metadata from PACKAGES_PATH.{extraNote}",
         });
 
         return RenderHelpers.Render(kind, result, _ =>
@@ -77,6 +81,7 @@ public sealed class IndexStatusCommand : Command<IndexStatusCommand.Settings>
             exists,
             sizeBytes,
             packagesPath = cfg.PackagesPath,
+            extraPackagesPaths = cfg.ExtraPackagesPaths.Count > 0 ? cfg.ExtraPackagesPaths : null,
             workspacePath = cfg.WorkspacePath,
             customModels = cfg.CustomModels,
             labelLanguages = cfg.LabelLanguages,
