@@ -1211,7 +1211,7 @@ public sealed class MetadataExtractor
         if (root is null) return null;
         var name = Local(root, "Name") ?? Path.GetFileNameWithoutExtension(file);
         var fields = new List<ExtractedDataEntityField>();
-        var fieldsContainer = root.Descendants().FirstOrDefault(x => x.Name.LocalName == "Fields");
+        var fieldsContainer = root.Elements().FirstOrDefault(x => x.Name.LocalName == "Fields");
         if (fieldsContainer is not null)
         {
             foreach (var fe in fieldsContainer.Elements())
