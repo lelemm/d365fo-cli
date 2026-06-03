@@ -67,7 +67,35 @@ Three variables matter before you run `index extract`. Set them in your shell pr
 | `D365FO_LABEL_LANGUAGES` | Languages to extract (e.g. `en-us,cs`) | Default: `en-us` only. **Directly controls index size** — each extra language adds significant data. Set this before the first extract. |
 | `D365FO_INDEX_DB` | Path to the SQLite index | Defaults to `%LOCALAPPDATA%\d365fo-cli\d365fo-index.sqlite` (`~/.local/share/…` on Linux/macOS) |
 
-All other variables (`D365FO_CUSTOM_MODELS`, `D365FO_BRIDGE_*`, `D365FO_WORKSPACE_PATH`, `D365FO_XREF_CONNECTIONSTRING`) are optional — see [ARCHITECTURE.md](ARCHITECTURE.md) for details.
+All other variables (`D365FO_CUSTOM_MODELS`, `D365FO_BRIDGE_*`, `D365FO_WORKSPACE_PATH`, `D365FO_XREF_CONNECTIONSTRING`) are optional — see [CONFIGURATION.md](CONFIGURATION.md) for details.
+
+> **Tip — JSON config file (recommended, shell-agnostic):** `d365fo` reads settings from a JSON config file at `%LOCALAPPDATA%\d365fo-cli\settings.json` (environment variables always take priority). Running `d365fo init --persist-profile` writes this file automatically. Because it is not tied to any shell profile, it works identically in **Windows PowerShell 5.1, PowerShell 7, VS Developer PowerShell**, and any other host. See [CONFIGURATION.md](CONFIGURATION.md).
+
+#### Visual Studio Developer PowerShell — common pitfall
+
+VS Developer PowerShell is **Windows PowerShell 5.1** (`powershell.exe`), which reads a different `$PROFILE` than PowerShell 7 (`pwsh.exe`):
+
+| Shell host | Profile path |
+|---|---|
+| Windows PowerShell 5.1 / VS Developer PowerShell | `%USERPROFILE%\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1` |
+| PowerShell 7+ (`pwsh`) | `%USERPROFILE%\Documents\PowerShell\Microsoft.PowerShell_profile.ps1` |
+
+If you set env vars only in one profile they will not be visible in the other. The recommended fix is to use the JSON config file:
+
+```powershell
+d365fo init --packages K:\AosService\PackagesLocalDirectory --persist-profile
+```
+
+`--persist-profile` now writes **both** profile files and the shell-agnostic JSON config at the same time, so all shell hosts pick up the settings without manual duplication.
+
+Alternatively, set variables as **system-level** (machine-scope) env vars in Windows System Properties — those are inherited by every process:
+
+```powershell
+[System.Environment]::SetEnvironmentVariable(
+    "D365FO_PACKAGES_PATH",
+    "K:\AosService\PackagesLocalDirectory",
+    [System.EnvironmentVariableTarget]::Machine)
+```
 
 ### UDE (Unified Developer Experience) setup
 
