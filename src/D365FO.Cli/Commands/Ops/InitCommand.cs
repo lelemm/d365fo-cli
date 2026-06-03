@@ -93,34 +93,59 @@ public sealed class InitCommand : Command<InitCommand.Settings>
             }
         }
 
-        string? profilePath = null;
         if (settings.PersistProfile && packages is not null)
         {
+            var vars = new Dictionary<string, string>
+            {
+                ["D365FO_PACKAGES_PATH"] = packages!,
+                ["D365FO_INDEX_DB"]      = cfg.DatabasePath,
+            };
+            if (!string.IsNullOrEmpty(workspace))
+                vars["D365FO_WORKSPACE"] = workspace;
+
+            // --- JSON config file (shell-agnostic, solves Developer PowerShell issue) ---
             try
             {
-                profilePath = ResolveProfilePath();
+                var configPath = D365FO.Core.D365FoSettings.GetDefaultConfigPath();
                 if (settings.DryRun)
                 {
-                    Log("profile.persist", true, $"Would append to {profilePath} (dry-run).");
+                    Log("config.persist", true, $"Would write {configPath} (dry-run).");
                 }
                 else
                 {
-                    var vars = new Dictionary<string, string>
-                    {
-                        ["D365FO_PACKAGES_PATH"] = packages!,
-                        ["D365FO_INDEX_DB"] = cfg.DatabasePath,
-                    };
-                    if (!string.IsNullOrEmpty(workspace))
-                        vars["D365FO_WORKSPACE"] = workspace;
-                    var added = WriteProfileBlock(profilePath, vars);
-                    Log("profile.persist", true, added
-                        ? $"Appended d365fo-cli block to {profilePath}"
-                        : $"Profile block already present in {profilePath}");
+                    D365FO.Core.D365FoSettings.SaveJsonConfig(vars);
+                    Log("config.persist", true, $"Written to {configPath}");
                 }
             }
             catch (Exception ex)
             {
-                Log("profile.persist", false, ex.Message);
+                Log("config.persist", false, ex.Message);
+            }
+
+            // --- Shell profiles (for interactive shell sessions that source $PROFILE) ---
+            // Write to all profile paths that exist or can be created so that both
+            // Windows PowerShell 5.1 (used by VS Developer PowerShell) and
+            // PowerShell 7+ pick up the env vars automatically.
+            foreach (var profilePath in ResolveAllProfilePaths())
+            {
+                try
+                {
+                    if (settings.DryRun)
+                    {
+                        Log("profile.persist", true, $"Would append to {profilePath} (dry-run).");
+                    }
+                    else
+                    {
+                        var added = WriteProfileBlock(profilePath, vars);
+                        Log("profile.persist", true, added
+                            ? $"Appended d365fo-cli block to {profilePath}"
+                            : $"Profile block already present in {profilePath}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log("profile.persist", false, $"{profilePath}: {ex.Message}");
+                }
             }
         }
 
@@ -170,18 +195,33 @@ public sealed class InitCommand : Command<InitCommand.Settings>
     private const string BlockBegin = "# >>> d365fo-cli init (auto-generated) >>>";
     private const string BlockEnd   = "# <<< d365fo-cli init <<<";
 
-    /// <summary>Pick the canonical shell profile for the current OS.</summary>
-    internal static string ResolveProfilePath()
+    /// <summary>
+    /// Returns all PowerShell profile paths that should receive the d365fo-cli
+    /// env-var block. On Windows this includes both the Windows PowerShell 5.1
+    /// profile (used by the VS Developer PowerShell) and the PowerShell 7+
+    /// profile so that neither shell host is left unconfigured.
+    /// </summary>
+    internal static IEnumerable<string> ResolveAllProfilePaths()
     {
         if (OperatingSystem.IsWindows())
         {
-            // PowerShell 5.1 + 7 agree on this path.
             var docs = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            return Path.Combine(docs, "PowerShell", "Microsoft.PowerShell_profile.ps1");
+            // Windows PowerShell 5.1 — used by Visual Studio Developer PowerShell
+            yield return Path.Combine(docs, "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1");
+            // PowerShell 7+ (pwsh)
+            yield return Path.Combine(docs, "PowerShell", "Microsoft.PowerShell_profile.ps1");
         }
-        var home = Environment.GetEnvironmentVariable("HOME") ?? "~";
-        return Path.Combine(home, ".profile");
+        else
+        {
+            var home = Environment.GetEnvironmentVariable("HOME") ?? "~";
+            yield return Path.Combine(home, ".profile");
+        }
     }
+
+    /// <summary>Pick the canonical shell profile for the current OS.</summary>
+    [Obsolete("Use ResolveAllProfilePaths() to handle both PS5.1 (VS Developer PowerShell) and PS7+.")]
+    internal static string ResolveProfilePath()
+        => ResolveAllProfilePaths().First();
 
     /// <summary>
     /// Append (or replace) a marker-delimited block of env-var exports to the
