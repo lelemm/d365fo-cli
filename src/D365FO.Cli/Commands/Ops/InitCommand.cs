@@ -19,6 +19,10 @@ public sealed class InitCommand : Command<InitCommand.Settings>
         [System.ComponentModel.Description("Explicit PackagesLocalDirectory path. Skips auto-detect.")]
         public string? PackagesPath { get; init; }
 
+        [CommandOption("--extra-packages <PATH>")]
+        [System.ComponentModel.Description("Additional PackagesLocalDirectory root(s). Repeatable. Also writes D365FO_EXTRA_PACKAGES_PATH when used with --persist-profile.")]
+        public string[]? ExtraPackagesPaths { get; init; }
+
         [CommandOption("--db <PATH>")]
         public string? DatabasePath { get; init; }
 
@@ -49,6 +53,9 @@ public sealed class InitCommand : Command<InitCommand.Settings>
         var cfg = D365FoSettings.FromEnvironment(settings.DatabasePath);
 
         var packages = settings.PackagesPath ?? cfg.PackagesPath ?? AutoDetectPackages();
+        var extraPackages = D365FO.Cli.Commands.Index.IndexExtractCommand.MergeExtraPaths(
+            settings.ExtraPackagesPaths,
+            cfg.ExtraPackagesPaths);
         var workspace = cfg.WorkspacePath ?? (packages is null ? null : Path.GetFullPath(Path.Combine(packages, "..")));
         var steps = new List<object>();
 
@@ -101,7 +108,9 @@ public sealed class InitCommand : Command<InitCommand.Settings>
                 ["D365FO_INDEX_DB"]      = cfg.DatabasePath,
             };
             if (!string.IsNullOrEmpty(workspace))
-                vars["D365FO_WORKSPACE"] = workspace;
+                vars["D365FO_WORKSPACE_PATH"] = workspace;
+            if (extraPackages is { Count: > 0 })
+                vars["D365FO_EXTRA_PACKAGES_PATH"] = string.Join(";", extraPackages);
 
             // --- JSON config file (shell-agnostic, solves Developer PowerShell issue) ---
             try

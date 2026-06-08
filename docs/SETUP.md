@@ -86,6 +86,12 @@ If you set env vars only in one profile they will not be visible in the other. T
 d365fo init --packages K:\AosService\PackagesLocalDirectory --persist-profile
 ```
 
+If you use UDE dual roots, include extra packages during init so `D365FO_EXTRA_PACKAGES_PATH` is persisted too:
+
+```powershell
+d365fo init --packages K:\AosService\PackagesLocalDirectory --extra-packages C:\LocalMetadata\PackagesLocalDirectory --persist-profile
+```
+
 `--persist-profile` now writes **both** profile files and the shell-agnostic JSON config at the same time, so all shell hosts pick up the settings without manual duplication.
 
 Alternatively, set variables as **system-level** (machine-scope) env vars in Windows System Properties — those are inherited by every process:
