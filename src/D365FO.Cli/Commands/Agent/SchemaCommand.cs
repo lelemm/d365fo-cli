@@ -190,7 +190,7 @@ public sealed class SchemaCommand : Command<SchemaCommand.Settings>
         C("daemon stop", "Stop daemon.", [], [], []),
         C("daemon status", "Report daemon status.", [], [], []),
         C("doctor", "Diagnose environment.", [], ["--output"], []),
-        C("init", "Quickstart index/profile setup.", [], ["--packages", "--db", "--run-extract", "--dry-run", "--persist-profile"], []),
+        C("init", "Quickstart index/profile setup.", [], ["--packages", "--extra-packages", "--db", "--run-extract", "--dry-run", "--persist-profile"], []),
         C("version", "Print version information.", [], ["--output"], []),
     ];
 
