@@ -150,6 +150,7 @@ public sealed class StdioDispatcher
                 ["name"] = d.Name,
                 ["description"] = d.Description,
                 ["inputSchema"] = (JsonNode)d.InputSchema.DeepClone(),
+                ["annotations"] = ToolCatalog.AnnotationsFor(d),
             });
         }
         return new JsonObject { ["tools"] = arr };
@@ -166,6 +167,24 @@ public sealed class StdioDispatcher
         if (descriptor.Name is null)
             return ErrorResponse(idNode, -32602, $"Unknown tool: {name}");
 
+        // Duplicate-call dedup (agentic-loop mitigation): repeated identical
+        // read calls are answered from a 60 s cache with a loop hint.
+        var dedupable = !CallDedup.ExcludedTools.Contains(name) && !ToolCatalog.WriteTools.Contains(name);
+        var dedupKey = dedupable
+            ? CallDedup.Key(name, args.ValueKind == JsonValueKind.Undefined ? "{}" : args.GetRawText())
+            : null;
+        if (dedupKey is not null && CallDedup.TryGet(dedupKey) is { } cached)
+        {
+            return Success(idNode, new JsonObject
+            {
+                ["content"] = new JsonArray
+                {
+                    new JsonObject { ["type"] = "text", ["text"] = cached.Body + CallDedup.LoopHint },
+                },
+                ["isError"] = cached.IsError,
+            });
+        }
+
         object raw;
         try
         {
@@ -178,6 +197,7 @@ public sealed class StdioDispatcher
 
         var body = D365Json.Serialize(raw);
         bool isError = raw is ToolResult<object> tr && !tr.Ok;
+        if (dedupKey is not null) CallDedup.Store(dedupKey, body, isError);
 
         return Success(idNode, new JsonObject
         {

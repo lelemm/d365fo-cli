@@ -8,18 +8,22 @@ applyTo: '**/AxClass/**_Extension*.xml,**/*_Extension.xpp'
 
 > **Source of truth:** [learn:method-wrapping-coc](https://learn.microsoft.com/en-us/dynamics365/fin-ops-core/dev-itpro/extensibility/method-wrapping-coc).
 
-## Pre-flight (mandatory)
+## Pre-flight (mandatory — ONE call)
 
 ```sh
-# 1) Confirm the target class + method + EXACT signature
-d365fo get class <TargetClass> --output json
-d365fo read class <TargetClass> --method <method> --declaration
-
-# 2) Discover existing CoC wrappers — MUST be empty or coordinated
-d365fo find coc <TargetClass>::<method> --output json
+d365fo prepare change <TargetClass> --method <method> --goal "<why>" --output json
 ```
 
-If `count > 0`, enumerate `items[*].extensionClass` to the user and stop before writing another wrapper. Stacking duplicates risks ordering bugs.
+This single call returns the exact method signature, existing CoC wrappers,
+CoC eligibility ([Hookable(false)]/[Wrappable(false)]/final), the recommended
+strategy, and a **grounding token**. Do NOT issue separate `get class` /
+`find coc` calls for facts it already returned.
+
+If `existingCocExtensions` is non-empty, enumerate them to the user and stop before writing another wrapper. Stacking duplicates risks ordering bugs.
+
+Pass the token to the generator: `d365fo generate coc <TargetClass> --method <method> --install-to <Model> --grounding-token <token>`. For any hand-written wrapper body, run `d365fo validate references --file <f>` + `d365fo validate xpp --file <f>` BEFORE writing — exit code 2 means hallucinated symbols / BP errors to fix first.
+
+Fallback (prepare unavailable): `d365fo get class <TargetClass>` + `d365fo find coc <TargetClass>::<method>`.
 
 ## 🚨 NEVER copy default parameter values into the wrapper
 

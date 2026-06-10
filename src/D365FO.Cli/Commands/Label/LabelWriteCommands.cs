@@ -27,7 +27,7 @@ public sealed class LabelCreateCommand : Command<LabelCreateCommand.Settings>
         public string? InstallTo { get; init; }
 
         [CommandOption("--lang <LANG>")]
-        [System.ComponentModel.Description("Language code for --install-to path resolution (default: en-us).")]
+        [System.ComponentModel.Description("Language code(s) for --install-to path resolution; comma-separated for multiple locales (default: en-us). Existing on-disk folder casing (en-US vs en-us) is reused to avoid duplicate locale folders on case-sensitive file systems.")]
         public string? Lang { get; init; }
 
         [CommandOption("--label-file <NAME>")]
@@ -53,10 +53,10 @@ public sealed class LabelCreateCommand : Command<LabelCreateCommand.Settings>
                 "--file <PATH> or --install-to <MODEL> is required.",
                 hint: "Use --file for an explicit absolute path, or --install-to <MODEL> to resolve the path automatically from D365FO_PACKAGES_PATH."));
 
-        string resolvedFile;
+        var resolvedFiles = new List<string>();
         if (hasFile)
         {
-            resolvedFile = settings.File!;
+            resolvedFiles.Add(settings.File!);
         }
         else
         {
@@ -66,33 +66,67 @@ public sealed class LabelCreateCommand : Command<LabelCreateCommand.Settings>
                     $"Cannot resolve label file path for model '{settings.InstallTo}': D365FO_PACKAGES_PATH is not set.",
                     hint: "Set D365FO_PACKAGES_PATH to your PackagesLocalDirectory, or use --file with an absolute path."));
 
-            var lang = string.IsNullOrWhiteSpace(settings.Lang) ? "en-us" : settings.Lang!;
-            var lf   = string.IsNullOrWhiteSpace(settings.LabelFile) ? settings.InstallTo! : settings.LabelFile!;
-            resolvedFile = System.IO.Path.Combine(cfg.PackagesPath!, settings.InstallTo!, settings.InstallTo!, "AxLabelFile", "LabelResources", lang, $"{lf}.{lang}.label.txt");
+            var langs = (string.IsNullOrWhiteSpace(settings.Lang) ? "en-us" : settings.Lang!)
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var lf = string.IsNullOrWhiteSpace(settings.LabelFile) ? settings.InstallTo! : settings.LabelFile!;
+            var resourcesDir = System.IO.Path.Combine(cfg.PackagesPath!, settings.InstallTo!, settings.InstallTo!, "AxLabelFile", "LabelResources");
+            foreach (var lang in langs)
+            {
+                var diskLang = ResolveOnDiskCasing(resourcesDir, lang);
+                resolvedFiles.Add(System.IO.Path.Combine(resourcesDir, diskLang, $"{lf}.{diskLang}.label.txt"));
+            }
         }
 
         try
         {
-            var res = LabelFileWriter.CreateOrUpdate(resolvedFile, settings.Key, settings.Value, settings.Overwrite);
-            if (res.Outcome == WriteOutcome.KeyExists)
-                return RenderHelpers.Render(kind, ToolResult<object>.Fail(
-                    "KEY_EXISTS",
-                    $"Label '{settings.Key}' already exists. Pass --overwrite to replace.",
-                    hint: $"Existing value: {res.OldValue}"));
-
-            return RenderHelpers.Render(kind, ToolResult<object>.Success(new
+            var results = new List<object>();
+            foreach (var file in resolvedFiles)
             {
-                outcome = res.Outcome.ToString(),
-                file = res.Path,
-                key = res.Key,
-                oldValue = res.OldValue,
-                newValue = res.NewValue,
-            }));
+                var res = LabelFileWriter.CreateOrUpdate(file, settings.Key, settings.Value, settings.Overwrite);
+                if (res.Outcome == WriteOutcome.KeyExists)
+                    return RenderHelpers.Render(kind, ToolResult<object>.Fail(
+                        "KEY_EXISTS",
+                        $"Label '{settings.Key}' already exists in {file}. Pass --overwrite to replace.",
+                        hint: $"Existing value: {res.OldValue}"));
+                results.Add(new
+                {
+                    outcome = res.Outcome.ToString(),
+                    file = res.Path,
+                    key = res.Key,
+                    oldValue = res.OldValue,
+                    newValue = res.NewValue,
+                });
+            }
+
+            return RenderHelpers.Render(kind, ToolResult<object>.Success(
+                results.Count == 1 ? results[0] : new { key = settings.Key, files = results }));
         }
         catch (Exception ex)
         {
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.WriteFailed, ex.Message));
         }
+    }
+
+    /// <summary>
+    /// Reuse the existing locale folder's casing ("en-US" vs "en-us") so writes
+    /// on case-sensitive file systems never create a duplicate locale folder.
+    /// </summary>
+    internal static string ResolveOnDiskCasing(string resourcesDir, string lang)
+    {
+        try
+        {
+            if (Directory.Exists(resourcesDir))
+            {
+                foreach (var dir in Directory.EnumerateDirectories(resourcesDir))
+                {
+                    var name = System.IO.Path.GetFileName(dir);
+                    if (string.Equals(name, lang, StringComparison.OrdinalIgnoreCase))
+                        return name;
+                }
+            }
+        }
+        catch { /* fall through to requested casing */ }
+        return lang;
     }
 }
 

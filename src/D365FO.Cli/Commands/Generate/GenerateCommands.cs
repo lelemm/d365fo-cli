@@ -17,6 +17,10 @@ public abstract class GenerateSettings : D365OutputSettings
     [CommandOption("--install-to <MODEL>")]
     [System.ComponentModel.Description("Install the generated artefact directly into <MODEL> via the metadata bridge. Requires D365FO_BRIDGE_ENABLED=1.")]
     public string? InstallTo { get; init; }
+
+    [CommandOption("--grounding-token <TOKEN>")]
+    [System.ComponentModel.Description("Grounding token from `d365fo prepare change`/`prepare create` proving the index was consulted. Required for extension-shaped objects when D365FO_GROUNDING_ENFORCE=true.")]
+    public string? GroundingToken { get; init; }
 }
 
 internal static class GenerateInstaller
@@ -206,18 +210,34 @@ public sealed class GenerateCocCommand : Command<GenerateCocCommand.Settings>
             if (fail.HasValue) return fail.Value;
         }
 
-        // Guardrail: warn if the target already has CoC wrappers.
+        // Guardrail: warn if the target already has CoC wrappers, and resolve
+        // the target's AOT kind so [ExtensionOf] uses the right intrinsic
+        // (tableStr for tables, classStr for classes, …).
         var warnings = new List<string>();
+        var targetKind = "class";
         try
         {
             var repo = RepoFactory.Create();
             var existing = repo.FindCocExtensions(settings.Target);
             if (existing.Count > 0)
                 warnings.Add($"There are already {existing.Count} CoC extension(s) of {settings.Target}. Consider extending an existing one instead of stacking a new wrapper.");
+            var kinds = repo.SymbolKinds(settings.Target);
+            targetKind = kinds.FirstOrDefault(k => k is "class" or "table" or "form" or "data-entity" or "map" or "view") ?? "class";
         }
         catch { /* index may be empty; not fatal */ }
 
-        var doc = XppScaffolder.CocExtension(settings.Target, settings.Methods);
+        var doc = XppScaffolder.CocExtension(settings.Target, targetKind, settings.Methods);
+
+        // Grounding gate: prove the target and every wrapped method against the
+        // index; fail closed under D365FO_GROUNDING_ENFORCE=true.
+        var gate = GroundingGate.Check(
+            settings.GroundingToken,
+            settings.Target,
+            doc,
+            settings.Methods.Select(m => (settings.Target, m)));
+        if (gate.Failure is not null) return RenderHelpers.Render(kind, gate.Failure);
+        warnings.AddRange(gate.Warnings);
+
         try
         {
             var res = ScaffoldFileWriter.Write(doc, outPath!, settings.Overwrite);
@@ -230,6 +250,7 @@ public sealed class GenerateCocCommand : Command<GenerateCocCommand.Settings>
                 backup = res.BackupPath,
                 methodCount = settings.Methods.Length,
                 model = settings.InstallTo,
+                grounding = gate.Grounding,
             }, warnings: warnings));
         }
         catch (Exception ex)

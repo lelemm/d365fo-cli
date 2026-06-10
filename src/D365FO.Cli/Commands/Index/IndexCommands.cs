@@ -62,18 +62,30 @@ public sealed class IndexStatusCommand : Command<IndexStatusCommand.Settings>
         long sizeBytes = exists ? new FileInfo(cfg.DatabasePath).Length : 0;
         ExtractCounts? counts = null;
         string? statusWarning = null;
+        IndexStaleness.StalenessResult? staleness = null;
         if (exists)
         {
             try
             {
                 var repo = RepoFactory.Create();
                 counts = repo.CountAll();
+
+                // Staleness check: newest metadata mtime vs. index bookkeeping.
+                var roots = new List<string>();
+                if (!string.IsNullOrEmpty(cfg.PackagesPath)) roots.Add(cfg.PackagesPath!);
+                roots.AddRange(cfg.ExtraPackagesPaths);
+                if (roots.Count > 0)
+                    staleness = IndexStaleness.Check(repo, roots);
             }
             catch (Exception ex)
             {
                 statusWarning = $"Could not read index: {ex.Message}";
             }
         }
+
+        var warnings = new List<string>();
+        if (staleness is { IsStale: true })
+            warnings.Add("stale-index");
 
         var result = ToolResult<object>.Success(new
         {
@@ -86,8 +98,18 @@ public sealed class IndexStatusCommand : Command<IndexStatusCommand.Settings>
             customModels = cfg.CustomModels,
             labelLanguages = cfg.LabelLanguages,
             counts,
+            staleness = staleness is null ? null : new
+            {
+                isStale = staleness.IsStale,
+                detail = staleness.Detail,
+                newestFile = staleness.NewestFile,
+                newestFileMtimeUtc = staleness.NewestFileMtimeUtc,
+                lastExtractedUtc = staleness.LastExtractedUtc,
+                scannedFiles = staleness.ScannedFiles,
+                truncated = staleness.Truncated,
+            },
             warning = statusWarning,
-        });
+        }, warnings: warnings.Count > 0 ? warnings : null);
         return RenderHelpers.Render(kind, result);
     }
 }
@@ -204,6 +226,13 @@ public sealed class IndexExtractCommand : Command<IndexExtractCommand.Settings>
         modelDirs = modelDirs
             .GroupBy(d => d, StringComparer.OrdinalIgnoreCase)
             .Select(g => g.First())
+            .ToList();
+
+        // Largest models first: with bounded parallelism, starting the big
+        // models (ApplicationSuite & co.) early shortens the overall makespan —
+        // small models fill the tail instead of a giant model running alone.
+        modelDirs = modelDirs
+            .OrderByDescending(ApproximateModelSize)
             .ToList();
         var showProgress = kind != OutputMode.Kind.Json && !System.Console.IsOutputRedirected;
 
@@ -465,6 +494,23 @@ public sealed class IndexExtractCommand : Command<IndexExtractCommand.Settings>
                 yield return model;
             }
         }
+    }
+
+    /// <summary>
+    /// Cheap model-size proxy for extract scheduling: XML count in the
+    /// dominant artifact folders. Avoids a full recursive walk per model.
+    /// </summary>
+    private static int ApproximateModelSize(string modelDir)
+    {
+        int count = 0;
+        foreach (var sub in new[] { "AxClass", "AxTable", "AxForm", "AxEdt" })
+        {
+            var dir = Path.Combine(modelDir, sub);
+            if (!Directory.Exists(dir)) continue;
+            try { count += Directory.EnumerateFiles(dir, "*.xml", SearchOption.TopDirectoryOnly).Count(); }
+            catch { /* unreadable — treat as empty */ }
+        }
+        return count;
     }
 }
 

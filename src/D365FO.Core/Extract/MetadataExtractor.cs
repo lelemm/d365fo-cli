@@ -455,6 +455,8 @@ public sealed class MetadataExtractor
             FormRef                 = Local(root, "FormRef"),
             ListPageRef             = Local(root, "ListPageRef"),
             SystemTable             = string.Equals(Local(root, "SystemTable"), "Yes", StringComparison.OrdinalIgnoreCase),
+            TableGroup              = Local(root, "TableGroup"),
+            ClusteredIndex          = Local(root, "ClusteredIndex"),
         };
     }
 
@@ -1084,7 +1086,29 @@ public sealed class MetadataExtractor
         // Extension names follow "<Target>.<Suffix>" convention, e.g. "CustTable.Fleet".
         var dot = name.IndexOf('.');
         var target = dot > 0 ? name.Substring(0, dot) : name;
-        return new ExtractedObjectExtension(kind, target, name, file);
+
+        // Table extensions carry added fields in the same <Fields>/<AxTableField*>
+        // shape as base tables. Indexing them lets the reference resolver prove
+        // `buffer.MyCustomField` against extension-added fields.
+        var addedFields = new List<ExtractedTableField>();
+        if (kind == "Table")
+        {
+            var fieldsContainer = root.Elements().FirstOrDefault(x => x.Name.LocalName == "Fields");
+            if (fieldsContainer is not null)
+            {
+                foreach (var fe in fieldsContainer.Elements().Where(x => x.Name.LocalName.StartsWith("AxTableField", StringComparison.Ordinal)))
+                {
+                    var fname = Local(fe, "Name");
+                    if (string.IsNullOrEmpty(fname)) continue;
+                    var edt = Local(fe, "ExtendedDataType");
+                    var ftype = Local(fe, "Type") ?? (string.IsNullOrEmpty(edt) ? null : "ExtendedDataType");
+                    var flabel = Local(fe, "Label");
+                    var mand = string.Equals(Local(fe, "Mandatory"), "Yes", StringComparison.OrdinalIgnoreCase);
+                    addedFields.Add(new ExtractedTableField(fname!, ftype, edt, flabel, mand));
+                }
+            }
+        }
+        return new ExtractedObjectExtension(kind, target, name, file) { AddedFields = addedFields };
     }
 
     // -------- security --------

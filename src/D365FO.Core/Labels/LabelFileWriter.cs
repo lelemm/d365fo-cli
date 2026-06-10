@@ -44,9 +44,38 @@ public static class LabelFileWriter
             return new WriteResult(path, WriteOutcome.Updated, key, prev, value);
         }
 
-        lines.Add(key + "=" + Sanitise(value));
+        InsertSorted(lines, key + "=" + Sanitise(value), key);
         AtomicWrite(path, lines);
         return new WriteResult(path, WriteOutcome.Created, key, null, value);
+    }
+
+    /// <summary>
+    /// Insert a new entry at its case-insensitive ORDINAL position among the
+    /// existing key lines (upstream parity: culture-aware sorts put e.g.
+    /// "Item_2" before "Item10" differently per OS locale, producing noisy
+    /// diffs). Comment and blank lines keep their position relative to the
+    /// entry that follows them.
+    /// </summary>
+    private static void InsertSorted(List<string> lines, string newLine, string newKey)
+    {
+        for (int i = 0; i < lines.Count; i++)
+        {
+            var line = lines[i];
+            var eq = line.IndexOf('=');
+            if (eq <= 0 || line.StartsWith(';')) continue;
+            var key = line[..eq];
+            if (StringComparer.OrdinalIgnoreCase.Compare(newKey, key) < 0)
+            {
+                // Skip back over the comment block attached to this entry.
+                int insertAt = i;
+                while (insertAt > 0 &&
+                       (lines[insertAt - 1].StartsWith(';') || lines[insertAt - 1].Trim().Length == 0))
+                    insertAt--;
+                lines.Insert(insertAt, newLine);
+                return;
+            }
+        }
+        lines.Add(newLine);
     }
 
     /// <summary>

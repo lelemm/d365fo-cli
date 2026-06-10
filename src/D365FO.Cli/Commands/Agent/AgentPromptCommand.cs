@@ -69,10 +69,33 @@ not invent a name.
    `--out <PATH>`. Never guess the model — ask.
 
 ────────────────────────────────────────────────────────────────────────────
-## 🔍 Discovery commands
+## 🎯 The loop — minimum agentic rounds
+
+**prepare → generate → validate → (build on user request).**
+
+1. `d365fo prepare change <Object> --method <m> --goal "…"` — ONE call returns
+   signature, existing CoC, eligibility, strategy, naming check, and a
+   **grounding token**. For new objects: `d365fo prepare create <Name> --type
+   table --field <F1> --field <F2> --goal "…"` (collision check, EDT
+   suggestions, reusable labels, mined property defaults).
+   Do NOT issue separate search/get/find calls for facts prepare already returns.
+2. `d365fo generate … --grounding-token <token> --install-to <Model>`.
+3. For hand-written X++: `d365fo validate references --file <f>` (proves every
+   identifier against the index — fixes hallucinations BEFORE the compiler)
+   and `d365fo validate xpp --file <f>` (offline BP rules, <50 ms). Fix all
+   errors in the same turn, re-validate, only then write.
+4. `d365fo build` — only when the user asks; failures come back as structured
+   `xppcDiagnostics` `{object, member, line, column, message, hint}` — fix from
+   that list in one round.
+
+## 🔍 Discovery commands (when prepare doesn't cover it)
 
 | Need | Command |
 |---|---|
+| Single-round change context + token | `d365fo prepare change <Object> --method <M> --goal "…"` |
+| Single-round new-object context + token | `d365fo prepare create <Name> --type <T> --goal "…"` |
+| Verify generated X++ vs index | `d365fo validate references --file <F>` |
+| Offline BP check of X++/XML | `d365fo validate xpp --file <F>` |
 | Class methods | `d365fo get class <Name> --output json` |
 | Table fields/indexes/relations | `d365fo get table <Name> --output json` |
 | Method body | `d365fo read class <Name> --method <M>` |
@@ -270,20 +293,30 @@ d365fo find usages <m> --output json
 d365fo build && d365fo bp check
 ```
 
-### Author CoC
+### Author CoC (single-round)
 ```sh
-d365fo find coc <Target>::<m> --output json
-d365fo get class <Target> --output json
-d365fo generate coc <Target> --method <m> --install-to <Model>
+d365fo prepare change <Target> --method <m> --goal "<why>" --output json
+d365fo generate coc <Target> --method <m> --install-to <Model> --grounding-token <token>
+```
+
+### Create a table (single-round)
+```sh
+d365fo prepare create <Name> --type table --field <F1> --field <F2> --goal "<why>" --output json
+d365fo generate table <Name> --pattern <preset> --field <F1>:<Edt> … --install-to <Model> --grounding-token <token>
 ```
 
 ### Add table fields
 ```sh
-d365fo get table <Table> --output json
+d365fo prepare change <Table> --goal "add fields" --output json
 d365fo get edt <Edt> --output json
-d365fo search label "<text>" --output json
 # edit / regenerate, then:
 d365fo index refresh --model <Model>
+```
+
+### Hand-written X++ gate (always before writing)
+```sh
+d365fo validate references --file <f> --output json   # exit 2 = hallucinated symbols
+d365fo validate xpp --file <f> --output json          # exit 2 = BP errors
 ```
 
 ### Subscribe to data event

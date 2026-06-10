@@ -149,6 +149,13 @@ public sealed class GenerateExtensionCommand : Command<GenerateExtensionCommand.
         }
 
         var doc = XppScaffolder.Extension(settings.Kind, settings.Target, suffix);
+
+        // Grounding gate: the target object must exist in the index; fail
+        // closed under D365FO_GROUNDING_ENFORCE=true.
+        var gate = GroundingGate.Check(settings.GroundingToken, settings.Target, doc,
+            requiredSymbols: new[] { settings.Target });
+        if (gate.Failure is not null) return RenderHelpers.Render(kind, gate.Failure);
+
         try
         {
             var res = ScaffoldFileWriter.Write(doc, outPath!, settings.Overwrite);
@@ -162,7 +169,8 @@ public sealed class GenerateExtensionCommand : Command<GenerateExtensionCommand.
                 bytes = res.Bytes,
                 backup = res.BackupPath,
                 model = settings.InstallTo,
-            }));
+                grounding = gate.Grounding,
+            }, warnings: gate.Warnings.Count > 0 ? gate.Warnings : null));
         }
         catch (Exception ex)
         {
@@ -213,6 +221,13 @@ public sealed class GenerateEventHandlerCommand : Command<GenerateEventHandlerCo
         }
 
         var doc = XppScaffolder.EventHandler(settings.ClassName, settings.SourceKind, settings.SourceObject!, settings.Event, settings.HandlerMethod);
+
+        // Grounding gate: the event source object must exist in the index;
+        // fail closed under D365FO_GROUNDING_ENFORCE=true.
+        var gate = GroundingGate.Check(settings.GroundingToken, settings.SourceObject!, doc,
+            requiredSymbols: new[] { settings.SourceObject! });
+        if (gate.Failure is not null) return RenderHelpers.Render(kind, gate.Failure);
+
         try
         {
             var res = ScaffoldFileWriter.Write(doc, outPath!, settings.Overwrite);
@@ -229,7 +244,8 @@ public sealed class GenerateEventHandlerCommand : Command<GenerateEventHandlerCo
                 bytes = res.Bytes,
                 backup = res.BackupPath,
                 model = settings.InstallTo,
-            }));
+                grounding = gate.Grounding,
+            }, warnings: gate.Warnings.Count > 0 ? gate.Warnings : null));
         }
         catch (Exception ex)
         {

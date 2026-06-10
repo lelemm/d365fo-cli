@@ -23,6 +23,39 @@ public static class ToolCatalog
         JsonObject InputSchema,
         Func<ToolHandlers, JsonElement, object> Invoke);
 
+    /// <summary>
+    /// Tools that modify the file system. Everything else is read-only. Drives
+    /// both the MCP tool annotations (readOnlyHint/destructiveHint) and the
+    /// duplicate-call dedup cache exclusions.
+    /// </summary>
+    public static readonly HashSet<string> WriteTools = new(StringComparer.Ordinal)
+    {
+        "create_label", "rename_label", "delete_label",
+        "generate_table", "generate_class", "generate_coc", "generate_form",
+    };
+
+    /// <summary>
+    /// MCP tool annotations (2025-03-26 spec): a human title plus behaviour
+    /// hints, so clients can label runs ("Ran Search Classes") and skip write
+    /// confirmations for read-only tools.
+    /// </summary>
+    public static JsonObject AnnotationsFor(in Descriptor d)
+    {
+        var isWrite = WriteTools.Contains(d.Name);
+        return new JsonObject
+        {
+            ["title"] = TitleFor(d.Name),
+            ["readOnlyHint"] = !isWrite,
+            ["destructiveHint"] = isWrite,
+            ["idempotentHint"] = !isWrite,
+            ["openWorldHint"] = false,
+        };
+    }
+
+    private static string TitleFor(string name) =>
+        string.Join(' ', name.Split('_').Select(w =>
+            w.Length == 0 ? w : char.ToUpperInvariant(w[0]) + w[1..]));
+
     public static IReadOnlyList<Descriptor> All { get; } = new[]
     {
         new Descriptor("search_classes",

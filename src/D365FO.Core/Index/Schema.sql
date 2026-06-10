@@ -643,3 +643,33 @@ CREATE TABLE IF NOT EXISTS CommandTimings (
 );
 CREATE INDEX IF NOT EXISTS IX_CommandTimings_Command ON CommandTimings(Command);
 
+-- v14: Fields added by table extensions. Lets the reference resolver prove
+-- `buffer.MyCustomField` when the field lives in an AxTableExtension rather
+-- than the base AxTable.
+CREATE TABLE IF NOT EXISTS ExtensionFields (
+    Id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    TargetTable     TEXT NOT NULL,
+    Name            TEXT NOT NULL,
+    Type            TEXT,
+    EdtName         TEXT,
+    ExtensionName   TEXT NOT NULL,
+    ModelId         INTEGER NOT NULL,
+    FOREIGN KEY (ModelId) REFERENCES Models(ModelId)
+);
+CREATE INDEX IF NOT EXISTS IX_ExtFields_Target ON ExtensionFields(TargetTable, Name);
+
+-- v14: Property statistics mined from STANDARD (non-custom) models during
+-- extract. Answers "what does the standard platform set on this node type"
+-- so validate-xpp property rules and scaffolder defaults are data-driven
+-- instead of opinion-driven. Presence is encoded as the special values
+-- '(present)' / '(absent)'; enumerable properties store their actual value.
+CREATE TABLE IF NOT EXISTS PropertyStats (
+    NodeType    TEXT NOT NULL,
+    Property    TEXT NOT NULL,
+    Value       TEXT NOT NULL,
+    Model       TEXT NOT NULL,
+    Count       INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (NodeType, Property, Value, Model)
+);
+CREATE INDEX IF NOT EXISTS IX_PropStats_NodeProp ON PropertyStats(NodeType, Property);
+

@@ -21,7 +21,17 @@ applyTo: '**/AxTableExtension/**,**/AxFormExtension/**,**/AxEdtExtension/**,**/A
 | Add new members to a base enum | `extension Enum NoYes <Suffix>` |
 | Add behaviour to a class method | **NOT this** — use `coc-extension-authoring` instead |
 
-## Pre-flight
+## Pre-flight (ONE call)
+
+```sh
+d365fo prepare change <Target> --goal "<why>" --output json
+```
+
+Returns the resolved object type, existing extensions/CoC, the recommended
+strategy, and a **grounding token** for `d365fo generate extension …
+--grounding-token <token>`.
+
+Fallback (prepare unavailable):
 
 ```sh
 # 1) Confirm the target object exists
