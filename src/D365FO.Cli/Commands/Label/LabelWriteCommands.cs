@@ -23,7 +23,7 @@ public sealed class LabelCreateCommand : Command<LabelCreateCommand.Settings>
         public string? File { get; init; }
 
         [CommandOption("--install-to <MODEL>")]
-        [System.ComponentModel.Description("Model name. Auto-resolves the label file path to <PackagesPath>/<MODEL>/<MODEL>/AxLabelFile/LabelResources/<lang>/<MODEL>.<lang>.label.txt. Requires D365FO_PACKAGES_PATH.")]
+        [System.ComponentModel.Description("Model name. Auto-resolves the label file path to <PackagesPath>/<MODEL>/<MODEL>/AxLabelFile/LabelResources/<lang>/<MODEL>.<lang>.label.txt. Requires D365FO_CUSTOM_PACKAGES_PATH or D365FO_STANDARD_PACKAGES_PATH.")]
         public string? InstallTo { get; init; }
 
         [CommandOption("--lang <LANG>")]
@@ -51,7 +51,7 @@ public sealed class LabelCreateCommand : Command<LabelCreateCommand.Settings>
         if (!hasFile && !hasInstall)
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput,
                 "--file <PATH> or --install-to <MODEL> is required.",
-                hint: "Use --file for an explicit absolute path, or --install-to <MODEL> to resolve the path automatically from D365FO_PACKAGES_PATH."));
+                hint: "Use --file for an explicit absolute path, or --install-to <MODEL> to resolve the path automatically from D365FO_CUSTOM_PACKAGES_PATH or D365FO_STANDARD_PACKAGES_PATH."));
 
         var resolvedFiles = new List<string>();
         if (hasFile)
@@ -61,15 +61,21 @@ public sealed class LabelCreateCommand : Command<LabelCreateCommand.Settings>
         else
         {
             var cfg = D365FoSettings.FromEnvironment();
-            if (string.IsNullOrEmpty(cfg.PackagesPath))
+            // Search custom paths first (write target for git repo models), then standard path.
+            var allRoots = cfg.CustomPackagesPaths.Concat(new[] { cfg.StandardPackagesPath });
+            var root = allRoots
+                .FirstOrDefault(r => !string.IsNullOrEmpty(r) && Directory.Exists(Path.Combine(r!, settings.InstallTo!)))
+                ?? cfg.CustomPackagesPaths.FirstOrDefault()
+                ?? cfg.StandardPackagesPath;
+            if (string.IsNullOrEmpty(root))
                 return RenderHelpers.Render(kind, ToolResult<object>.Fail("INSTALL_FAILED",
-                    $"Cannot resolve label file path for model '{settings.InstallTo}': D365FO_PACKAGES_PATH is not set.",
-                    hint: "Set D365FO_PACKAGES_PATH to your PackagesLocalDirectory, or use --file with an absolute path."));
+                    $"Cannot resolve label file path for model '{settings.InstallTo}': neither D365FO_CUSTOM_PACKAGES_PATH nor D365FO_STANDARD_PACKAGES_PATH is set.",
+                    hint: "Set D365FO_CUSTOM_PACKAGES_PATH to your git repo PackagesLocalDirectory, or use --file with an absolute path."));
 
             var langs = (string.IsNullOrWhiteSpace(settings.Lang) ? "en-us" : settings.Lang!)
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             var lf = string.IsNullOrWhiteSpace(settings.LabelFile) ? settings.InstallTo! : settings.LabelFile!;
-            var resourcesDir = System.IO.Path.Combine(cfg.PackagesPath!, settings.InstallTo!, settings.InstallTo!, "AxLabelFile", "LabelResources");
+            var resourcesDir = System.IO.Path.Combine(root!, settings.InstallTo!, settings.InstallTo!, "AxLabelFile", "LabelResources");
             foreach (var lang in langs)
             {
                 var diskLang = ResolveOnDiskCasing(resourcesDir, lang);

@@ -20,7 +20,7 @@ public sealed class InitCommand : Command<InitCommand.Settings>
         public string? PackagesPath { get; init; }
 
         [CommandOption("--extra-packages <PATH>")]
-        [System.ComponentModel.Description("Additional PackagesLocalDirectory root(s). Repeatable. Also writes D365FO_EXTRA_PACKAGES_PATH when used with --persist-profile.")]
+        [System.ComponentModel.Description("Additional PackagesLocalDirectory root(s). Repeatable. Also writes D365FO_CUSTOM_PACKAGES_PATH when used with --persist-profile.")]
         public string[]? ExtraPackagesPaths { get; init; }
 
         [CommandOption("--db <PATH>")]
@@ -35,7 +35,7 @@ public sealed class InitCommand : Command<InitCommand.Settings>
         public bool DryRun { get; init; }
 
         [CommandOption("--persist-profile")]
-        [System.ComponentModel.Description("Append D365FO_PACKAGES_PATH / D365FO_INDEX_DB to the user's shell profile (PowerShell $PROFILE on Windows, ~/.profile otherwise).")]
+        [System.ComponentModel.Description("Append D365FO_STANDARD_PACKAGES_PATH / D365FO_INDEX_DB to the user's shell profile (PowerShell $PROFILE on Windows, ~/.profile otherwise).")]
         public bool PersistProfile { get; init; }
     }
 
@@ -52,10 +52,10 @@ public sealed class InitCommand : Command<InitCommand.Settings>
         var kind = OutputMode.Resolve(settings.Output);
         var cfg = D365FoSettings.FromEnvironment(settings.DatabasePath);
 
-        var packages = settings.PackagesPath ?? cfg.PackagesPath ?? AutoDetectPackages();
+        var packages = settings.PackagesPath ?? cfg.StandardPackagesPath ?? AutoDetectPackages();
         var extraPackages = D365FO.Cli.Commands.Index.IndexExtractCommand.MergeExtraPaths(
             settings.ExtraPackagesPaths,
-            cfg.ExtraPackagesPaths);
+            cfg.CustomPackagesPaths);
         var workspace = cfg.WorkspacePath ?? (packages is null ? null : Path.GetFullPath(Path.Combine(packages, "..")));
         var steps = new List<object>();
 
@@ -64,7 +64,7 @@ public sealed class InitCommand : Command<InitCommand.Settings>
 
         Log("resolve.packages", packages is not null,
             detail: packages,
-            hint: packages is null ? "Pass --packages <PATH> or set D365FO_PACKAGES_PATH." : null);
+            hint: packages is null ? "Pass --packages <PATH> or set D365FO_STANDARD_PACKAGES_PATH." : null);
         Log("resolve.workspace", workspace is not null, workspace);
         Log("resolve.database", !string.IsNullOrEmpty(cfg.DatabasePath), cfg.DatabasePath);
 
@@ -104,13 +104,13 @@ public sealed class InitCommand : Command<InitCommand.Settings>
         {
             var vars = new Dictionary<string, string>
             {
-                ["D365FO_PACKAGES_PATH"] = packages!,
+                ["D365FO_STANDARD_PACKAGES_PATH"] = packages!,
                 ["D365FO_INDEX_DB"]      = cfg.DatabasePath,
             };
             if (!string.IsNullOrEmpty(workspace))
                 vars["D365FO_WORKSPACE_PATH"] = workspace;
             if (extraPackages is { Count: > 0 })
-                vars["D365FO_EXTRA_PACKAGES_PATH"] = string.Join(";", extraPackages);
+                vars["D365FO_CUSTOM_PACKAGES_PATH"] = string.Join(";", extraPackages);
 
             // --- JSON config file (shell-agnostic, solves Developer PowerShell issue) ---
             try
@@ -169,7 +169,7 @@ public sealed class InitCommand : Command<InitCommand.Settings>
                 extracted = settings.RunExtract && !settings.DryRun && extractExit == 0,
                 nextSteps = new[]
                 {
-                    "Set D365FO_PACKAGES_PATH to persist the discovered path.",
+                    "Set D365FO_STANDARD_PACKAGES_PATH to persist the discovered path.",
                     "Run 'd365fo index extract' to ingest metadata.",
                     "Run 'd365fo doctor' to verify environment.",
                 },
