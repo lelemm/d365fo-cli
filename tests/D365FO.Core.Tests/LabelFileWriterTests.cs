@@ -119,6 +119,51 @@ public class LabelFileWriterTests
         finally { SafeDelete(path); }
     }
 
+    [Fact]
+    public void New_keys_are_inserted_in_ordinal_case_insensitive_order()
+    {
+        var path = NewTempFile();
+        try
+        {
+            File.WriteAllText(path, "Alpha=1\nGamma=3\n");
+            LabelFileWriter.CreateOrUpdate(path, "beta", "2");
+            var lines = File.ReadAllLines(path).Where(l => l.Contains('=')).ToArray();
+            Assert.Equal(new[] { "Alpha=1", "beta=2", "Gamma=3" }, lines);
+        }
+        finally { SafeDelete(path); }
+    }
+
+    [Fact]
+    public void Sorted_insert_keeps_comment_blocks_attached_to_their_entry()
+    {
+        var path = NewTempFile();
+        try
+        {
+            File.WriteAllText(path, "Alpha=1\n; translator note for Gamma\nGamma=3\n");
+            LabelFileWriter.CreateOrUpdate(path, "Beta", "2");
+            var lines = File.ReadAllLines(path);
+            Assert.Equal("Alpha=1", lines[0]);
+            Assert.Equal("Beta=2", lines[1]);
+            Assert.Equal("; translator note for Gamma", lines[2]);
+            Assert.Equal("Gamma=3", lines[3]);
+        }
+        finally { SafeDelete(path); }
+    }
+
+    [Fact]
+    public void Keys_sorting_after_all_existing_append_at_end()
+    {
+        var path = NewTempFile();
+        try
+        {
+            File.WriteAllText(path, "Alpha=1\n");
+            LabelFileWriter.CreateOrUpdate(path, "Zulu", "26");
+            var lines = File.ReadAllLines(path).Where(l => l.Contains('=')).ToArray();
+            Assert.Equal(new[] { "Alpha=1", "Zulu=26" }, lines);
+        }
+        finally { SafeDelete(path); }
+    }
+
     private static void SafeDelete(string path)
     {
         try { if (File.Exists(path)) File.Delete(path); } catch { }

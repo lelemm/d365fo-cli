@@ -68,6 +68,9 @@ public sealed record ExtractedTable(string Name, string? Label, string? SourcePa
     public string? FormRef { get; init; }
     public string? ListPageRef { get; init; }
     public bool SystemTable { get; init; }
+    // v14 property-stats inputs (mined, not persisted on Tables)
+    public string? TableGroup { get; init; }
+    public string? ClusteredIndex { get; init; }
 }
 public sealed record ExtractedTableField(string Name, string? Type, string? EdtName, string? Label, bool Mandatory);
 public sealed record ExtractedTableRelation(string? Name, string RelatedTable, string? Cardinality, string? RelationshipType);
@@ -134,7 +137,11 @@ public sealed record ExtractedFormDataSource(string Name, string? Table)
     public string? JoinSource { get; init; }
 }
 
-public sealed record ExtractedObjectExtension(string Kind, string TargetName, string ExtensionName, string? SourcePath);
+public sealed record ExtractedObjectExtension(string Kind, string TargetName, string ExtensionName, string? SourcePath)
+{
+    /// <summary>Fields added by an AxTableExtension (empty for other kinds).</summary>
+    public IReadOnlyList<ExtractedTableField> AddedFields { get; init; } = Array.Empty<ExtractedTableField>();
+}
 
 public sealed record ExtractedSecurityRole(
     string Name,

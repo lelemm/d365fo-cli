@@ -1,0 +1,211 @@
+using System.Xml.Linq;
+using D365FO.Core.Extract;
+using D365FO.Core.Index;
+using D365FO.Core.Scaffolding;
+using D365FO.Core.Validation;
+using Xunit;
+
+namespace D365FO.Core.Tests;
+
+/// <summary>
+/// Golden quality-gate suite — locks the offline grounding chain so it can
+/// never silently regress (port of the upstream MCP server's
+/// tests/golden/quality-gate.test.ts concept):
+///
+///   1. Every source-bearing scaffolder's output passes `validate xpp` with
+///      ZERO errors.
+///   2. Scaffolded output passes `validate references` clean against a
+///      fixture mini-index.
+///   3. Injected hallucinations (fake table, fake field, fake label, wrong
+///      arity) are flagged as errors — the gate must never go blind.
+/// </summary>
+public class GoldenQualityGateTests : IDisposable
+{
+    private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"golden-{Guid.NewGuid():N}.sqlite");
+    private readonly MetadataRepository _repo;
+
+    public GoldenQualityGateTests()
+    {
+        _repo = new MetadataRepository(_dbPath);
+        _repo.EnsureSchema();
+        SeedFixtureIndex();
+    }
+
+    public void Dispose()
+    {
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        foreach (var ext in new[] { "", "-wal", "-shm" })
+        {
+            var p = _dbPath + ext;
+            if (File.Exists(p)) { try { File.Delete(p); } catch { } }
+        }
+    }
+
+    /// <summary>Mini-index: the objects the golden scaffolds reference.</summary>
+    private void SeedFixtureIndex()
+    {
+        _repo.ApplyExtract(new ExtractBatch(
+            Model: "ApplicationSuite",
+            Publisher: "Microsoft",
+            Layer: "app",
+            IsCustom: false,
+            Tables: new[]
+            {
+                new ExtractedTable("CustTable", "@SYS1234", "x", new[]
+                {
+                    new ExtractedTableField("AccountNum", "ExtendedDataType", "CustAccount", null, true),
+                })
+                {
+                    TableGroup = "Main",
+                    ClusteredIndex = "AccountIdx",
+                    Indexes = new[] { new ExtractedTableIndex("AccountIdx", false, true, new[] { "AccountNum" }) },
+                    Methods = new[] { new ExtractedMethod("validateWrite", "boolean validateWrite()", "boolean", false) },
+                },
+            },
+            Classes: new[]
+            {
+                new ExtractedClass("SalesFormLetter", null, true, false, "x", new[]
+                {
+                    new ExtractedMethod("salute", "void salute(str message = \"Hi\")", "void", false),
+                }),
+            },
+            Edts: new[] { new ExtractedEdt("CustAccount", null, "String", null, 20) },
+            Enums: Array.Empty<ExtractedEnum>(),
+            MenuItems: Array.Empty<ExtractedMenuItem>(),
+            CocExtensions: Array.Empty<ExtractedCoc>(),
+            Labels: new[] { new ExtractedLabel("MyModel", "en-us", "TableLabel", "Golden table") }));
+    }
+
+    private static string Source(XDocument doc) =>
+        string.Join("\n", doc.Root!.Descendants()
+            .Where(e => e.Name.LocalName is "Declaration" or "Source")
+            .Select(e => e.Value));
+
+    private static void AssertNoXppErrors(string xpp, string context)
+    {
+        var errors = XppValidator.Validate(xpp)
+            .Where(v => v.Severity == "error")
+            .ToList();
+        Assert.True(errors.Count == 0,
+            $"{context}: scaffolded X++ must pass validate xpp clean, got: " +
+            string.Join("; ", errors.Select(e => $"{e.Rule} {e.Excerpt}")));
+    }
+
+    private void AssertNoReferenceErrors(string xpp, string context)
+    {
+        var errors = ReferenceResolver.Resolve(xpp, _repo).Violations
+            .Where(v => v.Severity == "error")
+            .ToList();
+        Assert.True(errors.Count == 0,
+            $"{context}: scaffolded X++ must resolve clean against the index, got: " +
+            string.Join("; ", errors.Select(e => $"{e.Kind} {e.Identifier}")));
+    }
+
+    // ── 1+2: scaffolder outputs pass both gates ─────────────────────────────
+
+    [Fact]
+    public void Coc_on_class_passes_both_gates()
+    {
+        var src = Source(XppScaffolder.CocExtension("SalesFormLetter", "class", "salute"));
+        AssertNoXppErrors(src, "generate coc (class)");
+        AssertNoReferenceErrors(src, "generate coc (class)");
+    }
+
+    [Fact]
+    public void Coc_on_table_uses_tableStr_and_passes_both_gates()
+    {
+        var doc = XppScaffolder.CocExtension("CustTable", "table", "validateWrite");
+        var src = Source(doc);
+        Assert.Contains("tableStr(CustTable)", src); // not classStr — compiler would reject it
+        AssertNoXppErrors(src, "generate coc (table)");
+        AssertNoReferenceErrors(src, "generate coc (table)");
+    }
+
+    [Fact]
+    public void Class_scaffold_passes_xpp_gate()
+    {
+        var src = Source(XppScaffolder.Class("GoldenHelper"));
+        AssertNoXppErrors(src, "generate class");
+        AssertNoReferenceErrors(src, "generate class");
+    }
+
+    [Fact]
+    public void Table_scaffold_passes_xml_table_gate()
+    {
+        var doc = XppScaffolder.Table("GoldenTable", "@MyModel:TableLabel",
+            new[] { new TableFieldSpec("AccountNum", "CustAccount", null, Mandatory: true) },
+            pattern: TablePattern.Main);
+        var violations = XppValidator.Validate(doc.ToString(), XppValidator.CodeTypeXmlTable)
+            .Where(v => v.Severity == "error")
+            .ToList();
+        Assert.True(violations.Count == 0,
+            "generate table: XML must pass property rules (Label, TableGroup, AlternateKey), got: " +
+            string.Join("; ", violations.Select(v => $"{v.Rule} {v.Excerpt}")));
+    }
+
+    [Fact]
+    public void Event_handler_scaffold_passes_xpp_gate()
+    {
+        var src = Source(XppScaffolder.EventHandler("GoldenHandler", "Table", "CustTable", "Inserted", "OnInserted"));
+        AssertNoXppErrors(src, "generate event-handler");
+    }
+
+    [Fact]
+    public void RunBase_and_sysoperation_scaffolds_pass_xpp_gate()
+    {
+        AssertNoXppErrors(Source(RunBaseScaffolder.RunBaseClass("GoldenJob", isBatch: true)), "generate runbase");
+        AssertNoXppErrors(Source(SysOperationScaffolder.Contract("GoldenContract")), "generate sysoperation contract");
+        AssertNoXppErrors(Source(SysOperationScaffolder.Controller("GoldenController", "GoldenService", "process")), "generate sysoperation controller");
+    }
+
+    // ── 3: hallucinations must be caught ────────────────────────────────────
+
+    [Fact]
+    public void Hallucinated_table_is_caught()
+    {
+        var r = ReferenceResolver.Resolve("str s = tableStr(CustTableThatDoesNotExist);", _repo);
+        Assert.Contains(r.Violations, v => v.Severity == "error" && v.Kind == "unknown-intrinsic-target");
+    }
+
+    [Fact]
+    public void Hallucinated_field_is_caught()
+    {
+        var code = """
+            CustTable custTable;
+            select custTable;
+            str s = custTable.CustomerName;
+            """;
+        var r = ReferenceResolver.Resolve(code, _repo);
+        Assert.Contains(r.Violations, v => v.Severity == "error" && v.Kind == "unknown-field");
+    }
+
+    [Fact]
+    public void Hallucinated_label_in_known_file_is_caught()
+    {
+        var r = ReferenceResolver.Resolve("info(\"@MyModel:NoSuchLabel\");", _repo);
+        Assert.Contains(r.Violations, v => v.Severity == "error" && v.Kind == "unknown-label");
+    }
+
+    [Fact]
+    public void Wrong_arity_is_caught()
+    {
+        var r = ReferenceResolver.Resolve("SalesFormLetter::salute(1, 2, 3);", _repo);
+        Assert.Contains(r.Violations, v => v.Severity == "error" && v.Kind == "arity-mismatch");
+    }
+
+    [Fact]
+    public void Coc_wrapper_with_copied_default_param_is_caught()
+    {
+        var bad = """
+            [ExtensionOf(classStr(SalesFormLetter))]
+            final class SalesFormLetter_Extension
+            {
+                public void salute(str message = "Hi")
+                {
+                    next salute(message);
+                }
+            }
+            """;
+        Assert.Contains(XppValidator.Validate(bad), v => v.Rule == "COC001" && v.Severity == "error");
+    }
+}

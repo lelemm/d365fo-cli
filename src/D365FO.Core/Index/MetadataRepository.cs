@@ -11,10 +11,10 @@ namespace D365FO.Core.Index;
 /// repository is safe to use both from short-lived CLI processes and from a
 /// long-running daemon / MCP host.
 /// </summary>
-public sealed class MetadataRepository
+public sealed partial class MetadataRepository
 {
     /// <summary>Current schema version tracked in PRAGMA user_version.</summary>
-    public const int CurrentSchemaVersion = 13;
+    public const int CurrentSchemaVersion = 14;
 
     private static readonly Lazy<string> SchemaSql = new(LoadEmbeddedSchema);
 
@@ -1961,6 +1961,7 @@ public sealed class MetadataRepository
         conn.Execute("DELETE FROM FormDataSources WHERE FormId IN (SELECT FormId FROM Forms WHERE ModelId=@m)", new { m = modelId }, tx);
         conn.Execute("DELETE FROM Forms WHERE ModelId=@m", new { m = modelId }, tx);
         conn.Execute("DELETE FROM ObjectExtensions WHERE ModelId=@m", new { m = modelId }, tx);
+        conn.Execute("DELETE FROM ExtensionFields WHERE ModelId=@m", new { m = modelId }, tx);
         conn.Execute("DELETE FROM EventSubscribers WHERE ModelId=@m", new { m = modelId }, tx);
         // Security: clear by model; link tables are global but only refer to
         // names we are about to re-insert.
@@ -2278,6 +2279,12 @@ public sealed class MetadataRepository
             conn.Execute(@"INSERT INTO ObjectExtensions(Kind, TargetName, ExtensionName, ModelId, SourcePath)
                            VALUES(@k, @t, @e, @m, @p)",
                          new { k = ext.Kind, t = ext.TargetName, e = ext.ExtensionName, m = modelId, p = ext.SourcePath }, tx);
+            foreach (var f in ext.AddedFields)
+            {
+                conn.Execute(@"INSERT INTO ExtensionFields(TargetTable, Name, Type, EdtName, ExtensionName, ModelId)
+                               VALUES(@t, @n, @ty, @e, @x, @m)",
+                             new { t = ext.TargetName, n = f.Name, ty = f.Type, e = f.EdtName, x = ext.ExtensionName, m = modelId }, tx);
+            }
         }
 
         foreach (var s in batch.EventSubscribers)
@@ -2436,6 +2443,8 @@ public sealed class MetadataRepository
             conn.Execute(@"INSERT INTO ModelDependencies(ModelId, Target) VALUES(@m, @t)",
                          new { m = modelId, t = dep }, tx);
         }
+
+        MinePropertyStats(conn, tx, batch);
 
         tx.Commit();
 

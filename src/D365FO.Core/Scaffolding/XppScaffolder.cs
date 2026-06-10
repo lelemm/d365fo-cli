@@ -81,6 +81,9 @@ public static class XppScaffolder
                 string.IsNullOrEmpty(label) ? null : new XElement("Label", label),
                 tableGroup is null ? null : new XElement("TableGroup", tableGroup),
                 tableType  is null ? null : new XElement("TableType",  tableType),
+                // Standard models pin the clustered index to the PK index for
+                // predictable physical ordering (validate xpp XML005).
+                indexesEl is null ? null : new XElement("ClusteredIndex", "PrimaryIdx"),
                 new XElement("Fields", fieldEls),
                 new XElement("FieldGroups",
                     new XElement("AxTableFieldGroup",
@@ -102,8 +105,24 @@ public static class XppScaffolder
     }
 
     public static XDocument CocExtension(string targetClass, params string[] wrappedMethods)
+        => CocExtension(targetClass, targetKind: "class", wrappedMethods);
+
+    /// <param name="targetClass">Name of the CoC target object.</param>
+    /// <param name="targetKind">AOT kind of the CoC target: class | table | form | data-entity | map.
+    /// Selects the [ExtensionOf] intrinsic — classStr/tableStr/formStr/… — which the
+    /// X++ compiler verifies at compile time.</param>
+    /// <param name="wrappedMethods">Methods that get a `next` wrapper.</param>
+    public static XDocument CocExtension(string targetClass, string targetKind, params string[] wrappedMethods)
     {
         var name = targetClass + "_Extension";
+        var intrinsic = targetKind.ToLowerInvariant() switch
+        {
+            // Data entities are table-like — their CoC uses tableStr too.
+            "table" or "view" or "table-extension" or "data-entity" or "entity" => "tableStr",
+            "form" => "formStr",
+            "map" => "mapStr",
+            _ => "classStr",
+        };
         var methodEls = wrappedMethods.Select(m => new XElement("Method",
             new XElement("Name", m),
             new XElement("Source",
@@ -114,7 +133,7 @@ public static class XppScaffolder
                 new XElement("Name", name),
                 new XElement("SourceCode",
                     new XElement("Declaration",
-                        $"[ExtensionOf(classStr({targetClass}))]\nfinal class {name}\n{{\n}}")),
+                        $"[ExtensionOf({intrinsic}({targetClass}))]\nfinal class {name}\n{{\n}}")),
                 new XElement("Methods", methodEls)));
     }
 
