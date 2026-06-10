@@ -35,7 +35,7 @@ public sealed class InitCommand : Command<InitCommand.Settings>
         public bool DryRun { get; init; }
 
         [CommandOption("--persist-profile")]
-        [System.ComponentModel.Description("Append D365FO_STANDARD_PACKAGES_PATH / D365FO_INDEX_DB to the user's shell profile (PowerShell $PROFILE on Windows, ~/.profile otherwise).")]
+        [System.ComponentModel.Description("Append D365FO_PACKAGES_PATH / D365FO_INDEX_DB to the user's shell profile (PowerShell $PROFILE on Windows, ~/.profile otherwise).")]
         public bool PersistProfile { get; init; }
     }
 
@@ -52,7 +52,7 @@ public sealed class InitCommand : Command<InitCommand.Settings>
         var kind = OutputMode.Resolve(settings.Output);
         var cfg = D365FoSettings.FromEnvironment(settings.DatabasePath);
 
-        var packages = settings.PackagesPath ?? cfg.StandardPackagesPath ?? AutoDetectPackages();
+        var packages = settings.PackagesPath ?? cfg.PackagesPath ?? AutoDetectPackages();
         var extraPackages = D365FO.Cli.Commands.Index.IndexExtractCommand.MergeExtraPaths(
             settings.ExtraPackagesPaths,
             cfg.CustomPackagesPaths);
@@ -64,7 +64,7 @@ public sealed class InitCommand : Command<InitCommand.Settings>
 
         Log("resolve.packages", packages is not null,
             detail: packages,
-            hint: packages is null ? "Pass --packages <PATH> or set D365FO_STANDARD_PACKAGES_PATH." : null);
+            hint: packages is null ? "Pass --packages <PATH> or set D365FO_PACKAGES_PATH." : null);
         Log("resolve.workspace", workspace is not null, workspace);
         Log("resolve.database", !string.IsNullOrEmpty(cfg.DatabasePath), cfg.DatabasePath);
 
@@ -104,7 +104,7 @@ public sealed class InitCommand : Command<InitCommand.Settings>
         {
             var vars = new Dictionary<string, string>
             {
-                ["D365FO_STANDARD_PACKAGES_PATH"] = packages!,
+                ["D365FO_PACKAGES_PATH"] = packages!,
                 ["D365FO_INDEX_DB"]      = cfg.DatabasePath,
             };
             if (!string.IsNullOrEmpty(workspace))
@@ -169,7 +169,7 @@ public sealed class InitCommand : Command<InitCommand.Settings>
                 extracted = settings.RunExtract && !settings.DryRun && extractExit == 0,
                 nextSteps = new[]
                 {
-                    "Set D365FO_STANDARD_PACKAGES_PATH to persist the discovered path.",
+                    "Set D365FO_PACKAGES_PATH to persist the discovered path.",
                     "Run 'd365fo index extract' to ingest metadata.",
                     "Run 'd365fo doctor' to verify environment.",
                 },

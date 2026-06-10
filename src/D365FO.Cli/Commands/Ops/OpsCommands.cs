@@ -19,8 +19,8 @@ public sealed class DoctorCommand : Command<DoctorCommand.Settings>
         void Add(string name, bool ok, string? detail = null) => checks.Add(new DoctorCheck(name, ok, detail));
 
         Add("config.databasePath resolvable", !string.IsNullOrEmpty(cfg.DatabasePath), cfg.DatabasePath);
-        Add("config.packagesPath set", !string.IsNullOrEmpty(cfg.StandardPackagesPath),
-            cfg.StandardPackagesPath ?? "Set D365FO_STANDARD_PACKAGES_PATH or use --packages.");
+        Add("config.packagesPath set", !string.IsNullOrEmpty(cfg.PackagesPath),
+            cfg.PackagesPath ?? "Set D365FO_PACKAGES_PATH or use --packages.");
         Add("config.workspacePath set", !string.IsNullOrEmpty(cfg.WorkspacePath),
             cfg.WorkspacePath ?? "Set D365FO_WORKSPACE_PATH to enable scaffold output.");
         Add("index db exists", File.Exists(cfg.DatabasePath),
@@ -32,12 +32,12 @@ public sealed class DoctorCommand : Command<DoctorCommand.Settings>
 
         // Index freshness — the index is the single source of truth for
         // grounding, but only while it reflects the current workspace.
-        if (File.Exists(cfg.DatabasePath) && !string.IsNullOrEmpty(cfg.StandardPackagesPath))
+        if (File.Exists(cfg.DatabasePath) && !string.IsNullOrEmpty(cfg.PackagesPath))
         {
             try
             {
                 var repo = RepoFactory.Create();
-                var roots = new List<string> { cfg.StandardPackagesPath! };
+                var roots = new List<string> { cfg.PackagesPath! };
                 roots.AddRange(cfg.CustomPackagesPaths);
                 var staleness = D365FO.Core.Index.IndexStaleness.Check(repo, roots);
                 Add("index freshness (stale-index)", !staleness.IsStale,

@@ -9,7 +9,7 @@ namespace D365FO.Core;
 /// (4) built-in defaults. See docs/CONFIGURATION.md.
 /// </summary>
 public sealed record D365FoSettings(
-    string? StandardPackagesPath,
+    string? PackagesPath,
     string? WorkspacePath,
     string DatabasePath,
     IReadOnlyList<string> CustomModels,
@@ -52,7 +52,7 @@ public sealed record D365FoSettings(
                         "d365fo-cli", DefaultDatabaseFile);
 
         return new D365FoSettings(
-            StandardPackagesPath: NullIfEmpty(Env("D365FO_STANDARD_PACKAGES_PATH")),
+            PackagesPath: NullIfEmpty(Env("D365FO_PACKAGES_PATH")),
             WorkspacePath: NullIfEmpty(Env("D365FO_WORKSPACE_PATH")),
             DatabasePath: db,
             CustomModels: models,

@@ -347,14 +347,14 @@ public sealed class ToolHandlers
         var cfg = D365FoSettings.FromEnvironment();
         return ToolResult<object>.Success(new
         {
-            packagesPath = cfg.StandardPackagesPath,
+            packagesPath = cfg.PackagesPath,
             workspacePath = cfg.WorkspacePath,
             databasePath = cfg.DatabasePath,
             databaseExists = File.Exists(cfg.DatabasePath),
             customModelPatterns = cfg.CustomModels,
             labelLanguages = cfg.LabelLanguages,
-            hint = string.IsNullOrEmpty(cfg.StandardPackagesPath)
-                ? "Set D365FO_STANDARD_PACKAGES_PATH before calling `index extract`."
+            hint = string.IsNullOrEmpty(cfg.PackagesPath)
+                ? "Set D365FO_PACKAGES_PATH before calling `index extract`."
                 : null,
         });
     }
@@ -484,13 +484,13 @@ public sealed class ToolHandlers
             resolvedFile = ResolveLabelPath(installTo!, resolvedLang, labelFile);
             if (resolvedFile is null)
                 return ToolResult<object>.Fail("INSTALL_FAILED",
-                    $"Cannot resolve label file path for model '{installTo}': neither D365FO_CUSTOM_PACKAGES_PATH nor D365FO_STANDARD_PACKAGES_PATH is set.",
+                    $"Cannot resolve label file path for model '{installTo}': neither D365FO_CUSTOM_PACKAGES_PATH nor D365FO_PACKAGES_PATH is set.",
                     "Set D365FO_CUSTOM_PACKAGES_PATH to your git repo PackagesLocalDirectory before using installTo.");
         }
         if (string.IsNullOrWhiteSpace(resolvedFile))
             return ToolResult<object>.Fail(D365FoErrorCodes.BadInput,
                 "Either 'file' (absolute path to the .label.txt) or 'installTo' (model name) is required.",
-                "Use 'file' for an explicit path, or 'installTo' to resolve the path automatically from D365FO_CUSTOM_PACKAGES_PATH or D365FO_STANDARD_PACKAGES_PATH.");
+                "Use 'file' for an explicit path, or 'installTo' to resolve the path automatically from D365FO_CUSTOM_PACKAGES_PATH or D365FO_PACKAGES_PATH.");
         if (string.IsNullOrWhiteSpace(key)) return ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "key required");
         try
         {
@@ -789,13 +789,13 @@ public sealed class ToolHandlers
     /// Resolve the canonical AOT install path:
     /// <c>&lt;root&gt;/&lt;model&gt;/&lt;model&gt;/&lt;axSubfolder&gt;/&lt;name&gt;.xml</c>.
     /// Searches <c>D365FO_CUSTOM_PACKAGES_PATH</c> first (write target), then
-    /// <c>D365FO_STANDARD_PACKAGES_PATH</c>. Returns <c>null</c> when neither is set.
+    /// <c>D365FO_PACKAGES_PATH</c>. Returns <c>null</c> when neither is set.
     /// </summary>
     private static string? ResolveAotPath(string model, string axSubfolder, string name)
     {
         var cfg = D365FoSettings.FromEnvironment();
         // Prefer custom paths (git repo / write target); fall back to standard path.
-        var candidates = cfg.CustomPackagesPaths.Concat(new[] { cfg.StandardPackagesPath });
+        var candidates = cfg.CustomPackagesPaths.Concat(new[] { cfg.PackagesPath });
         foreach (var root in candidates)
         {
             if (string.IsNullOrEmpty(root)) continue;
@@ -803,7 +803,7 @@ public sealed class ToolHandlers
                 return Path.Combine(root, model, model, axSubfolder, name + ".xml");
         }
         // Model not found — default to first custom path, then standard for new model creation.
-        var writeRoot = cfg.CustomPackagesPaths.FirstOrDefault() ?? cfg.StandardPackagesPath;
+        var writeRoot = cfg.CustomPackagesPaths.FirstOrDefault() ?? cfg.PackagesPath;
         return writeRoot is null ? null : Path.Combine(writeRoot, model, model, axSubfolder, name + ".xml");
     }
 
@@ -811,20 +811,20 @@ public sealed class ToolHandlers
     /// Resolve the canonical label file path:
     /// <c>&lt;root&gt;/&lt;model&gt;/&lt;model&gt;/AxLabelFile/LabelResources/&lt;lang&gt;/&lt;labelFile&gt;.&lt;lang&gt;.label.txt</c>.
     /// Searches <c>D365FO_CUSTOM_PACKAGES_PATH</c> first (write target), then
-    /// <c>D365FO_STANDARD_PACKAGES_PATH</c>. Returns <c>null</c> when neither is set.
+    /// <c>D365FO_PACKAGES_PATH</c>. Returns <c>null</c> when neither is set.
     /// </summary>
     private static string? ResolveLabelPath(string model, string lang, string? labelFile)
     {
         var cfg = D365FoSettings.FromEnvironment();
         var lf = string.IsNullOrWhiteSpace(labelFile) ? model : labelFile!;
-        var candidates = cfg.CustomPackagesPaths.Concat(new[] { cfg.StandardPackagesPath });
+        var candidates = cfg.CustomPackagesPaths.Concat(new[] { cfg.PackagesPath });
         foreach (var root in candidates)
         {
             if (string.IsNullOrEmpty(root)) continue;
             if (Directory.Exists(Path.Combine(root, model, model)))
                 return Path.Combine(root, model, model, "AxLabelFile", "LabelResources", lang, $"{lf}.{lang}.label.txt");
         }
-        var writeRoot = cfg.CustomPackagesPaths.FirstOrDefault() ?? cfg.StandardPackagesPath;
+        var writeRoot = cfg.CustomPackagesPaths.FirstOrDefault() ?? cfg.PackagesPath;
         return writeRoot is null ? null : Path.Combine(writeRoot, model, model, "AxLabelFile", "LabelResources", lang, $"{lf}.{lang}.label.txt");
     }
 
@@ -838,7 +838,7 @@ public sealed class ToolHandlers
             path = ResolveAotPath(installTo!, axSubfolder, name);
             if (path is null)
                 return ToolResult<object>.Fail("INSTALL_FAILED",
-                    $"Cannot resolve install path for model '{installTo}': neither D365FO_CUSTOM_PACKAGES_PATH nor D365FO_STANDARD_PACKAGES_PATH is set.",
+                    $"Cannot resolve install path for model '{installTo}': neither D365FO_CUSTOM_PACKAGES_PATH nor D365FO_PACKAGES_PATH is set.",
                     "Set D365FO_CUSTOM_PACKAGES_PATH to your git repo PackagesLocalDirectory before using installTo.");
         }
         if (string.IsNullOrWhiteSpace(path))
@@ -874,7 +874,7 @@ public sealed class ToolHandlers
             path = ResolveAotPath(installTo!, axSubfolder, name);
             if (path is null)
                 return ToolResult<object>.Fail("INSTALL_FAILED",
-                    $"Cannot resolve install path for model '{installTo}': neither D365FO_CUSTOM_PACKAGES_PATH nor D365FO_STANDARD_PACKAGES_PATH is set.",
+                    $"Cannot resolve install path for model '{installTo}': neither D365FO_CUSTOM_PACKAGES_PATH nor D365FO_PACKAGES_PATH is set.",
                     "Set D365FO_CUSTOM_PACKAGES_PATH to your git repo PackagesLocalDirectory before using installTo.");
         }
         if (string.IsNullOrWhiteSpace(path))

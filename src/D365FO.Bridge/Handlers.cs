@@ -108,7 +108,7 @@ namespace D365FO.Bridge
             {
                 return Fail("METADATA_UNAVAILABLE",
                     MetadataBootstrap.LastError ??
-                    "IMetadataProvider failed to initialise; set D365FO_STANDARD_PACKAGES_PATH on a D365FO VM.");
+                    "IMetadataProvider failed to initialise; set D365FO_PACKAGES_PATH on a D365FO VM.");
             }
 
             var modelInfo = MetadataBootstrap.ReadModelInfo(model);
@@ -187,7 +187,7 @@ namespace D365FO.Bridge
             {
                 return Fail("METADATA_UNAVAILABLE",
                     MetadataBootstrap.LastError ??
-                    "IMetadataProvider failed to initialise; set D365FO_STANDARD_PACKAGES_PATH on a D365FO VM.");
+                    "IMetadataProvider failed to initialise; set D365FO_PACKAGES_PATH on a D365FO VM.");
             }
 
             object artifact;

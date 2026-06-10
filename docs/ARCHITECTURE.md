@@ -138,7 +138,7 @@ Use `--category <name>[,<name>…]` to run specific rules. `--format sarif` emit
 
 | Variable | Purpose |
 |---|---|
-| `D365FO_STANDARD_PACKAGES_PATH` | Primary `PackagesLocalDirectory` root |
+| `D365FO_PACKAGES_PATH` | Primary `PackagesLocalDirectory` root |
 | `D365FO_CUSTOM_PACKAGES_PATH` | Additional roots (semicolon/comma-separated). Used for UDE dual-folder setups — see [SETUP.md](SETUP.md#ude-unified-developer-experience-setup). |
 | `D365FO_BIN_PATH` | D365FO binaries directory (resolves metadata assemblies) |
 | `D365FO_BRIDGE_ENABLED` | `1`/`true` enables bridge-primary reads |
