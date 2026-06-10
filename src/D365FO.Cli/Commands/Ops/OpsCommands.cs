@@ -30,6 +30,25 @@ public sealed class DoctorCommand : Command<DoctorCommand.Settings>
             OperatingSystem.IsWindows(),
             OperatingSystem.IsWindows() ? null : "Non-Windows host: write-ops (build, sync, bp, test) are unavailable.");
 
+        // Index freshness — the index is the single source of truth for
+        // grounding, but only while it reflects the current workspace.
+        if (File.Exists(cfg.DatabasePath) && !string.IsNullOrEmpty(cfg.PackagesPath))
+        {
+            try
+            {
+                var repo = RepoFactory.Create();
+                var roots = new List<string> { cfg.PackagesPath! };
+                roots.AddRange(cfg.ExtraPackagesPaths);
+                var staleness = D365FO.Core.Index.IndexStaleness.Check(repo, roots);
+                Add("index freshness (stale-index)", !staleness.IsStale,
+                    staleness.IsStale ? staleness.Detail : $"index extracted {staleness.LastExtractedUtc:O}");
+            }
+            catch (Exception ex)
+            {
+                Add("index freshness (stale-index)", true, $"check skipped: {ex.Message}");
+            }
+        }
+
         var allOk = checks.All(c => c.Ok);
         var payload = allOk
             ? ToolResult<object>.Success(new { allOk, checks })

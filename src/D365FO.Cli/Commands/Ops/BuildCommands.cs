@@ -34,6 +34,10 @@ public sealed class BuildCommand : Command<BuildCommand.Settings>
 
         [CommandOption("--config <NAME>")]
         public string Configuration { get; init; } = "Debug";
+
+        [CommandOption("--xppc-log <PATH>")]
+        [System.ComponentModel.Description("Additional xppc.exe log file to parse for structured X++ compiler diagnostics (Dynamics.AX.<Model>.xppc.log).")]
+        public string? XppcLogPath { get; init; }
     }
 
     public override int Execute(CommandContext ctx, Settings settings)
@@ -52,20 +56,55 @@ public sealed class BuildCommand : Command<BuildCommand.Settings>
         var errors = ParseMsBuildDiagnostics(stdout, "error");
         var warnings = ParseMsBuildDiagnostics(stdout, "warning");
 
+        // Structured xppc diagnostics: the X++ compiler reports through its own
+        // "Compile Error: … dynamics://Model/Object/member: [(l,c)]: msg" format,
+        // both inside MSBuild stdout and in the -log file. Parsing them gives the
+        // agent {object, member, line, column, message, hint} instead of raw text.
+        var xppcSource = stdout;
+        if (!string.IsNullOrEmpty(settings.XppcLogPath) && File.Exists(settings.XppcLogPath))
+        {
+            try { xppcSource += "\n" + File.ReadAllText(settings.XppcLogPath); }
+            catch { /* unreadable log — stdout still parsed */ }
+        }
+        var xppc = D365FO.Core.Validation.XppcDiagnostics.Parse(xppcSource);
+        var staleSymbols = D365FO.Core.Validation.XppcDiagnostics.IndicatesStaleSymbols(xppcSource);
+
         var payload = new
         {
+            buildSucceeded = exit == 0,
             exitCode = exit,
             elapsedMs = (long)elapsed.TotalMilliseconds,
             errorCount = errors.Count,
             warningCount = warnings.Count,
             errors,
             warnings,
+            xppcDiagnostics = xppc.Count == 0 ? null : xppc
+                .Select(d => new
+                {
+                    severity = d.Severity,
+                    kind = d.Kind,
+                    model = d.Model,
+                    @object = d.Object,
+                    member = d.Member,
+                    line = d.Line,
+                    column = d.Column,
+                    message = d.Message,
+                    hint = d.Hint,
+                })
+                .ToList<object>(),
+            staleSymbols = staleSymbols
+                ? "xppc reports stale symbols from a previous incremental build — run a Full Build."
+                : null,
+            stderrTail = exit == 0 ? null : Tail(stderr, 5),
             tail = Tail(stdout, 20),
         };
 
-        return RenderHelpers.Render(kind, exit == 0
-            ? ToolResult<object>.Success(payload)
-            : ToolResult<object>.Fail("BUILD_FAILED", $"MSBuild exited with {exit}.", Tail(stderr, 5)));
+        // Failure keeps the full structured payload (the agent needs the
+        // diagnostics exactly when the build fails); the exit code still
+        // signals the failure for CI.
+        var rc = RenderHelpers.Render(kind, ToolResult<object>.Success(payload,
+            warnings: exit == 0 ? null : new[] { "build-failed" }));
+        return exit == 0 ? rc : 1;
     }
 
     private static readonly Regex DiagRx = new(@"(?<file>[^:()]+)\((?<line>\d+),(?<col>\d+)\):\s+(?<kind>error|warning)\s+(?<code>\S+):\s+(?<msg>.+)", RegexOptions.Compiled);

@@ -101,10 +101,19 @@ app.Configure(cfg =>
         b.AddCommand<SuggestExtensionCommand>("extension").WithDescription("Recommend CoC / event-handler / AOT-extension strategy for a Class, Table, or Form.");
     });
 
+    cfg.AddBranch("prepare", b =>
+    {
+        b.SetDescription("Single-round context aggregators: gather everything needed for a change/new object in ONE call and get a grounding token.");
+        b.AddCommand<D365FO.Cli.Commands.Prepare.PrepareChangeCommand>("change").WithDescription("Aggregate signature, CoC wrappers, eligibility, strategy, and naming for an extension change. Replaces 4–6 discovery calls.");
+        b.AddCommand<D365FO.Cli.Commands.Prepare.PrepareCreateCommand>("create").WithDescription("Aggregate collision check, naming, similar objects, EDT suggestions, labels, and property defaults for a NEW object.");
+    });
+
     cfg.AddBranch("validate", b =>
     {
         b.SetDescription("Static checks without touching the filesystem.");
         b.AddCommand<ValidateNameCommand>("name").WithDescription("Check object name against naming conventions.");
+        b.AddCommand<ValidateXppCommand>("xpp").WithDescription("Offline X++/XML best-practice validator over a file or stdin (no VM needed).");
+        b.AddCommand<ValidateReferencesCommand>("references").WithDescription("Semantic anti-hallucination gate: verify every identifier in X++ code against the index.");
     });
 
     cfg.AddBranch("label", b =>
