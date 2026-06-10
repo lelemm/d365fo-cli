@@ -12,7 +12,19 @@ applyTo: '**/AxTable/**,**/*Table.xml'
 > alternate-key index — so the scaffold passes BP `BPCheckAlternateKeyAbsent`
 > out of the box.
 
-## Pre-flight (always)
+## Pre-flight (always — ONE call)
+
+```sh
+d365fo prepare create <Name> --type table --field <F1> --field <F2> --goal "<why>" --output json
+```
+
+This single call returns the name-collision check, naming validation, similar
+existing tables to copy patterns from, EDT suggestions per planned field,
+reusable labels, mined property defaults (what % of STANDARD tables set
+Label/TableGroup/ClusteredIndex and the most common TableGroup values), and a
+**grounding token** — pass it to `d365fo generate table … --grounding-token <token>`.
+
+Fallback (prepare unavailable):
 
 ```sh
 d365fo search table <namePart> --output json     # name collision check

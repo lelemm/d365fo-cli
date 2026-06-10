@@ -14,3 +14,6 @@ coverage/
 *.log
 *.lscache
 memory/
+
+# Upstream porting scratch (TS sources exported from d365fo-mcp-server)
+.porting/

@@ -223,7 +223,9 @@ See [`docs/TOKEN_ECONOMICS.md`](docs/TOKEN_ECONOMICS.md) for the full analysis a
 
 | Group | Commands |
 |---|---|
-| **Index** | `index build`, `index extract`, `index refresh`, `index status`, `index export`, `index import`, `index optimize`, `index history` |
+| **Prepare** | `prepare change`, `prepare create` — single-round context aggregators returning a grounding token |
+| **Validate** | `validate name`, `validate xpp` (offline BP rules), `validate references` (anti-hallucination gate over the index) |
+| **Index** | `index build`, `index extract`, `index refresh`, `index status` (incl. `stale-index` detection), `index export`, `index import`, `index optimize`, `index history` |
 | **Discover** | `search any`, `search batch`, `search class\|table\|edt\|enum\|form\|query\|view\|entity\|report\|service\|workflow\|label\|business-event\|security-policy\|configuration-key\|tile\|workspace` |
 | **Get** | `get object`, `get table\|class\|edt\|enum\|form\|menu-item\|security\|label\|role\|duty\|privilege\|query\|view\|entity\|report\|service\|business-event\|security-policy` |
 | **Find** | `find related`, `find coc`, `find relations`, `find usages`, `find extensions`, `find handlers`, `find refs`, `find form-patterns` |

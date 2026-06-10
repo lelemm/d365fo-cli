@@ -32,6 +32,15 @@ so you can recover the previous version if Git history isn't enough.
 After each scaffold or edit, run a quick `git diff` to confirm the change is
 contained.
 
+**Hand-written X++ never reaches a file unvalidated:**
+
+```sh
+d365fo validate references --file <f> --output json   # every identifier proven against the index; exit 2 = hallucinated symbols
+d365fo validate xpp --file <f> --output json          # offline BP rules (today(), CoC defaults, labels, …); exit 2 = errors
+```
+
+Fix all errors, re-run, only then write. Both gates run in <200 ms with no VM.
+
 ## 3. After the task — AOT-semantic review
 
 ```sh
