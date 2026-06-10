@@ -253,7 +253,6 @@ See [`docs/EXAMPLES.md`](docs/EXAMPLES.md) for one worked example per command.
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common failures, SQLite locking, bridge issues, label detection, schema migration |
 | [docs/TOKEN_ECONOMICS.md](docs/TOKEN_ECONOMICS.md) | Why CLI+Skills is cheaper per turn, with numbers |
 | [docs/MIGRATION_FROM_MCP.md](docs/MIGRATION_FROM_MCP.md) | Coming from `d365fo-mcp-server`? Read this first |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Planned and deferred items |
 
 ---
 
