@@ -62,7 +62,7 @@ public sealed class DaemonStartCommand : AsyncCommand<DaemonStartCommand.Setting
         public string? DatabasePath { get; init; }
 
         [CommandOption("--packages <PATH>")]
-        [System.ComponentModel.Description("PackagesLocalDirectory to watch for XML changes. Defaults to D365FO_PACKAGES_PATH.")]
+        [System.ComponentModel.Description("PackagesLocalDirectory to watch for XML changes. Defaults to D365FO_STANDARD_PACKAGES_PATH.")]
         public string? PackagesPath { get; init; }
 
         [CommandOption("--foreground")]
@@ -113,7 +113,7 @@ public sealed class DaemonStartCommand : AsyncCommand<DaemonStartCommand.Setting
 
         // Resolve packages path for the file watcher.
         var packagesPath = settings.PackagesPath
-            ?? D365FoSettings.FromEnvironment(settings.DatabasePath).PackagesPath;
+            ?? D365FoSettings.FromEnvironment(settings.DatabasePath).StandardPackagesPath;
 
         var summary = ToolResult<object>.Success(new
         {

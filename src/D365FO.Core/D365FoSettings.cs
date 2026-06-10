@@ -9,12 +9,12 @@ namespace D365FO.Core;
 /// (4) built-in defaults. See docs/CONFIGURATION.md.
 /// </summary>
 public sealed record D365FoSettings(
-    string? PackagesPath,
+    string? StandardPackagesPath,
     string? WorkspacePath,
     string DatabasePath,
     IReadOnlyList<string> CustomModels,
     IReadOnlyList<string> LabelLanguages,
-    IReadOnlyList<string> ExtraPackagesPaths)
+    IReadOnlyList<string> CustomPackagesPaths)
 {
     public const string DefaultDatabaseFile = "d365fo-index.sqlite";
     public const string ConfigFileName      = "settings.json";
@@ -52,12 +52,12 @@ public sealed record D365FoSettings(
                         "d365fo-cli", DefaultDatabaseFile);
 
         return new D365FoSettings(
-            PackagesPath: NullIfEmpty(Env("D365FO_PACKAGES_PATH")),
+            StandardPackagesPath: NullIfEmpty(Env("D365FO_STANDARD_PACKAGES_PATH")),
             WorkspacePath: NullIfEmpty(Env("D365FO_WORKSPACE_PATH")),
             DatabasePath: db,
             CustomModels: models,
             LabelLanguages: langs,
-            ExtraPackagesPaths: Split(Env("D365FO_EXTRA_PACKAGES_PATH")));
+            CustomPackagesPaths: Split(Env("D365FO_CUSTOM_PACKAGES_PATH")));
     }
 
     /// <summary>

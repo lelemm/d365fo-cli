@@ -323,7 +323,7 @@ public static class ToolCatalog
             (h, p) => h.Lint(StrArray(p, "categories"), Bool(p, "onlyCustomModels", true))),
 
         new Descriptor("create_label",
-            "Create or update a key=value entry in a *.label.txt file. Supply either 'file' (absolute path to the .label.txt) or 'installTo' (model name — auto-resolves <PackagesPath>/<model>/<model>/AxLabelFile/LabelResources/<lang>/<model>.<lang>.label.txt from D365FO_PACKAGES_PATH). Fails with KEY_EXISTS unless overwrite=true.",
+            "Create or update a key=value entry in a *.label.txt file. Supply either 'file' (absolute path to the .label.txt) or 'installTo' (model name — auto-resolves <PackagesPath>/<model>/<model>/AxLabelFile/LabelResources/<lang>/<model>.<lang>.label.txt from D365FO_CUSTOM_PACKAGES_PATH or D365FO_STANDARD_PACKAGES_PATH). Fails with KEY_EXISTS unless overwrite=true.",
             Schema(("file", "string", false), ("key", "string", true), ("value", "string", true), ("overwrite", "boolean", false),
                    ("installTo", "string", false), ("lang", "string", false), ("labelFile", "string", false)),
             (h, p) => h.CreateLabel(StrOrNull(p, "file"), Str(p, "key"), Str(p, "value"), Bool(p, "overwrite"),
@@ -444,11 +444,11 @@ public static class ToolCatalog
 
         // ---- write-to-disk scaffolding tools ----
         // These tools generate XML AND write it directly into the AOT at
-        //   <D365FO_PACKAGES_PATH>/<model>/<model>/Ax<Kind>/<name>.xml
+        //   <D365FO_CUSTOM_PACKAGES_PATH>/<model>/<model>/Ax<Kind>/<name>.xml
         // Either `installTo` (model name) or `out` (explicit path) is required.
 
         new Descriptor("generate_table",
-            "Scaffold an AxTable and write it into the AOT. Requires either installTo (model name, resolves path automatically from D365FO_PACKAGES_PATH) or out (explicit file path). Fields format: \"<name>:<edt>[:mandatory]\". Pattern aliases: main, transaction, parameter, group, reference, miscellaneous.",
+            "Scaffold an AxTable and write it into the AOT. Requires either installTo (model name, resolves path automatically from D365FO_CUSTOM_PACKAGES_PATH or D365FO_STANDARD_PACKAGES_PATH) or out (explicit file path). Fields format: \"<name>:<edt>[:mandatory]\". Pattern aliases: main, transaction, parameter, group, reference, miscellaneous.",
             Schema(("name", "string", true), ("label", "string", false), ("fields", "array", false),
                    ("pattern", "string", false), ("installTo", "string", false),
                    ("out", "string", false), ("overwrite", "boolean", false)),

@@ -162,13 +162,13 @@ d365fo init --dry-run                  # show what would be done
 d365fo init --persist-profile          # append env vars to $PROFILE / ~/.profile
 ```
 
-Auto-detects the Windows `PackagesLocalDirectory`, prepares the SQLite schema, and (with `--run-extract`) drives the full extract pipeline. `--persist-profile` writes `D365FO_PACKAGES_PATH` / `D365FO_INDEX_DB` to the user's shell profile.
+Auto-detects the Windows `PackagesLocalDirectory`, prepares the SQLite schema, and (with `--run-extract`) drives the full extract pipeline. `--persist-profile` writes `D365FO_STANDARD_PACKAGES_PATH` / `D365FO_INDEX_DB` to the user's shell profile.
 
 ---
 
 ## Scaffold
 
-`generate` writes atomically (`.tmp` + move) and keeps a `.bak` when `--overwrite` is used. Pass `--install-to <Model>` to drop the artefact straight into a model folder via the bridge (requires `D365FO_BRIDGE_ENABLED=1`, `D365FO_PACKAGES_PATH`, `D365FO_BIN_PATH`).
+`generate` writes atomically (`.tmp` + move) and keeps a `.bak` when `--overwrite` is used. Pass `--install-to <Model>` to drop the artefact straight into a model folder via the bridge (requires `D365FO_BRIDGE_ENABLED=1`, `D365FO_STANDARD_PACKAGES_PATH`, `D365FO_BIN_PATH`).
 
 ### Table
 
@@ -666,7 +666,7 @@ d365fo daemon stop
 
 Transport: Windows named pipe `\\\\.\\ pipe\\d365fo-cli`; Unix socket at `$XDG_RUNTIME_DIR/d365fo-cli.sock` (fallback `$TMPDIR`). The frame format matches `d365fo-mcp`: one newline-terminated JSON-RPC request per connection, one response, close.
 
-The daemon also starts a `FileSystemWatcher` over `D365FO_PACKAGES_PATH` (or `--packages`). When `*.xml` files change, it debounces (default 3 s) and automatically triggers an incremental `index refresh` for the affected model, emitting a JSON notification to stderr:
+The daemon also starts a `FileSystemWatcher` over `D365FO_STANDARD_PACKAGES_PATH` (or `--packages`). When `*.xml` files change, it debounces (default 3 s) and automatically triggers an incremental `index refresh` for the affected model, emitting a JSON notification to stderr:
 
 ```json
 { "event": "index_refreshed", "model": "Contoso" }
