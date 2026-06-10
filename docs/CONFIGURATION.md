@@ -3,7 +3,7 @@
 `d365fo` resolves settings in the following priority order — first match wins:
 
 1. **Explicit CLI flags** (`--packages`, `--db`, …) — highest priority
-2. **Process environment variables** (`D365FO_STANDARD_PACKAGES_PATH`, …)
+2. **Process environment variables** (`D365FO_PACKAGES_PATH`, …)
 3. **JSON config file** (`%LOCALAPPDATA%\d365fo-cli\settings.json` on Windows, `~/.local/share/d365fo-cli/settings.json` on Linux/macOS)
 4. **Built-in defaults** (e.g. `en-us` language, default SQLite path)
 
@@ -13,7 +13,7 @@
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `D365FO_STANDARD_PACKAGES_PATH` | Primary `PackagesLocalDirectory` root | *(required for indexing)* |
+| `D365FO_PACKAGES_PATH` | Primary `PackagesLocalDirectory` root | *(required for indexing)* |
 | `D365FO_CUSTOM_PACKAGES_PATH` | Additional `PackagesLocalDirectory` roots (semicolon/comma separated) | — |
 | `D365FO_LABEL_LANGUAGES` | Label languages to extract, e.g. `en-us,cs,de` | `en-us` |
 | `D365FO_INDEX_DB` | Path to the SQLite index file | `%LOCALAPPDATA%\d365fo-cli\d365fo-index.sqlite` |
@@ -42,7 +42,7 @@ A flat JSON object mapping variable names to string values:
 
 ```json
 {
-  "D365FO_STANDARD_PACKAGES_PATH": "K:\\AosService\\PackagesLocalDirectory",
+  "D365FO_PACKAGES_PATH": "K:\\AosService\\PackagesLocalDirectory",
   "D365FO_INDEX_DB": "C:\\Users\\you\\AppData\\Local\\d365fo-cli\\d365fo-index.sqlite",
   "D365FO_LABEL_LANGUAGES": "en-us,cs"
 }
@@ -71,7 +71,7 @@ Alternatively, set variables at **machine scope** so they are inherited by every
 
 ```powershell
 [System.Environment]::SetEnvironmentVariable(
-    "D365FO_STANDARD_PACKAGES_PATH",
+    "D365FO_PACKAGES_PATH",
     "K:\AosService\PackagesLocalDirectory",
     [System.EnvironmentVariableTarget]::Machine)
 ```

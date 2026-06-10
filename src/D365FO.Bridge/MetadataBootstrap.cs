@@ -12,7 +12,7 @@ namespace D365FO.Bridge
     /// <summary>
     /// Late-bound accessor for Microsoft's <c>IMetadataProvider</c> stack.
     /// Resolves the Microsoft.Dynamics.AX.Metadata.* assemblies from the
-    /// configured <c>D365FO_BIN_PATH</c> (or <c>D365FO_STANDARD_PACKAGES_PATH\bin</c>)
+    /// configured <c>D365FO_BIN_PATH</c> (or <c>D365FO_PACKAGES_PATH\bin</c>)
     /// at runtime, so this net48 console exe can be built on a workstation
     /// without the D365FO assemblies available and only actually wire up to
     /// them on a real VM.
@@ -50,7 +50,7 @@ namespace D365FO.Bridge
                 _binPath = ResolveBinPath(out _packagesPath);
                 if (string.IsNullOrEmpty(_binPath) || !Directory.Exists(_binPath))
                 {
-                    _lastError = "D365FO_BIN_PATH (or D365FO_STANDARD_PACKAGES_PATH\\bin) is not set or does not exist.";
+                    _lastError = "D365FO_BIN_PATH (or D365FO_PACKAGES_PATH\\bin) is not set or does not exist.";
                     return false;
                 }
 
@@ -104,7 +104,7 @@ namespace D365FO.Bridge
 
         private static string ResolveBinPath(out string packagesPath)
         {
-            packagesPath = Environment.GetEnvironmentVariable("D365FO_STANDARD_PACKAGES_PATH");
+            packagesPath = Environment.GetEnvironmentVariable("D365FO_PACKAGES_PATH");
             var bin = Environment.GetEnvironmentVariable("D365FO_BIN_PATH");
             if (string.IsNullOrEmpty(bin) && !string.IsNullOrEmpty(packagesPath))
             {

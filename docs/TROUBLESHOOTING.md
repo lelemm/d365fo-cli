@@ -6,7 +6,7 @@ Common failure modes and their fixes. For installation details see [SETUP.md](SE
 
 ## Package path patterns
 
-The `D365FO_STANDARD_PACKAGES_PATH` environment variable (or `--packages <PATH>`) must point to the root of `PackagesLocalDirectory`. Common locations:
+The `D365FO_PACKAGES_PATH` environment variable (or `--packages <PATH>`) must point to the root of `PackagesLocalDirectory`. Common locations:
 
 | Environment | Typical path |
 |---|---|
@@ -16,7 +16,7 @@ The `D365FO_STANDARD_PACKAGES_PATH` environment variable (or `--packages <PATH>`
 | Docker container | `/mnt/packages` (depends on volume mount) |
 | UDE (primary — shared drive) | `K:\AosService\PackagesLocalDirectory` |
 | UDE (extra — local laptop) | `C:\LocalMetadata\PackagesLocalDirectory` — set in `D365FO_CUSTOM_PACKAGES_PATH` |
-| Custom override | Set `D365FO_STANDARD_PACKAGES_PATH` to any absolute path |
+| Custom override | Set `D365FO_PACKAGES_PATH` to any absolute path |
 
 ### UDE — two separate `PackagesLocalDirectory` folders
 
@@ -24,7 +24,7 @@ UDE setups split standard Microsoft metadata (on a shared drive) from your custo
 
 ```powershell
 # Environment variables (persist in $PROFILE)
-$env:D365FO_STANDARD_PACKAGES_PATH         = 'K:\AosService\PackagesLocalDirectory'
+$env:D365FO_PACKAGES_PATH         = 'K:\AosService\PackagesLocalDirectory'
 $env:D365FO_CUSTOM_PACKAGES_PATH   = 'C:\LocalMetadata\PackagesLocalDirectory'
 d365fo index extract
 
@@ -38,7 +38,7 @@ d365fo index extract `
 
 ```sh
 # PowerShell — set for the current session
-$env:D365FO_STANDARD_PACKAGES_PATH = "K:\AosService\PackagesLocalDirectory"
+$env:D365FO_PACKAGES_PATH = "K:\AosService\PackagesLocalDirectory"
 
 # Persist across sessions (append to $PROFILE)
 d365fo init --persist-profile
@@ -53,10 +53,10 @@ The CLI also accepts `--packages <PATH>` on every command as a one-shot override
 ### `PACKAGES_PATH_NOT_FOUND`
 
 ```
-error: { "code": "PACKAGES_PATH_NOT_FOUND", "hint": "Set D365FO_STANDARD_PACKAGES_PATH or pass --packages <PATH>" }
+error: { "code": "PACKAGES_PATH_NOT_FOUND", "hint": "Set D365FO_PACKAGES_PATH or pass --packages <PATH>" }
 ```
 
-Fix: set `D365FO_STANDARD_PACKAGES_PATH` or pass `--packages`. Verify the path exists: `Test-Path $env:D365FO_STANDARD_PACKAGES_PATH`.
+Fix: set `D365FO_PACKAGES_PATH` or pass `--packages`. Verify the path exists: `Test-Path $env:D365FO_PACKAGES_PATH`.
 
 ### Unicode characters in the path
 
@@ -64,7 +64,7 @@ Paths containing non-ASCII characters (accented letters, CJK, etc.) can cause th
 
 ```powershell
 New-Item -ItemType Junction -Path "C:\D365Packages" -Target "K:\AosService\PackagesLocalDirectory"
-$env:D365FO_STANDARD_PACKAGES_PATH = "C:\D365Packages"
+$env:D365FO_PACKAGES_PATH = "C:\D365Packages"
 ```
 
 ### Locked AOT files during build
@@ -161,7 +161,7 @@ If `d365fo resolve label @SYS12345 --lang cs-CZ` returns `LABEL_NOT_FOUND`:
 
 1. Check the language code is correct: `d365fo index status --output json` lists indexed languages under `data.languages`.
 2. Re-run extraction with the language included: `d365fo index extract --languages cs-CZ --force`.
-3. Verify the label file exists on disk: `Get-ChildItem $env:D365FO_STANDARD_PACKAGES_PATH -Recurse -Filter "*.cs-CZ.label.txt"`.
+3. Verify the label file exists on disk: `Get-ChildItem $env:D365FO_PACKAGES_PATH -Recurse -Filter "*.cs-CZ.label.txt"`.
 
 ---
 

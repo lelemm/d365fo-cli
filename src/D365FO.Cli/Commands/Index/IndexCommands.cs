@@ -29,7 +29,7 @@ public sealed class IndexBuildCommand : Command<IndexBuildCommand.Settings>
         var result = ToolResult<object>.Success(new
         {
             databasePath = cfg.DatabasePath,
-            packagesPath = cfg.StandardPackagesPath,
+            packagesPath = cfg.PackagesPath,
             extraPackagesPaths = cfg.CustomPackagesPaths.Count > 0 ? cfg.CustomPackagesPaths : null,
             schemaVersion = MetadataRepository.CurrentSchemaVersion,
             schemaApplied = applied,
@@ -44,8 +44,8 @@ public sealed class IndexBuildCommand : Command<IndexBuildCommand.Settings>
                 AnsiConsole.MarkupLine($"[green]OK[/] schema v{MetadataRepository.CurrentSchemaVersion} applied at [bold]{cfg.DatabasePath}[/]");
             else
                 AnsiConsole.MarkupLine($"[green]OK[/] index ready at [bold]{cfg.DatabasePath}[/] (schema v{MetadataRepository.CurrentSchemaVersion})");
-            if (cfg.StandardPackagesPath is null)
-                AnsiConsole.MarkupLine("[yellow]warn[/] D365FO_STANDARD_PACKAGES_PATH not set; extraction will require --packages.");
+            if (cfg.PackagesPath is null)
+                AnsiConsole.MarkupLine("[yellow]warn[/] D365FO_PACKAGES_PATH not set; extraction will require --packages.");
         });
     }
 }
@@ -72,7 +72,7 @@ public sealed class IndexStatusCommand : Command<IndexStatusCommand.Settings>
 
                 // Staleness check: newest metadata mtime vs. index bookkeeping.
                 var roots = new List<string>();
-                if (!string.IsNullOrEmpty(cfg.StandardPackagesPath)) roots.Add(cfg.StandardPackagesPath!);
+                if (!string.IsNullOrEmpty(cfg.PackagesPath)) roots.Add(cfg.PackagesPath!);
                 roots.AddRange(cfg.CustomPackagesPaths);
                 if (roots.Count > 0)
                     staleness = IndexStaleness.Check(repo, roots);
@@ -92,7 +92,7 @@ public sealed class IndexStatusCommand : Command<IndexStatusCommand.Settings>
             databasePath = cfg.DatabasePath,
             exists,
             sizeBytes,
-            packagesPath = cfg.StandardPackagesPath,
+            packagesPath = cfg.PackagesPath,
             extraPackagesPaths = cfg.CustomPackagesPaths.Count > 0 ? cfg.CustomPackagesPaths : null,
             workspacePath = cfg.WorkspacePath,
             customModels = cfg.CustomModels,
@@ -166,13 +166,13 @@ public sealed class IndexExtractCommand : Command<IndexExtractCommand.Settings>
         IReadOnlyList<string>? extraPackagesPaths = null)
     {
         var cfg = D365FoSettings.FromEnvironment(databaseOverride);
-        var root = packagesOverride ?? cfg.StandardPackagesPath;
+        var root = packagesOverride ?? cfg.PackagesPath;
         if (string.IsNullOrWhiteSpace(root))
         {
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(
                 "MISSING_PACKAGES_PATH",
                 "No packages path provided.",
-                "Pass --packages <PATH> or set D365FO_STANDARD_PACKAGES_PATH."));
+                "Pass --packages <PATH> or set D365FO_PACKAGES_PATH."));
         }
         if (!Directory.Exists(root))
         {

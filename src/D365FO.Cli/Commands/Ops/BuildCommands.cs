@@ -203,7 +203,7 @@ public sealed class BpCheckCommand : Command<BpCheckCommand.Settings>
         public string? Model { get; init; }
 
         [CommandOption("--packages <PATH>")]
-        [System.ComponentModel.Description("PackagesLocalDirectory (or FrameworkDirectory on UDE). Defaults to D365FO_STANDARD_PACKAGES_PATH.")]
+        [System.ComponentModel.Description("PackagesLocalDirectory (or FrameworkDirectory on UDE). Defaults to D365FO_PACKAGES_PATH.")]
         public string? PackagesPath { get; init; }
 
         [CommandOption("--metadata <PATH>")]
@@ -228,7 +228,7 @@ public sealed class BpCheckCommand : Command<BpCheckCommand.Settings>
         //   metadataPath = ModelStoreFolder   (where custom source XML lives)
         // In traditional environments both roles are served by packagesRoot.
         var packagesRoot = settings.PackagesPath
-            ?? Environment.GetEnvironmentVariable("D365FO_STANDARD_PACKAGES_PATH")
+            ?? Environment.GetEnvironmentVariable("D365FO_PACKAGES_PATH")
             ?? @"K:\AosService\PackagesLocalDirectory";
         var metadataPath = settings.MetadataPath ?? packagesRoot;
 
@@ -239,7 +239,7 @@ public sealed class BpCheckCommand : Command<BpCheckCommand.Settings>
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(
                 "XPPBP_NOT_FOUND",
                 $"xppbp.exe not found at: {bp}",
-                "Set D365FO_STANDARD_PACKAGES_PATH (or --packages) to the FrameworkDirectory that contains Bin\\xppbp.exe."));
+                "Set D365FO_PACKAGES_PATH (or --packages) to the FrameworkDirectory that contains Bin\\xppbp.exe."));
 
         // Build argument list using modern -metadata: flag.
         // Falls back to legacy -packagesroot: when the modern flag is not recognised.

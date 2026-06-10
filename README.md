@@ -81,7 +81,7 @@ dotnet publish src/D365FO.Cli -c Release -r win-x64 --self-contained
 
 ```sh
 # Point at your packages folder
-$env:D365FO_STANDARD_PACKAGES_PATH = "K:\AosService\PackagesLocalDirectory"
+$env:D365FO_PACKAGES_PATH = "K:\AosService\PackagesLocalDirectory"
 
 # Build + populate the index
 d365fo index build
@@ -161,7 +161,7 @@ Reference the `SKILL.md` files from `skills/anthropic/` in your session prompt o
       "command": "d365fo-mcp",
       "args": [],
       "env": {
-        "D365FO_STANDARD_PACKAGES_PATH": "K:\\AosService\\PackagesLocalDirectory"
+        "D365FO_PACKAGES_PATH": "K:\\AosService\\PackagesLocalDirectory"
       }
     }
   }
@@ -260,7 +260,7 @@ See [`docs/EXAMPLES.md`](docs/EXAMPLES.md) for one worked example per command.
 
 | Symptom | Fix |
 |---|---|
-| `PACKAGES_PATH_NOT_FOUND` | Set `D365FO_STANDARD_PACKAGES_PATH` or pass `--packages <PATH>` |
+| `PACKAGES_PATH_NOT_FOUND` | Set `D365FO_PACKAGES_PATH` or pass `--packages <PATH>` |
 | `UNSUPPORTED_PLATFORM` | `build` / `sync` / `test` / `bp` require Windows + a D365FO dev VM |
 | `NO_INDEX` | Run `d365fo index build` then `d365fo index extract` |
 | Index appears stale after editing XML | Run `d365fo index refresh --model <Model>` |

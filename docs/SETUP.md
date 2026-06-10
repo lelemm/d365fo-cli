@@ -62,7 +62,7 @@ Three variables matter before you run `index extract`. Set them in your shell pr
 
 | Variable | Purpose | Notes |
 |---|---|---|
-| `D365FO_STANDARD_PACKAGES_PATH` | Primary root of `PackagesLocalDirectory` | **Required** for indexing |
+| `D365FO_PACKAGES_PATH` | Primary root of `PackagesLocalDirectory` | **Required** for indexing |
 | `D365FO_CUSTOM_PACKAGES_PATH` | Additional `PackagesLocalDirectory` root(s) | Optional. Semicolon- or comma-separated. UDE setups typically need this — see [UDE setup](#ude-unified-developer-experience-setup) below. |
 | `D365FO_LABEL_LANGUAGES` | Languages to extract (e.g. `en-us,cs`) | Default: `en-us` only. **Directly controls index size** — each extra language adds significant data. Set this before the first extract. |
 | `D365FO_INDEX_DB` | Path to the SQLite index | Defaults to `%LOCALAPPDATA%\d365fo-cli\d365fo-index.sqlite` (`~/.local/share/…` on Linux/macOS) |
@@ -98,7 +98,7 @@ Alternatively, set variables as **system-level** (machine-scope) env vars in Win
 
 ```powershell
 [System.Environment]::SetEnvironmentVariable(
-    "D365FO_STANDARD_PACKAGES_PATH",
+    "D365FO_PACKAGES_PATH",
     "K:\AosService\PackagesLocalDirectory",
     [System.EnvironmentVariableTarget]::Machine)
 ```
@@ -117,7 +117,7 @@ Visual Studio merges both transparently, but `d365fo-cli` needs to know about bo
 **PowerShell (one session):**
 
 ```powershell
-$env:D365FO_STANDARD_PACKAGES_PATH         = 'K:\AosService\PackagesLocalDirectory'
+$env:D365FO_PACKAGES_PATH         = 'K:\AosService\PackagesLocalDirectory'
 $env:D365FO_CUSTOM_PACKAGES_PATH   = 'C:\LocalMetadata\PackagesLocalDirectory'
 d365fo index extract
 ```
@@ -128,7 +128,7 @@ d365fo index extract
 Add-Content -Path $PROFILE -Value @"
 
 # d365fo-cli — UDE dual-packages config
-`$env:D365FO_STANDARD_PACKAGES_PATH         = 'K:\AosService\PackagesLocalDirectory'
+`$env:D365FO_PACKAGES_PATH         = 'K:\AosService\PackagesLocalDirectory'
 `$env:D365FO_CUSTOM_PACKAGES_PATH   = 'C:\LocalMetadata\PackagesLocalDirectory'
 "@
 . $PROFILE
@@ -183,7 +183,7 @@ Add-Content -Path $PROFILE -Value @"
 
 # d365fo-cli
 function d365fo { dotnet run --project $Repo\src\D365FO.Cli -- @args }
-`$env:D365FO_STANDARD_PACKAGES_PATH   = "$Pkg"
+`$env:D365FO_PACKAGES_PATH   = "$Pkg"
 `$env:D365FO_LABEL_LANGUAGES = "$Langs"
 `$env:D365FO_INDEX_DB        = "`$env:LOCALAPPDATA\d365fo-cli\index.sqlite"
 "@
@@ -209,7 +209,7 @@ cd "$REPO" && dotnet build d365fo-cli.slnx -c Release
   echo ""
   echo "# d365fo-cli"
   echo "alias d365fo='dotnet run --project $REPO/src/D365FO.Cli --'"
-  echo "export D365FO_STANDARD_PACKAGES_PATH=\"$PKG\""
+  echo "export D365FO_PACKAGES_PATH=\"$PKG\""
   echo "export D365FO_LABEL_LANGUAGES=\"$LANGS\""
   echo "export D365FO_INDEX_DB=\"\$HOME/.d365fo/index.sqlite\""
 } >> "$HOME/.zshrc"
@@ -450,7 +450,7 @@ git commit -m "chore: update d365fo Copilot skills"
 
 | Symptom | Fix |
 |---|---|
-| `PACKAGES_PATH_NOT_FOUND` | Set `D365FO_STANDARD_PACKAGES_PATH` or pass `--packages <PATH>`. |
+| `PACKAGES_PATH_NOT_FOUND` | Set `D365FO_PACKAGES_PATH` or pass `--packages <PATH>`. |
 | `UNSUPPORTED_PLATFORM` | `build` / `sync` / `test` / `bp` require Windows + a D365FO dev VM. Run them there. |
 | Index file appears locked | Stop any running `d365fo daemon` or `d365fo-mcp` process. WAL sidecar files (`-wal`, `-shm`) are normal. |
 | Copilot Chat in VS gives "There was an error executing code search" then generic X++ advice | VS Copilot Chat cannot search AOT XML (it always errors). The `.github/copilot-instructions.md` should prevent the code-search attempt — re-run `Install-D365FoCopilotSkills.ps1` to deploy the latest instructions. For full agent capabilities (auto-running `d365fo`), switch Copilot Chat to **Agent** mode (mode dropdown, top-right of the Chat pane). |
