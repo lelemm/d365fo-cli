@@ -127,13 +127,36 @@ namespace D365FO.Bridge
                 return new JsonObject { ["ok"] = true, ["kind"] = kind, ["name"] = name, ["model"] = model, ["source"] = "bridge", ["op"] = "delete" };
             }
 
-            // Create/Update — need an Ax* instance.
-            var axType = MetadataBootstrap.GetMetaModelType(kind);
-            if (axType == null) return Fail("TYPE_NOT_FOUND", "Could not resolve Ax type for kind '" + kind + "'.");
-
+            // Create/Update — need an Ax* instance. For polymorphic kinds (edt, edtExtension)
+            // the kind→base-type mapping resolves to an abstract class; the concrete subtype
+            // must come from the input XML's root element name (e.g. AxEdtString).
+            Type axType;
             object ax;
             if (!string.IsNullOrEmpty(xml))
             {
+                string rootLocalName;
+                try
+                {
+                    using (var sr = new StringReader(xml))
+                    using (var xr = System.Xml.XmlReader.Create(sr, new System.Xml.XmlReaderSettings { DtdProcessing = System.Xml.DtdProcessing.Prohibit }))
+                    {
+                        xr.MoveToContent();
+                        rootLocalName = xr.NodeType == System.Xml.XmlNodeType.Element ? xr.LocalName : null;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    return Fail("XML_PARSE_FAILED", ex.Message);
+                }
+                if (string.IsNullOrEmpty(rootLocalName))
+                    return Fail("XML_PARSE_FAILED", "Could not read root element of input xml.");
+
+                axType = MetadataBootstrap.GetMetaModelTypeByShortName(rootLocalName)
+                         ?? MetadataBootstrap.GetMetaModelType(kind);
+                if (axType == null) return Fail("TYPE_NOT_FOUND", "Could not resolve Ax type for root element '" + rootLocalName + "'.");
+                if (axType.IsAbstract)
+                    return Fail("ABSTRACT_TYPE", "Root element '" + rootLocalName + "' maps to abstract type '" + axType.FullName + "'. Use a concrete subtype root such as AxEdtString.");
+
                 try
                 {
                     var serializer = new XmlSerializer(axType);
@@ -150,6 +173,10 @@ namespace D365FO.Bridge
             }
             else
             {
+                axType = MetadataBootstrap.GetMetaModelType(kind);
+                if (axType == null) return Fail("TYPE_NOT_FOUND", "Could not resolve Ax type for kind '" + kind + "'.");
+                if (axType.IsAbstract)
+                    return Fail("ABSTRACT_TYPE", "Cannot construct kind '" + kind + "' without xml — base type '" + axType.FullName + "' is abstract. Provide xml with a concrete root element such as AxEdtString.");
                 var ctor = axType.GetConstructor(Type.EmptyTypes);
                 if (ctor == null) return Fail("TYPE_NOT_FOUND", "Ax type '" + axType.Name + "' has no parameterless ctor.");
                 ax = ctor.Invoke(null);

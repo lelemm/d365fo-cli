@@ -66,6 +66,26 @@ public class ScaffoldingSnapshotTests
         Assert.Equal("50", doc.Root.Element("StringSize")!.Value);
     }
 
+    [Fact]
+    public void ScaffoldFileWriter_rejects_abstract_AxEdt_root()
+    {
+        var doc = new XDocument(new XElement("AxEdt", new XElement("Name", "Bad")));
+        var tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "d365fo-cli-test-abstract-edt.xml");
+        var ex = Assert.Throws<System.InvalidOperationException>(() => ScaffoldFileWriter.Write(doc, tmp, overwrite: true));
+        Assert.Contains("AxEdt", ex.Message);
+        Assert.False(System.IO.File.Exists(tmp));
+    }
+
+    [Fact]
+    public void ScaffoldFileWriter_rejects_abstract_AxEdtExtension_root()
+    {
+        var raw = "<?xml version=\"1.0\" encoding=\"utf-8\"?><AxEdtExtension><Name>Bad.Extension</Name></AxEdtExtension>";
+        var tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "d365fo-cli-test-abstract-edt-ext.xml");
+        var ex = Assert.Throws<System.InvalidOperationException>(() => ScaffoldFileWriter.Write(raw, tmp, overwrite: true));
+        Assert.Contains("AxEdtExtension", ex.Message);
+        Assert.False(System.IO.File.Exists(tmp));
+    }
+
     // ---- Enum (Phase 2) ----
 
     [Fact]

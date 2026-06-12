@@ -337,6 +337,24 @@ namespace D365FO.Bridge
         internal static Type GetMetaModelType(string kind)
         {
             if (!KindToTypeName.TryGetValue(kind, out var typeName)) return null;
+            return ResolveMetaModelType(typeName);
+        }
+
+        /// <summary>
+        /// Look up a concrete MetaModel type by its short class name (e.g.
+        /// <c>AxEdtString</c>). Used when the input XML's root element pins
+        /// the precise subtype — the abstract <c>AxEdt</c> base cannot be
+        /// constructed or deserialized.
+        /// </summary>
+        internal static Type GetMetaModelTypeByShortName(string shortName)
+        {
+            if (string.IsNullOrWhiteSpace(shortName)) return null;
+            return ResolveMetaModelType("Microsoft.Dynamics.AX.Metadata.MetaModel." + shortName);
+        }
+
+        private static Type ResolveMetaModelType(string typeName)
+        {
+            if (string.IsNullOrEmpty(typeName)) return null;
             var assemblies = AppDomain.CurrentDomain.GetAssemblies();
             foreach (var asm in assemblies)
             {

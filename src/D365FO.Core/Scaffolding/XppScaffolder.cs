@@ -826,9 +826,20 @@ public static class ScaffoldFileWriter
 {
     public sealed record WriteResult(string Path, long Bytes, string? BackupPath);
 
+    // AOT root elements that are abstract bases in Microsoft.Dynamics.AX.Metadata.MetaModel.
+    // Writing one of these as the document root makes VS metadata reader throw
+    // "Cannot create an abstract class" when the file is opened — callers must use the
+    // concrete subtype (AxEdtString, AxEdtInt, AxEdtStringExtension, …).
+    private static readonly HashSet<string> _abstractAxRoots = new(StringComparer.Ordinal)
+    {
+        "AxEdt",
+        "AxEdtExtension",
+    };
+
     public static WriteResult Write(XDocument doc, string path, bool overwrite = false)
     {
         ArgumentNullException.ThrowIfNull(doc);
+        EnsureConcreteAxRoot(doc.Root?.Name.LocalName);
         return WriteCore(doc.ToString(SaveOptions.None), path, overwrite, declarationOnSaveFromXDoc: true, doc);
     }
 
@@ -840,7 +851,33 @@ public static class ScaffoldFileWriter
     public static WriteResult Write(string xml, string path, bool overwrite = false)
     {
         ArgumentException.ThrowIfNullOrEmpty(xml);
+        EnsureConcreteAxRoot(SniffRootLocalName(xml));
         return WriteCore(xml, path, overwrite, declarationOnSaveFromXDoc: false, null);
+    }
+
+    private static void EnsureConcreteAxRoot(string? rootLocalName)
+    {
+        if (rootLocalName is not null && _abstractAxRoots.Contains(rootLocalName))
+            throw new InvalidOperationException(
+                $"Refusing to write AOT XML with abstract root element <{rootLocalName}>. " +
+                "Use the concrete subtype (e.g. AxEdtString, AxEdtInt, AxEdtReal, AxEdtDate, " +
+                "AxEdtDateTime, AxEdtBoolean). Visual Studio's metadata reader throws " +
+                "\"Cannot create an abstract class\" on this root.");
+    }
+
+    private static string? SniffRootLocalName(string xml)
+    {
+        try
+        {
+            using var sr = new StringReader(xml);
+            using var xr = System.Xml.XmlReader.Create(sr, new System.Xml.XmlReaderSettings { DtdProcessing = System.Xml.DtdProcessing.Prohibit });
+            xr.MoveToContent();
+            return xr.NodeType == System.Xml.XmlNodeType.Element ? xr.LocalName : null;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static WriteResult WriteCore(string xml, string path, bool overwrite, bool declarationOnSaveFromXDoc, XDocument? doc)
