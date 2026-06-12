@@ -196,6 +196,33 @@ If you see `NO_INDEX` errors, run `index build` then `index extract`. If data is
 
 ---
 
+## Form pattern gate
+
+### `FORM_PATTERN_VIOLATION` on `generate form`
+
+The generated form failed the structural pattern self-test (rules FP001–FP005,
+FP007). The error message lists each violation with its tree path and a fix.
+
+1. `d365fo get form-pattern <Pattern> --output json` — see the required
+   structure (control types, order, allowed sub-patterns).
+2. Adjust the `generate form` flags (`--pattern`, `--table`, `--lines-table`,
+   `--section`) and retry.
+3. After hand edits, re-check with
+   `d365fo validate form-pattern <file> --output json` (exit 2 = errors).
+
+To bypass the gate deliberately (e.g. replicating a legacy form), set
+`D365FO_FORM_PATTERN_ENFORCE=false` for that invocation. Warnings
+(FP006, FP008–FP010, version drift) never block — they surface in the
+`warnings` array of the JSON envelope.
+
+### `FP002: version X is newer than the catalog's Y`
+
+A platform update introduced a newer `PatternVersion` than the built-in catalog
+knows. This is a warning, not an error — verify the form opens in Visual Studio
+and report it so the catalog's version list can be updated.
+
+---
+
 ## MCP tool count and token budget
 
 ### How many tools are exposed
