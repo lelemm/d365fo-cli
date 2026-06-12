@@ -42,6 +42,21 @@ every indexed AxForm. Use it instead of guessing — pass the most-common peer
 pattern straight into `--pattern` on the next step. With no flags it returns
 a histogram so you can see what shapes exist before drilling in.
 
+When the user provides an existing form as an example, treat it as a pattern
+contract, not as optional inspiration:
+
+```sh
+d365fo get form <ExampleForm> --output json
+d365fo find form-patterns --similar-to <ExampleForm> --output json
+```
+
+Use the same pattern family unless the user explicitly requests a different
+one. After generation, verify that the new form still contains the pattern's
+required scaffolding: datasource(s), design pattern/version metadata, required
+ActionPane/Body/Tab/FastTab/grid/QuickFilter controls, and required line/header
+datasources for transaction forms. Missing pattern elements are a failed
+generation even if the XML is well-formed.
+
 ## Pattern catalog
 
 | Pattern | When to use | Required |
@@ -97,6 +112,16 @@ section template is `--section Name:Caption` (split on the first `:`).
 
 - Never hand-roll AxForm XML — always use `--pattern`.
 - Never skip the primary datasource for SimpleList / Lookup / ListPage / Master / Transaction patterns.
+- Never drop required pattern controls or metadata from a generated form copied
+  from an example. Validate against the example's pattern before finishing.
+- Never rewrite an existing AxForm or AxFormExtension XML file wholesale.
+  Preserve unrelated `<Controls>`, `<DataSourceModifications>`,
+  `<DataSourceReferences>`, `<DataSources>`, methods, extension properties,
+  and pattern metadata exactly.
+- After changing form XML, validate XML well-formedness, run
+  `d365fo validate xpp --file <file> --code-type xml-any --output json`, run
+  `d365fo index refresh --model <Model>`, and re-read with
+  `d365fo get form <Form> --output json`.
 - Never use `Dialog` or `TableOfContents` patterns for transactional grids.
 - Pre-flight `search form <Name>` before scaffolding to avoid collisions.
 - Caption strings must be labels (BP `BPErrorLabelIsText`) — never raw text.

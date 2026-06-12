@@ -34,6 +34,46 @@ d365fo models list --output json      # confirm target model — NEVER guess it
 
 Models are ISV / customer policy boundaries — never infer from search results; always ask or read from `.rnrproj`.
 
+### Model and existing-artifact selection
+
+`D365FO_CUSTOM_MODELS` is a hard boundary for where customizations may be
+installed. It can contain multiple comma-separated models. Before writing,
+resolve the active target model from that list by checking the artifact the user
+named, the model that already contains the related extension/handler, or the
+model currently being edited in the task. Use `--install-to <ActiveCustomModel>`
+only after that resolution. If more than one custom model could own the change,
+stop and ask.
+
+The artifact suffix is a separate decision from the model name. Extract
+`<ExistingSuffix>` from existing related elements in the active model, such as
+`<Target>_<ExistingSuffix>_Extension`, `<Form>_<ExistingSuffix>_Form_EH`, or
+`<Form>_<ExistingSuffix>_Form_EventHandler`. If no existing suffix can be
+derived and the user did not provide one, stop and ask for the suffix. Do
+**not** derive new suffixes from feature names, customer names, tickets, labels,
+or the custom model name.
+
+Before creating any extension or event-handler class, search for an existing
+artifact in the target custom model and reuse it when it already represents
+the same target object or integration family:
+
+```sh
+d365fo find extensions <TargetObject> --output json
+d365fo find handlers <TargetObject> --output json
+d365fo search class <TargetOrPrefix> --output json
+```
+
+Examples:
+- If `<Target>_<ExistingSuffix>_Extension` exists in `<ActiveCustomModel>`, add
+  the new method there. Do not create `<Target>_<Feature>_Extension`.
+- If `<Form>_<ExistingSuffix>_Form_EH` or
+  `<Form>_<ExistingSuffix>_Form_EventHandler` exists for `<Form>` events in
+  `<ActiveCustomModel>`, add the new handler there. Do not create a parallel
+  `<Form>_<Feature>_EH` or `<Form>_<Feature>_EventHandler` unless the user
+  explicitly requests a separate handler class.
+- Feature names, integration names, customer names, and issue titles are allowed
+  in method names and labels, but they are not a reason to create a new
+  suffix when a related artifact already exists.
+
 ### VS / VS Code operating modes
 
 | Environment | How Copilot runs d365fo | Token cost |
@@ -100,6 +140,21 @@ Copilot: "Since I cannot access the codebase, I'll provide generic guidance…"
 6. **Never hardcode strings in `Info()` / `warning()` / `error()`** — use `@Model:Label`. Search first: `d365fo search label`.
 7. **Never nest `while select` loops** — use joins, `exists join`, or pre-load to `Map` / temp table.
 8. **Never use `replace_string_in_file` on `.xml` AOT files without running `d365fo index refresh` after** — stale index returns pre-edit data.
+9. **Never rewrite an existing AOT XML file wholesale.** Preserve all unrelated
+   elements exactly. A diff that removes unrelated `<DataSourceModifications>`,
+   `<DataSourceReferences>`, `<DataSources>`, `<Controls>`, methods, pattern
+   metadata, or extension properties is a failed edit.
+10. **Validate every changed AOT XML file before considering the task done:**
+   parse it with an XML validator, run `d365fo validate xpp --file <file>
+   --code-type xml-any --output json`, refresh the index for the model, and
+   re-read the object with `d365fo get ... --output json`.
+11. **For new forms based on an existing example, preserve the pattern contract.**
+   First read the example with `d365fo get form <Example> --output json`; scaffold
+   with `d365fo generate form --pattern ...`; then verify the generated form has
+   the required pattern scaffolding (datasources, design pattern/version,
+   ActionPane/Body/Tab/FastTab/grid/QuickFilter elements as applicable). Never
+   drop required pattern elements just because they were not mentioned in the
+   prompt.
 
 ---
 

@@ -39,6 +39,12 @@ so you can recover the previous version if Git history isn't enough.
 After each scaffold or edit, run a quick `git diff` to confirm the change is
 contained.
 
+For AOT XML, the diff must be additive or narrowly targeted. If unrelated XML
+nodes disappear, the edit is wrong and must be reverted before continuing.
+Treat removals of `<DataSourceModifications>`, `<DataSourceReferences>`,
+`<DataSources>`, `<Controls>`, methods, pattern metadata, or extension
+properties as high-risk unless the user explicitly requested that removal.
+
 **Hand-written X++ never reaches a file unvalidated:**
 
 ```sh
@@ -47,6 +53,20 @@ d365fo validate xpp --file <f> --output json          # offline BP rules (today(
 ```
 
 Fix all errors, re-run, only then write. Both gates run in <200 ms with no VM.
+
+**Changed AOT XML has its own gate:**
+
+```sh
+# Parse with an XML validator first. Then:
+d365fo validate xpp --file <f> --code-type xml-any --output json
+d365fo index refresh --model <Model>
+d365fo get form <Form> --output json      # for AxForm/AxFormExtension changes
+d365fo get table <Table> --output json    # for AxTable/AxTableExtension changes
+```
+
+For new forms based on an example, compare the pattern metadata and required
+controls/datasources from the example. Missing ActionPane/Body/Tab/FastTab/grid
+or QuickFilter elements are not acceptable just because the XML parses.
 
 ## 3. After the task — AOT-semantic review
 
