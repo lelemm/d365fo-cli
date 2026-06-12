@@ -101,8 +101,6 @@ public class {FormName} extends FormRun
       </AxFormControl>
       <AxFormControl xmlns="" i:type="AxFormGroupControl">
         <Name>DetailsGroup</Name>
-        <Pattern>FieldsFieldGroups</Pattern>
-        <PatternVersion>1.1</PatternVersion>
         <Type>Group</Type>
         <FormControlExtension i:nil="true" />
         <Controls>

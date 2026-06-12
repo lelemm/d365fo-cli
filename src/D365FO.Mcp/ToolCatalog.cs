@@ -469,6 +469,21 @@ public static class ToolCatalog
             (h, p) => h.GenerateCoc(Str(p, "target"), StrArray(p, "methods") ?? Array.Empty<string>(),
                 StrOrNull(p, "installTo"), StrOrNull(p, "out"), Bool(p, "overwrite"))),
 
+        new Descriptor("batch_get_info",
+            "Fetch up to 10 objects in one call. Each spec is \"<kind>:<name>\" (kinds: class, table, edt, enum, form, menu-item, query, view, entity, report, service, service-group, role, duty, privilege). One failed lookup never fails the batch.",
+            Schema(("objects", "array", true)),
+            (h, p) => h.BatchGetInfo(StrArray(p, "objects"))),
+
+        new Descriptor("get_form_pattern_spec",
+            "Form pattern spec catalog: versions, when-to-use, reference forms, lifecycle guidance. Omit name to list all known patterns + sub-patterns.",
+            Schema(("name", "string", false)),
+            (h, p) => h.GetFormPatternSpec(StrOrNull(p, "name"))),
+
+        new Descriptor("validate_form_pattern",
+            "Structural form-pattern validator (FP001-FP010) over complete AxForm XML — the same gate generate_form enforces before writing.",
+            Schema(("xml", "string", true)),
+            (h, p) => h.ValidateFormPattern(Str(p, "xml"))),
+
         new Descriptor("generate_form",
             "Scaffold a pattern-correct AxForm and write it into the AOT. Patterns: SimpleList, SimpleListDetails, DetailsMaster, DetailsTransaction, Dialog, TableOfContents, Lookup, ListPage, Workspace. Requires either installTo or out.",
             Schema(("name", "string", true), ("table", "string", false), ("pattern", "string", false),

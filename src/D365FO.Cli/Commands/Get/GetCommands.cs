@@ -542,48 +542,74 @@ public sealed class GetObjectCommand : Command<GetObjectCommand.Settings>
             return RenderHelpers.Render(output, ToolResult<object>.Fail("BAD_INPUT", "Kind and name are required."));
 
         var repo = RepoFactory.Create();
-        return RenderHelpers.NormalizeKind(settings.Kind) switch
-        {
-            "class" => Render(output, repo.GetClassDetails(settings.Name), "CLASS_NOT_FOUND", $"Class '{settings.Name}' not found."),
-            "table" => RenderTable(output, repo.GetTableDetails(settings.Name), settings.Name),
-            "edt" => Render(output, repo.GetEdt(settings.Name), "EDT_NOT_FOUND", $"EDT '{settings.Name}' not found."),
-            "enum" => Render(output, repo.GetEnum(settings.Name), "ENUM_NOT_FOUND", $"Enum '{settings.Name}' not found."),
-            "form" => Render(output, repo.GetForm(settings.Name), "FORM_NOT_FOUND", $"Form '{settings.Name}' not found."),
-            "menuitem" => Render(output, repo.GetMenuItem(settings.Name), "MENU_ITEM_NOT_FOUND", $"Menu item '{settings.Name}' not found."),
-            "query" => Render(output, repo.GetQuery(settings.Name), "QUERY_NOT_FOUND", $"Query '{settings.Name}' not found."),
-            "view" => Render(output, repo.GetView(settings.Name), "VIEW_NOT_FOUND", $"View '{settings.Name}' not found."),
-            "entity" or "dataentity" => Render(output, repo.GetDataEntity(settings.Name), "ENTITY_NOT_FOUND", $"Data entity '{settings.Name}' not found."),
-            "report" => Render(output, repo.GetReport(settings.Name), "REPORT_NOT_FOUND", $"Report '{settings.Name}' not found."),
-            "service" => Render(output, repo.GetService(settings.Name), "SERVICE_NOT_FOUND", $"Service '{settings.Name}' not found."),
-            "servicegroup" => Render(output, repo.GetServiceGroup(settings.Name), "SERVICE_GROUP_NOT_FOUND", $"Service group '{settings.Name}' not found."),
-            "role" => Render(output, repo.GetSecurityRole(settings.Name), "ROLE_NOT_FOUND", $"Role '{settings.Name}' not found."),
-            "duty" => Render(output, repo.GetSecurityDuty(settings.Name), "DUTY_NOT_FOUND", $"Duty '{settings.Name}' not found."),
-            "privilege" => Render(output, repo.GetSecurityPrivilege(settings.Name), "PRIVILEGE_NOT_FOUND", $"Privilege '{settings.Name}' not found."),
-            _ => RenderHelpers.Render(output, ToolResult<object>.Fail(
-                "BAD_INPUT",
-                $"Unsupported object kind '{settings.Kind}'.",
-                "Use class, table, edt, enum, form, menu-item, query, view, entity, report, service, service-group, role, duty, or privilege.")),
-        };
+        var (data, code, message) = ObjectLookup.Fetch(repo, settings.Kind, settings.Name);
+        return RenderHelpers.Render(output, data is null
+            ? ToolResult<object>.Fail(code!, message!,
+                code == "BAD_INPUT" ? ObjectLookup.SupportedKindsHint : null)
+            : ToolResult<object>.Success(data));
+    }
+}
+
+/// <summary>
+/// Batch object lookup — port of the upstream MCP <c>batch_get_info</c> tool.
+/// Fetches up to 10 objects in one CLI invocation; one failed lookup never
+/// fails the batch (each item carries its own ok/error).
+/// </summary>
+public sealed class GetBatchCommand : Command<GetBatchCommand.Settings>
+{
+    public const int MaxItems = 10;
+
+    public sealed class Settings : D365OutputSettings
+    {
+        [CommandArgument(0, "<SPEC>")]
+        [System.ComponentModel.Description("Object specs, each as <kind>:<name> (e.g. table:CustTable class:SalesLineType). Max 10 per call.")]
+        public string[] Specs { get; init; } = Array.Empty<string>();
     }
 
-    private static int Render<T>(OutputMode.Kind output, T? data, string code, string message)
-        where T : class
-        => RenderHelpers.Render(output, data is null
-            ? ToolResult<object>.Fail(code, message)
-            : ToolResult<object>.Success(data));
+    public override int Execute(CommandContext ctx, Settings settings)
+    {
+        var output = OutputMode.Resolve(settings.Output);
+        if (settings.Specs.Length == 0)
+            return RenderHelpers.Render(output, ToolResult<object>.Fail("BAD_INPUT",
+                "At least one <kind>:<name> spec is required.",
+                "Example: d365fo get batch table:CustTable class:CustTableType edt:CustAccount"));
+        if (settings.Specs.Length > MaxItems)
+            return RenderHelpers.Render(output, ToolResult<object>.Fail("BAD_INPUT",
+                $"Too many objects: {settings.Specs.Length} (max {MaxItems} per call).",
+                "Split the request into multiple `get batch` calls."));
 
-    private static int RenderTable(OutputMode.Kind output, TableDetails? details, string name)
-        => RenderHelpers.Render(output, details is null
-            ? ToolResult<object>.Fail("TABLE_NOT_FOUND", $"Table '{name}' not found in index.")
-            : ToolResult<object>.Success(new
+        var repo = RepoFactory.Create();
+        var items = new List<object>(settings.Specs.Length);
+        var found = 0;
+        foreach (var spec in settings.Specs)
+        {
+            var idx = spec.IndexOf(':');
+            if (idx <= 0 || idx == spec.Length - 1)
             {
-                table = details.Table,
-                fields = details.Fields,
-                relations = details.Relations,
-                methods = details.Methods,
-                indexes = details.Indexes,
-                deleteActions = details.DeleteActions,
-            }));
+                items.Add(new { spec, ok = false, error = new { code = "BAD_INPUT", message = $"Spec '{spec}' is not <kind>:<name>." } });
+                continue;
+            }
+            var kind = spec[..idx].Trim();
+            var name = spec[(idx + 1)..].Trim();
+            var (data, code, message) = ObjectLookup.Fetch(repo, kind, name);
+            if (data is null)
+            {
+                items.Add(new { spec, kind, name, ok = false, error = new { code, message } });
+            }
+            else
+            {
+                found++;
+                items.Add(new { spec, kind, name, ok = true, data });
+            }
+        }
+
+        return RenderHelpers.Render(output, ToolResult<object>.Success(new
+        {
+            requested = settings.Specs.Length,
+            found,
+            items,
+        }));
+    }
 }
 
 public sealed class GetBusinessEventCommand : Command<GetBusinessEventCommand.Settings>

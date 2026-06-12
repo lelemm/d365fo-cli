@@ -61,38 +61,88 @@ d365fo index status
 
 ## Command mapping
 
-### MCP tool → CLI command
+Complete map of the MCP server's current tool surface (61 tools) onto CLI commands.
+
+### Discovery & read
 
 | MCP tool | CLI command |
 |---|---|
-| `search` / `search_any` | `d365fo search any <q>` |
+| `search` | `d365fo search any <q>` |
 | `batch_search` | `d365fo search batch <q1> <q2> …` |
-| `get_*` family | `d365fo get <kind> <name>` or `d365fo get object <kind> <name>` |
-| `find_*` relation family | `d365fo find <relation> <name>` or `d365fo find related <relation> <name>` |
-| `get_table_details` | `d365fo get table <name>` *(+ indexes, methods, delete actions)* |
-| `get_edt_details` | `d365fo get edt <name>` |
-| `find_coc_extensions` | `d365fo find coc <Class>[::<method>]` |
-| `get_security_coverage_for_object` | `d365fo get security <obj> --type <kind>` |
+| `batch_get_info` | `d365fo get batch table:CustTable class:X …` (max 10) |
+| `search_extensions` | `d365fo find extensions <Target>` |
 | `search_labels` | `d365fo search label <q> --lang en-us,cs` |
-| `get_menu_item_details` | `d365fo get menu-item <name>` |
-| `get_table_relations` | `d365fo find relations <table>` |
-| `generate_smart_form` | `d365fo generate form <Name> --pattern <P>` |
+| `get_class_info` / `get_table_info` / `get_edt_info` / `get_enum_info` / `get_form_info` / `get_query_info` / `get_view_info` / `get_report_info` / `get_data_entity_info` / `get_menu_item_info` | `d365fo get <kind> <name>` or `d365fo get object <kind> <name>` |
+| `get_table_extension_info` | `d365fo find extensions <Table> --kind Table` |
+| `get_method_signature` | `d365fo get class <Name>` (signatures included) |
+| `get_method_source` | `d365fo read class <Name> --method <M>` |
+| `get_label_info` | `d365fo get label` / `d365fo resolve label @SYS12345` |
+| `get_security_artifact_info` | `d365fo get role\|duty\|privilege <Name>` |
+| `get_security_coverage_for_object` | `d365fo get security <obj> --type <kind>` |
+| `find_coc_extensions` | `d365fo find coc <Class>[::<method>]` |
+| `find_event_handlers` | `d365fo find handlers <Target>` |
+| `find_references` / `resolve_references` | `d365fo find refs <Name>` / `d365fo validate references --file <F>` |
+| `get_workspace_info` | `d365fo doctor` + `d365fo index status` (incl. stale-index detection) |
+
+### Grounded generation & gates
+
+| MCP tool | CLI command |
+|---|---|
+| `prepare_change` | `d365fo prepare change <Object> --method <M> --goal "…"` → grounding token |
+| `prepare_create` | `d365fo prepare create <Name> --type <T> --goal "…"` → grounding token |
+| `validate_xpp` | `d365fo validate xpp [FILE]` (offline BP rules, data-driven property stats) |
+| `validate_object_naming` | `d365fo validate name <KIND> <NAME>` |
+| `validate_form_pattern` | `d365fo validate form-pattern [FILE]` (FP001–FP010) |
+| `get_form_patterns` | `d365fo find form-patterns [--pattern\|--table\|--similar-to]` |
+| `get_form_pattern_spec` | `d365fo get form-pattern [NAME]` |
+| `get_table_patterns` | `d365fo generate table --pattern <P>` (P1 patterns built in) |
+| `recommend_extension_strategy` / `analyze_extension_points` | `d365fo suggest extension <Target>` |
+| `suggest_edt` | `d365fo suggest edt <FieldName>` |
+| `analyze_class_completeness` | `d365fo analyze completeness` |
+
+### Writes
+
+| MCP tool | CLI command |
+|---|---|
+| `create_d365fo_file` / `generate_d365fo_xml` / `generate_code` | `d365fo generate <kind> … --install-to <Model>` |
+| `generate_smart_table` | `d365fo generate table <Name> --pattern <P> --field …` |
+| `generate_smart_form` | `d365fo generate form <Name> --pattern <P>` (pattern-gated write) |
+| `generate_smart_report` | `d365fo generate report <Name> --dataset …` |
+| `modify_d365fo_file` | targeted editor edit of CDATA method bodies + `d365fo index refresh`; structural changes via `generate … --overwrite` |
+| `undo_last_modification` | `.bak` backups written by every overwrite + `git checkout` |
+| `create_label` / `rename_label` | `d365fo label create\|rename\|delete` (multi-language via `--lang`) |
+| `review_workspace_changes` | `d365fo review diff` |
+| `update_symbol_index` | `d365fo index refresh [--model <M>]` |
+
+### Ops (Windows VM)
+
+| MCP tool | CLI command |
+|---|---|
+| `build_d365fo_project` / `verify_d365fo_project` | `d365fo build` (structured `xppcDiagnostics`) |
+| `trigger_db_sync` | `d365fo sync` |
+| `run_bp_check` | `d365fo bp check` (offline subset: `d365fo validate xpp`) |
+| `run_systest_class` | `d365fo test run --suite <S>` |
+
+### Knowledge tools → Skills
+
+| MCP tool | CLI equivalent |
+|---|---|
+| `get_xpp_knowledge` | 19 lazy-loaded Skills (`skills/anthropic/`, `skills/copilot/`) — X++ rule canon loaded only when relevant |
+| `get_d365fo_error_help` | `xpp-best-practice-rules` skill + `d365fo validate xpp` diagnostics with `fix` hints |
+| `get_api_usage_patterns` / `analyze_code_patterns` | `xpp-database-queries`, `x++-class-authoring`, … skills + `d365fo find refs` |
+| `suggest_method_implementation` / `code_completion` | covered by the host agent grounded via `prepare change` + `read class` |
 
 ### CLI-only commands (no MCP equivalent)
 
 | Command | Purpose |
 |---|---|
-| `d365fo schema [--full]` | Agent manifest or full catalog of CLI commands |
-| `d365fo search query\|view\|entity\|report\|service\|workflow` | Index queries, views, data entities, SSRS reports, services, workflows |
-| `d365fo get form\|role\|duty\|privilege\|query\|view\|entity\|report\|service\|service-group` | Object details for the given type |
-| `d365fo find extensions <Target>` | Table / Form / Edt / Enum extensions on the given object |
-| `d365fo find handlers <Source>` | Event subscribers for a form / table / delegate |
-| `d365fo resolve label @SYS12345 [--lang …]` | Resolve a `@File+Key` token across indexed languages |
-| `d365fo read class\|table\|form <Name> [--method X]` | Read X++ source code from AOT XML |
-| `d365fo models list` / `d365fo models deps <Name>` | List models or their dependency graph |
-| `d365fo generate table\|class\|coc\|form\|entity\|extension\|event-handler\|privilege\|duty\|role` | Scaffold a new AOT XML object |
-| `d365fo review diff` | AOT-semantic diff of git changes |
-| `d365fo build` / `sync` / `test run` / `bp check` | MSBuild / SyncEngine / SysTestRunner / xppbp (Windows + VM) |
+| `d365fo schema [--full]` / `d365fo agent-prompt` | Agent manifest / system prompt for any harness |
+| `d365fo analyze integration\|impact`, `report-integrations` | OData/DMF readiness, change-impact, integration surface report |
+| `d365fo models coupling` | Fan-in/fan-out/instability/cycles over model dependencies |
+| `d365fo index export\|import\|optimize\|history` | Index snapshots for CI caching, VACUUM, extraction telemetry |
+| `d365fo daemon start\|status\|stop\|warmup` | Warm-cache IPC server with AOT file watcher |
+| `d365fo lint`, `d365fo stats`, `d365fo find batch-jobs` | Index-wide BP gate, aggregate counters, batch-job inventory |
+| `d365fo completion` | Shell tab-completion (bash, zsh, powershell) |
 
 ---
 

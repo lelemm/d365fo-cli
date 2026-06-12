@@ -44,6 +44,30 @@ d365fo find form-patterns --similar-to CustGroup       # same pattern + datasour
 
 Use before `generate form` to confirm the right pattern.
 
+#### `get form-pattern` — pattern spec catalog
+
+```sh
+d365fo get form-pattern --output json                  # list all patterns + sub-patterns
+d365fo get form-pattern DetailsMaster --output json    # full structural spec
+d365fo get form-pattern FieldsFieldGroups --output json  # container sub-pattern spec
+```
+
+Returns the machine-readable spec the form-pattern validator enforces: required
+structure tree (control types, occurrence, order), known `PatternVersion`s,
+when-to-use criteria, Microsoft reference forms, and lifecycle guidance.
+Pure catalog data — needs no index. Free-text aliases (`master`, `toc`,
+`transaction`, …) resolve to the canonical pattern.
+
+### `get batch` — several objects in one call
+
+```sh
+d365fo get batch table:CustTable class:CustTableType edt:CustAccount --output json
+```
+
+Up to 10 `<kind>:<name>` specs per call. Each item carries its own `ok`/`error`
+— one failed lookup never fails the batch. Replaces the MCP server's
+`batch_get_info` and collapses N `get object` round-trips into one process.
+
 ### `resolve label` — look up a label token
 
 ```sh
@@ -246,6 +270,22 @@ d365fo generate form FmVehicleDetails \
 | `Workspace` | KPI tiles + panorama |
 
 `--field` (repeatable) — grid/detail columns. `--section Name:Caption` — tabs / panorama sections. `--lines-table <TABLE>` — secondary datasource for `DetailsTransaction`.
+
+**Pattern gate:** before writing, `generate form` validates the generated XML
+against the form-pattern catalog (rules FP001–FP010). Structural violations
+block the write while `D365FO_FORM_PATTERN_ENFORCE=true` (default); the JSON
+summary carries a `patternCheck` block and any recommendations as `warnings`.
+
+#### `validate form-pattern` — re-check any form XML
+
+```sh
+d365fo validate form-pattern src/MyModel/AxForm/FmVehicleDetails.xml --output json
+cat FmVehicles.xml | d365fo validate form-pattern        # stdin works too
+```
+
+Exit codes: `0` clean (or warnings only), `2` structural errors. Run after any
+hand edit of form XML; `d365fo get form-pattern <P>` shows the required tree
+when a violation needs fixing.
 
 ### Data entity (`AxDataEntityView`)
 

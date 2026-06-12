@@ -132,6 +132,52 @@ Use `--category <name>[,<name>…]` to run specific rules. `--format sarif` emit
 
 ---
 
+## Form pattern engine
+
+`D365FO.Core.FormPatterns` ports the MCP server's form pattern engine: a
+data-driven catalog of Microsoft form patterns plus a pure structural validator.
+
+**Catalog** (`FormPatternCatalog`): 18 top-level patterns (SimpleList,
+SimpleListDetails, DetailsMaster ±Tabs, DetailsTransaction, Dialog, DropDialog,
+TableOfContents, Lookup, ListPage, Workspace ±Operational, Form Part / FactBox
+variants, Simple Details, legacy Task patterns, Wizard) and 19 container
+sub-patterns (FieldsFieldGroups, CustomAndQuickFilters, SidePanel,
+ToolbarAndList, workspace sections, …). Each spec encodes what the Visual
+Studio pattern engine enforces — required containers, ordering, allowed child
+control types, applicable sub-patterns, expected properties, known
+`PatternVersion`s — as data, sourced from Microsoft Learn guideline docs and
+reference forms.
+
+**Validator** (`FormPatternValidator`, rules FP001–FP010):
+
+| Rule | Severity | What it finds |
+|---|---|---|
+| `FP001` | error | Unknown `<Pattern>` on Design / unknown sub-pattern on a container |
+| `FP002` | error / warning | Unknown `PatternVersion` (error); older or newer-than-catalog version (warning) |
+| `FP003` | error | Required node missing (e.g. SimpleList without a Grid) |
+| `FP004` | error | Child control type not allowed in a patterned container |
+| `FP005` | error | Required children out of order (e.g. Grid before ActionPane) |
+| `FP006` | warning | Container that requires a sub-pattern has none ("unspecified") |
+| `FP007` | error | Sub-pattern applied to an unsupported control type / parent pattern |
+| `FP008` | warning | Datasource expectation unmet (count / header+lines) |
+| `FP009` | warning | Design/control property differs from the pattern default |
+| `FP010` | warning | No `<Pattern>` declared on Design at all |
+
+Only structural rules (FP001–FP005, FP007) are errors and may block writes;
+the rest are recommendations. The `Design` walker is namespace-agnostic
+(AxForm XML mixes the `Microsoft.Dynamics.AX.Metadata.V6` default namespace
+with `xmlns=""` resets) and resolves extension controls (QuickFilter) via
+`FormControlExtension/Name`.
+
+**Write gate:** `generate form` (CLI and MCP adapter) self-tests the generated
+XML and fails with `FORM_PATTERN_VIOLATION` on structural errors while
+`D365FO_FORM_PATTERN_ENFORCE=true` (default). A golden-gate test asserts every
+template the scaffolder emits passes its declared pattern. Surface commands:
+`get form-pattern` (spec catalog), `validate form-pattern` (file/stdin,
+exit 2 on errors).
+
+---
+
 ## Metadata Bridge
 
 `D365FO.Bridge` is a .NET Framework 4.8 child process that loads D365FO's own `IMetadataProvider`. The CLI spawns it on demand over stdio JSON-RPC. Activate with `D365FO_BRIDGE_ENABLED=1`.

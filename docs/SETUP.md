@@ -1,22 +1,49 @@
 # Setup
 
-> **TL;DR** — clone, build, set three env vars, run `d365fo index build && d365fo index extract`. That's it.
+Five steps from a fresh clone to a working index that any AI agent can query.
 
-For command examples jump to [EXAMPLES.md](EXAMPLES.md).
-
----
-
-## Prerequisites
-
-**All platforms:** .NET SDK 10 (pinned by `global.json`), `git` (for `review diff`).
-
-**Windows D365FO VM** *(only for `build` / `sync` / `test` / `bp`):* VS 2022/2026 with the D365FO developer tools + `MSBuild.exe`, `SyncEngine.exe`, `SysTestRunner.exe`, `xppbp.exe` on `PATH`. Off-Windows these commands return `UNSUPPORTED_PLATFORM`; everything else works.
+> **TL;DR** — install .NET 10 · build the CLI · `d365fo init --persist-profile` · `d365fo index extract` · point your AI agent at it. Done.
+> Day-to-day commands: [EXAMPLES.md](EXAMPLES.md) · env vars: [CONFIGURATION.md](CONFIGURATION.md) · architecture: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
-## 1. Install
+## Choosing your install path
 
-### Option A — Dev mode (your own machine, recommended)
+```mermaid
+flowchart TD
+    Q1{Working on a<br/>Windows D365FO VM?}
+    Q1 -->|yes — VS 2022 or UDE| A[<b>A · Windows VM</b><br/>all commands incl. build/sync/test/bp]
+    Q1 -->|no — macOS / Linux / CI| B[<b>B · Off-platform</b><br/>read · search · scaffold only]
+    A --> Q2{UDE / dual<br/>PackagesLocalDirectory?}
+    Q2 -->|yes| AU[set <b>D365FO_CUSTOM_PACKAGES_PATH</b><br/>too]
+    Q2 -->|no| Anow[single <b>D365FO_PACKAGES_PATH</b>]
+```
+
+| Scenario | Index | Read / search / scaffold | `build` / `sync` / `test` / `bp` | Bridge writes |
+|---|:---:|:---:|:---:|:---:|
+| **A** · Windows D365FO VM | ✅ local SQLite | ✅ | ✅ | ✅ |
+| **A-UDE** · UDE dual roots | ✅ local SQLite | ✅ | ✅ | ✅ |
+| **B** · Off-platform (mac/Linux/CI) | ✅ local SQLite (extracted from a network share or imported) | ✅ | ❌ `UNSUPPORTED_PLATFORM` | ❌ |
+
+---
+
+## Step 1 — Prerequisites
+
+| Component | Version | Needed for |
+|---|---|---|
+| .NET SDK | **10** (pinned in `global.json`) | building / running the CLI |
+| `git` | any | `d365fo review diff` |
+| Visual Studio 2022 / 2026 + Dynamics 365 F&O workload | latest | scenario A — `MSBuild.exe`, `SyncEngine.exe`, `SysTestRunner.exe`, `xppbp.exe` on `PATH` |
+| GitHub Copilot extension | latest | VS agent mode (optional) |
+| .NET Framework 4.8 Developer Pack | 4.8 | bridge (`D365FO_BRIDGE_ENABLED=1`) — pre-installed on D365FO VMs |
+
+> Off-platform setups (B) only need .NET 10 + git. Everything else is gated by `UNSUPPORTED_PLATFORM` and never invoked.
+
+---
+
+## Step 2 — Install
+
+### Option 1 — Dev mode (alias, fastest)
 
 ```sh
 git clone https://github.com/dynamics365ninja/d365fo-cli.git
@@ -24,19 +51,19 @@ cd d365fo-cli
 dotnet build d365fo-cli.slnx -c Release
 ```
 
-Add to your shell profile and you're done — every invocation rebuilds automatically on source changes:
+Alias once, never rebuild manually again:
 
 ```sh
-# bash / zsh (~/.zshrc or ~/.bashrc)
+# bash / zsh — ~/.zshrc or ~/.bashrc
 alias d365fo='dotnet run --project /path/to/d365fo-cli/src/D365FO.Cli --'
 ```
 
 ```powershell
-# PowerShell ($PROFILE)
+# PowerShell — $PROFILE
 function d365fo { dotnet run --project C:\path\to\d365fo-cli\src\D365FO.Cli -- @args }
 ```
 
-### Option B — Standalone binary (CI, shared VMs, no SDK)
+### Option 2 — Self-contained binary (CI, shared VMs)
 
 ```sh
 # Windows
@@ -48,30 +75,32 @@ dotnet publish src/D365FO.Cli -c Release -r osx-arm64 --self-contained \
   -p:PublishSingleFile=true -p:PublishTrimmed=true
 ```
 
-Supported RIDs: `win-x64`, `linux-x64`, `osx-x64`, `osx-arm64`. Output lands in `src/D365FO.Cli/bin/Release/net10.0/<rid>/publish/`. Rename to `d365fo` (`d365fo.exe` on Windows) and put it on `PATH`.
-
-> Drop `--self-contained` if the target machine already has .NET 10 — output shrinks from ~70 MB to a few MB.
+Supported RIDs: `win-x64`, `linux-x64`, `osx-x64`, `osx-arm64`. Output lands in `src/D365FO.Cli/bin/Release/net10.0/<rid>/publish/`. Rename to `d365fo` (`d365fo.exe` on Windows) and put it on `PATH`. Drop `--self-contained` if .NET 10 is already installed — output shrinks from ~70 MB to a few MB.
 
 ---
 
-## 2. First-time setup
+## Step 3 — Configure (one command)
 
-### Step 1 — Set env vars
+```powershell
+d365fo init --packages K:\AosService\PackagesLocalDirectory --persist-profile
+```
 
-Three variables matter before you run `index extract`. Set them in your shell profile so they survive restarts.
+`init` writes both the JSON config (`%LOCALAPPDATA%\d365fo-cli\settings.json`) **and** every `$PROFILE` it finds (Windows PowerShell 5.1, PowerShell 7, VS Developer PowerShell). Subsequent shells inherit the settings automatically; you never have to remember which `$PROFILE` you edited.
 
-| Variable | Purpose | Notes |
-|---|---|---|
-| `D365FO_PACKAGES_PATH` | Primary root of `PackagesLocalDirectory` | **Required** for indexing |
-| `D365FO_CUSTOM_PACKAGES_PATH` | Additional `PackagesLocalDirectory` root(s) | Optional. Semicolon- or comma-separated. UDE setups typically need this — see [UDE setup](#ude-unified-developer-experience-setup) below. |
-| `D365FO_LABEL_LANGUAGES` | Languages to extract (e.g. `en-us,cs`) | Default: `en-us` only. **Directly controls index size** — each extra language adds significant data. Set this before the first extract. |
-| `D365FO_INDEX_DB` | Path to the SQLite index | Defaults to `%LOCALAPPDATA%\d365fo-cli\d365fo-index.sqlite` (`~/.local/share/…` on Linux/macOS) |
+**UDE / dual packages roots:**
 
-All other variables (`D365FO_CUSTOM_MODELS`, `D365FO_BRIDGE_*`, `D365FO_WORKSPACE_PATH`, `D365FO_XREF_CONNECTIONSTRING`) are optional — see [CONFIGURATION.md](CONFIGURATION.md) for details.
+```powershell
+d365fo init `
+  --packages       K:\AosService\PackagesLocalDirectory `
+  --extra-packages C:\LocalMetadata\PackagesLocalDirectory `
+  --persist-profile
+```
 
-> **Tip — JSON config file (recommended, shell-agnostic):** `d365fo` reads settings from a JSON config file at `%LOCALAPPDATA%\d365fo-cli\settings.json` (environment variables always take priority). Running `d365fo init --persist-profile` writes this file automatically. Because it is not tied to any shell profile, it works identically in **Windows PowerShell 5.1, PowerShell 7, VS Developer PowerShell**, and any other host. See [CONFIGURATION.md](CONFIGURATION.md).
+`--extra-packages` is repeatable. Missing extra roots are silently skipped (the primary root still errors if absent). Multiple extra roots can also be supplied as one semicolon-separated `D365FO_CUSTOM_PACKAGES_PATH` value.
 
-#### Visual Studio Developer PowerShell — common pitfall
+> **Manual override** — bypass `init` and set env vars yourself if you prefer. The minimum is `D365FO_PACKAGES_PATH`; see [CONFIGURATION.md](CONFIGURATION.md) for the full list. Env vars always win over the JSON config.
+
+### Visual Studio Developer PowerShell pitfall
 
 VS Developer PowerShell is **Windows PowerShell 5.1** (`powershell.exe`), which reads a different `$PROFILE` than PowerShell 7 (`pwsh.exe`):
 
@@ -80,95 +109,114 @@ VS Developer PowerShell is **Windows PowerShell 5.1** (`powershell.exe`), which 
 | Windows PowerShell 5.1 / VS Developer PowerShell | `%USERPROFILE%\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1` |
 | PowerShell 7+ (`pwsh`) | `%USERPROFILE%\Documents\PowerShell\Microsoft.PowerShell_profile.ps1` |
 
-If you set env vars only in one profile they will not be visible in the other. The recommended fix is to use the JSON config file:
+`d365fo init --persist-profile` writes to **both** profile files plus the JSON config, so the same settings apply everywhere. If you still see disagreements between hosts, the JSON config is authoritative.
 
-```powershell
-d365fo init --packages K:\AosService\PackagesLocalDirectory --persist-profile
-```
+---
 
-If you use UDE dual roots, include extra packages during init so `D365FO_CUSTOM_PACKAGES_PATH` is persisted too:
-
-```powershell
-d365fo init --packages K:\AosService\PackagesLocalDirectory --extra-packages C:\LocalMetadata\PackagesLocalDirectory --persist-profile
-```
-
-`--persist-profile` now writes **both** profile files and the shell-agnostic JSON config at the same time, so all shell hosts pick up the settings without manual duplication.
-
-Alternatively, set variables as **system-level** (machine-scope) env vars in Windows System Properties — those are inherited by every process:
-
-```powershell
-[System.Environment]::SetEnvironmentVariable(
-    "D365FO_PACKAGES_PATH",
-    "K:\AosService\PackagesLocalDirectory",
-    [System.EnvironmentVariableTarget]::Machine)
-```
-
-### UDE (Unified Developer Experience) setup
-
-The UDE developer topology provides **two separate `PackagesLocalDirectory` folders**:
-
-| Folder | Contents |
-|---|---|
-| Shared / UDE drive (e.g. `K:\AosService\PackagesLocalDirectory`) | Standard Microsoft metadata (ApplicationSuite, Foundation, …) |
-| Local laptop folder (e.g. `C:\LocalMetadata\PackagesLocalDirectory`) | Your custom model XML (edited in VS 2022 locally) |
-
-Visual Studio merges both transparently, but `d365fo-cli` needs to know about both to build a complete index.
-
-**PowerShell (one session):**
-
-```powershell
-$env:D365FO_PACKAGES_PATH         = 'K:\AosService\PackagesLocalDirectory'
-$env:D365FO_CUSTOM_PACKAGES_PATH   = 'C:\LocalMetadata\PackagesLocalDirectory'
-d365fo index extract
-```
-
-**Persist in `$PROFILE`:**
-
-```powershell
-Add-Content -Path $PROFILE -Value @"
-
-# d365fo-cli — UDE dual-packages config
-`$env:D365FO_PACKAGES_PATH         = 'K:\AosService\PackagesLocalDirectory'
-`$env:D365FO_CUSTOM_PACKAGES_PATH   = 'C:\LocalMetadata\PackagesLocalDirectory'
-"@
-. $PROFILE
-```
-
-**CLI flags (one-shot, no env vars):**
-
-```powershell
-d365fo index extract `
-    --packages       K:\AosService\PackagesLocalDirectory `
-    --extra-packages C:\LocalMetadata\PackagesLocalDirectory
-```
-
-> `--extra-packages` is repeatable. Multiple extra roots can also be given as a single semicolon-separated string in `D365FO_CUSTOM_PACKAGES_PATH`. Missing extra roots are silently skipped (the primary root still produces an error if absent). Duplicate model directories across roots are deduplicated automatically.
-
-`d365fo index refresh` supports the same `--extra-packages` / `D365FO_CUSTOM_PACKAGES_PATH` mechanism.
-
-### Step 2 — Build and populate the index
+## Step 4 — Build the index
 
 ```sh
 d365fo index build      # create / migrate the SQLite schema
-d365fo index extract    # ingest metadata from PACKAGES_PATH
+d365fo index extract    # ingest metadata from PACKAGES_PATH (idempotent)
 d365fo doctor           # confirm everything is green
 ```
 
-`index extract` is idempotent — safe to re-run any time, replaces rows per model. Scope it to save time:
+`index extract` is idempotent (re-runs replace rows per model). Scope it to save time:
 
 ```sh
-d365fo index extract --model MyCustomModel   # seconds
-d365fo index extract --model ApplicationSuite  # minutes, parallelised per file
+d365fo index extract --model MyCustomModel       # seconds
+d365fo index extract --model ApplicationSuite    # minutes — parallelised per file
 ```
 
-### Step 3 — Quickstart scripts
+| When to refresh | Command |
+|---|---|
+| You edited XML in a custom model | `d365fo index refresh --model <Model>` |
+| New PU / hotfix metadata landed | `d365fo index extract` (re-runs only changed models) |
+| `git pull` brought a new schema | `d365fo index build` (in-place migration) |
+| Results look stale or wrong | `d365fo doctor` → `d365fo index status` |
+
+Or run the daemon and forget about it — `d365fo daemon start` keeps the SQLite handle hot and auto-refreshes on `*.xml` changes (3 s debounce, disable with `--no-watch`).
+
+---
+
+## Step 5 — Connect your AI agent
+
+```mermaid
+flowchart LR
+    Cop["GitHub Copilot<br/>VS 2022/2026 · VS Code"] -->|.github/instructions/| Bin
+    Cla["Claude Code<br/>CLI · VS Code ext."]     -->|skills/anthropic/| Bin
+    Other["Codex · Gemini · Cursor"]              -->|AGENTS.md| Bin
+    Mcp["Claude Desktop · Continue<br/>(MCP host)"] -->|JSON-RPC stdio| Mbin["d365fo-mcp"]
+    Bin["<b>d365fo</b> (shell tool)"] --> Idx[("SQLite<br/>+ optional bridge")]
+    Mbin --> Idx
+```
+
+### GitHub Copilot — Visual Studio 2022 / 2026 / VS Code (agent mode)
+
+1. Place `d365fo` on `PATH` (either Option 1 alias or Option 2 binary above).
+2. Deploy the Skills into a parent folder of your X++ solutions:
+
+   ```powershell
+   .\scripts\Install-D365FoCopilotSkills.ps1 `
+     -CliRepo C:\source\d365fo-cli `
+     -XppRepo K:\D365FO\MyProject
+   ```
+
+   The script copies `.github/copilot-instructions.md` and all `skills/copilot/*.instructions.md` files. One copy in a common parent covers every solution beneath it — VS searches upward from the `.sln`.
+3. **Agent mode (recommended).** Open Copilot Chat → mode dropdown (top-right) → **Agent**. Copilot now calls `d365fo` directly via its terminal tool — no copy-paste.
+4. **Chat mode (fallback).** Without agent tools, Copilot asks you to run `d365fo` commands in Developer PowerShell and paste the JSON back. The Skills teach Copilot to ask first — if it skips that step the `.github/copilot-instructions.md` file is missing from the parent folder.
+
+> ⚠️ **Never** use `@workspace` or built-in code search on AOT XML. It always fails. Copilot must use `d365fo` exclusively for codebase queries; the Skills enforce this.
+
+### Claude Code (CLI or VS Code extension)
+
+```sh
+python3 scripts/emit-skills.py                            # emits skills/anthropic/*/SKILL.md
+cp -r skills/anthropic /your-repo/.claude/skills
+```
+
+Anthropic SKILL.md files load on demand — Claude reads the YAML frontmatter first and only pulls the full instruction when relevant.
+
+### Codex · Gemini · Cursor · any agent with a shell
+
+Reference the `skills/anthropic/*/SKILL.md` files from your session prompt or `AGENTS.md`. The body of each skill teaches the agent which `d365fo` commands to run for that task.
+
+### MCP hosts (Claude Desktop, Continue, VS Code MCP)
+
+```json
+{
+  "mcpServers": {
+    "d365fo": {
+      "command": "d365fo-mcp",
+      "args": [],
+      "env": { "D365FO_PACKAGES_PATH": "K:\\AosService\\PackagesLocalDirectory" }
+    }
+  }
+}
+```
+
+`d365fo-mcp` is the bundled JSON-RPC 2.0 adapter that exposes ~55 tools backed by the same SQLite index and bridge. Useful for hosts without a shell tool — see [ARCHITECTURE.md#mcp-coexistence](ARCHITECTURE.md#mcp-coexistence).
+
+### Verify
+
+Open the AI chat and ask:
+
+```
+What tables contain "CustAccount" field?
+```
+
+A `d365fo search` call returning results from your codebase = you are connected.
+
+---
+
+## Quickstart scripts
 
 Copy-paste to go from a fresh clone to a working index in one shot.
 
-**PowerShell:**
+### PowerShell (Windows D365FO VM)
 
 ```powershell
-# Edit these three lines, then run the rest as-is.
+# Edit the first three lines, then run the rest as-is.
 $Repo  = "C:\source\d365fo-cli"
 $Pkg   = "K:\AosService\PackagesLocalDirectory"
 $Langs = "en-us"          # add languages you actually use, e.g. "en-us,cs,de"
@@ -178,30 +226,24 @@ Push-Location $Repo
 dotnet build d365fo-cli.slnx -c Release
 Pop-Location
 
-# 2. Persist function + env in $PROFILE
-Add-Content -Path $PROFILE -Value @"
-
-# d365fo-cli
-function d365fo { dotnet run --project $Repo\src\D365FO.Cli -- @args }
-`$env:D365FO_PACKAGES_PATH   = "$Pkg"
-`$env:D365FO_LABEL_LANGUAGES = "$Langs"
-`$env:D365FO_INDEX_DB        = "`$env:LOCALAPPDATA\d365fo-cli\index.sqlite"
-"@
+# 2. Alias + env + JSON config in one shot
+Add-Content -Path $PROFILE -Value "function d365fo { dotnet run --project $Repo\src\D365FO.Cli -- @args }"
+Add-Content -Path $PROFILE -Value "`$env:D365FO_LABEL_LANGUAGES = '$Langs'"
 . $PROFILE
+d365fo init --packages $Pkg --persist-profile
 
-# 3. Build the index
+# 3. Populate the index
 d365fo index build
 d365fo index extract
 d365fo doctor
 ```
 
-**bash / zsh:**
+### bash / zsh (macOS / Linux)
 
 ```sh
-# Edit these three lines, then run the rest as-is.
 REPO=$HOME/source/d365fo-cli
 PKG=/mnt/d365fo/PackagesLocalDirectory
-LANGS="en-us"   # add languages you actually use, e.g. "en-us,cs,de"
+LANGS="en-us"
 
 cd "$REPO" && dotnet build d365fo-cli.slnx -c Release
 
@@ -209,239 +251,14 @@ cd "$REPO" && dotnet build d365fo-cli.slnx -c Release
   echo ""
   echo "# d365fo-cli"
   echo "alias d365fo='dotnet run --project $REPO/src/D365FO.Cli --'"
-  echo "export D365FO_PACKAGES_PATH=\"$PKG\""
   echo "export D365FO_LABEL_LANGUAGES=\"$LANGS\""
-  echo "export D365FO_INDEX_DB=\"\$HOME/.d365fo/index.sqlite\""
 } >> "$HOME/.zshrc"
 source "$HOME/.zshrc"
 
-mkdir -p "$HOME/.d365fo"
+d365fo init --packages "$PKG" --persist-profile
 d365fo index build
 d365fo index extract
 d365fo doctor
-```
-
-> A first-class `d365fo init` command is available — see [SETUP.md #2 First-time setup](#2-first-time-setup) for usage.
-
----
-
-## 3. Day-to-day maintenance
-
-| Situation | Command |
-|---|---|
-| You edited XML in a custom model | `d365fo index refresh --model <Model>` |
-| New PU / hotfix metadata landed | `d365fo index extract` (re-runs only changed models) |
-| `git pull` changed the index schema | `d365fo index build` (migrates in place, safe to re-run) |
-| Results look stale or wrong | `d365fo doctor` → `d365fo index status` |
-
----
-
-## 4. Visual Studio integration
-
-Wires up `d365fo` as a Tools menu shortcut and deploys the Copilot Skills to your X++ project so Copilot has the full X++ rule canon in scope.
-
-### Prerequisites
-
-- Visual Studio 2022 or 2026 with the **Dynamics 365 Finance and Operations** workload installed.
-- [GitHub Copilot extension](https://marketplace.visualstudio.com/items?itemName=GitHub.copilotvs) installed in Visual Studio (supports VS 2022 17.10+ and VS 2026).
-- `d365fo` reachable on `PATH` (Option A alias or Option B binary from section 1 above).
-
-### Register `d365fo` as an External Tool
-
-External Tools let you run any CLI command from the **Tools** menu without leaving Visual Studio.
-
-1. Open **Tools → External Tools…**
-2. Click **Add** and fill in:
-
-   | Field | Value |
-   |---|---|
-   | Title | `d365fo: index status` |
-   | Command | `d365fo` |
-   | Arguments | `index status --output json` |
-   | Initial directory | `$(SolutionDir)` |
-   | ☑ Use Output window | checked |
-
-3. Repeat for any commands you want one-click access to (e.g. `index refresh --model $(ProjectName)`, `lint --output json`).
-4. Click **OK**.
-
-> **Tip.** Add a second entry with **Arguments** = `doctor --output json` to run a health check straight from the menu.
-
-### How Copilot works in Visual Studio and VS Code
-
-In **agent mode** Copilot has a terminal tool and executes `d365fo` commands autonomously — the Skills in `.github/instructions/` tell it exactly what to run and in what order. No copy-paste required.
-
-| Environment | How Copilot runs d365fo | Token cost |
-|---|---|---|
-| **VS 2022 / VS 2026 agent mode** | Built-in terminal tool → `d365fo` CLI | ~100 tokens |
-| **VS Code agent mode** | `run_in_terminal` → `d365fo` CLI | ~100 tokens |
-| **VS Chat mode** (no agent tools) | Asks user to run commands, pastes JSON | collaborative |
-
-To activate agent mode in Visual Studio: open the Copilot Chat pane, click the mode dropdown (top-right), and select **Agent**. No additional configuration is needed — `d365fo` must simply be on `PATH`.
-
-> ⚠️ **Never** use the built-in VS code search or `@workspace` on an X++ / AOT project. It always fails on AOT XML files. Copilot must use `d365fo` commands exclusively for all codebase queries.
-
-#### Agent mode — example session ("Add a new table")
-
-1. **You ask** in Copilot Chat (agent mode):
-   ```
-   Add a new table MyVendorRating to model MyCustomModel with fields VendAccount (string), Rating (int), RatingDate (date).
-   ```
-
-2. **Copilot** runs pre-flight checks autonomously:
-   ```sh
-   d365fo doctor --output json
-   d365fo models list --output json
-   ```
-
-3. **Copilot** confirms the index is healthy and model exists, then scaffolds directly:
-   ```sh
-   d365fo generate table MyVendorRating --install-to MyCustomModel \
-     --field "VendAccount:VendAccountNum" --field "Rating:int" --field "RatingDate:date" \
-     --output json
-   d365fo index refresh --model MyCustomModel --output json
-   ```
-
-No copy-paste. The skill `table-scaffolding.instructions.md` guides the exact field/pattern choices.
-
-#### Chat mode — step-by-step workflow (no agent tools)
-
-When agent mode is not available the interaction is **collaborative**: Copilot tells you which `d365fo` commands to run, you run them in **Developer PowerShell**, and you paste the JSON output back.
-
-**Is Copilot smart enough to ask on its own?**  
-Yes — *if* `copilot-instructions.md` is deployed to your X++ project's `.github/` folder (via `Install-D365FoCopilotSkills.ps1`). If Copilot jumps straight to generating X++ code without requesting `d365fo` output first, the file is either missing or not being picked up — re-run the install script and restart Visual Studio.
-
-**Example (same task, chat mode):**
-
-1. **You ask:** `Add a new table MyVendorRating to model MyCustomModel …`
-
-2. **Copilot responds:**
-   ```
-   Please run these commands in Developer PowerShell and paste the output:
-
-   d365fo doctor --output json
-   d365fo models list --output json
-   ```
-
-3. **You run** them and paste the JSON.
-
-4. **Copilot** reviews the output, then asks:
-   ```
-   d365fo generate table MyVendorRating --install-to MyCustomModel --output json
-   ```
-
-5. **You run** it and paste back. Copilot confirms and tells you any follow-up steps.
-
-**Key principle:** you are the hands, Copilot is the brain. You never type `d365fo` commands unprompted — wait for Copilot to tell you exactly what to run.
-
-### Copy Skills and Copilot instructions to your X++ project
-
-GitHub Copilot in Visual Studio reads `.github/copilot-instructions.md` and `.github/instructions/*.instructions.md` from the root of your solution (repository). Deploying these files gives Copilot the full X++ rule canon — D365FO table/method names, CoC rules, BP rules, label rules — without burning context tokens.
-
-**Automated script** — run once per X++ project (re-run after `d365fo-cli` updates to pick up new Skills):
-
-```powershell
-# Install-D365FoCopilotSkills.ps1
-# Usage:
-#   .\Install-D365FoCopilotSkills.ps1 -CliRepo C:\source\d365fo-cli -XppRepo K:\D365FO\MyProject
-#
-# Parameters:
-#   -CliRepo   Path to your d365fo-cli clone (source of skills + copilot-instructions.md)
-#   -XppRepo   Root of your X++ project / solution repository (target)
-
-param(
-    [Parameter(Mandatory)][string] $CliRepo,
-    [Parameter(Mandatory)][string] $XppRepo
-)
-
-Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
-
-$src      = Join-Path $CliRepo 'skills\copilot'
-$canon    = Join-Path $CliRepo '.github\copilot-instructions.md'
-$dstRoot  = Join-Path $XppRepo '.github'
-$dstInstr = Join-Path $dstRoot 'instructions'
-
-# Create target directories if absent
-New-Item -ItemType Directory -Force -Path $dstRoot  | Out-Null
-New-Item -ItemType Directory -Force -Path $dstInstr | Out-Null
-
-# Copy the main X++ rule canon
-if (Test-Path $canon) {
-    Copy-Item -Path $canon -Destination $dstRoot -Force
-    Write-Host "[OK] copilot-instructions.md  →  $dstRoot"
-} else {
-    Write-Warning "copilot-instructions.md not found at: $canon"
-}
-
-# Copy all 15 Skills (.instructions.md)
-$skills = Get-ChildItem -Path $src -Filter '*.instructions.md'
-if ($skills.Count -eq 0) {
-    Write-Warning "No *.instructions.md files found in: $src"
-    Write-Warning "Run 'python scripts/emit-skills.py' in the d365fo-cli repo first."
-} else {
-    foreach ($f in $skills) {
-        Copy-Item -Path $f.FullName -Destination $dstInstr -Force
-        Write-Host "[OK] $($f.Name)  →  $dstInstr"
-    }
-}
-
-Write-Host ""
-Write-Host "Done. $($skills.Count) skill(s) + copilot-instructions.md deployed to $XppRepo"
-Write-Host "Restart Visual Studio (or reload the solution) to apply."
-```
-
-**Example invocation:**
-
-```powershell
-.\Install-D365FoCopilotSkills.ps1 `
-    -CliRepo  "C:\source\d365fo-cli" `
-    -XppRepo  "K:\D365FO\MyProject"
-```
-
-After the script runs your X++ repository will have:
-
-```
-.github/
-  copilot-instructions.md          ← full X++ / CoC / BP rule canon
-  instructions/
-    coc-extension-authoring.instructions.md
-    data-entity-scaffolding.instructions.md
-    event-handler-authoring.instructions.md
-    form-pattern-scaffolding.instructions.md
-    label-translation.instructions.md
-    model-dependency-and-coupling.instructions.md
-    object-extension-authoring.instructions.md
-    review-and-checkpoint-workflow.instructions.md
-    security-hierarchy-trace.instructions.md
-    table-scaffolding.instructions.md
-    x++-class-authoring.instructions.md
-    xpp-best-practice-rules.instructions.md
-    xpp-class-and-method-rules.instructions.md
-    xpp-database-queries.instructions.md
-    xpp-statement-and-type-rules.instructions.md
-```
-
-Commit these files so every developer on the project gets the same Copilot context automatically.
-
-### Keep Skills up to date
-
-When you pull a new version of `d365fo-cli`, re-emit the Skills and re-run the install script:
-
-```powershell
-# In the d365fo-cli clone
-cd C:\source\d365fo-cli
-git pull
-python scripts/emit-skills.py
-
-# Re-deploy to your X++ project
-.\Install-D365FoCopilotSkills.ps1 `
-    -CliRepo "C:\source\d365fo-cli" `
-    -XppRepo "K:\D365FO\MyProject"
-
-# Then commit the updated files in your X++ project
-cd K:\D365FO\MyProject
-git add .github/
-git commit -m "chore: update d365fo Copilot skills"
 ```
 
 ---
@@ -450,19 +267,27 @@ git commit -m "chore: update d365fo Copilot skills"
 
 | Symptom | Fix |
 |---|---|
-| `PACKAGES_PATH_NOT_FOUND` | Set `D365FO_PACKAGES_PATH` or pass `--packages <PATH>`. |
-| `UNSUPPORTED_PLATFORM` | `build` / `sync` / `test` / `bp` require Windows + a D365FO dev VM. Run them there. |
-| Index file appears locked | Stop any running `d365fo daemon` or `d365fo-mcp` process. WAL sidecar files (`-wal`, `-shm`) are normal. |
-| Copilot Chat in VS gives "There was an error executing code search" then generic X++ advice | VS Copilot Chat cannot search AOT XML (it always errors). The `.github/copilot-instructions.md` should prevent the code-search attempt — re-run `Install-D365FoCopilotSkills.ps1` to deploy the latest instructions. For full agent capabilities (auto-running `d365fo`), switch Copilot Chat to **Agent** mode (mode dropdown, top-right of the Chat pane). |
-| Extract missed a package | Confirm the `<root>/<Package>/<Model>/AxTable/…` layout and point `--packages` at the real `PackagesLocalDirectory`. |
-| Label values contain junk | `search label` / `get label` strip control characters by default — pass `--raw-text` to see the unfiltered value. |
-| Self-contained binary won't start on Linux | `chmod +x d365fo` after copying out of the publish folder. |
+| `PACKAGES_PATH_NOT_FOUND` | `d365fo init --packages <PATH> --persist-profile`, or set `D365FO_PACKAGES_PATH` manually |
+| `UNSUPPORTED_PLATFORM` | `build` / `sync` / `test` / `bp` require Windows + a D365FO dev VM. Everything else still works |
+| `NO_INDEX` | `d365fo index build && d365fo index extract` |
+| `stale-index` warning from `doctor` | `d365fo index refresh --model <Model>` (or just start the daemon) |
+| Copilot Chat says "There was an error executing code search" then writes generic X++ | VS Copilot Chat cannot search AOT XML — `.github/copilot-instructions.md` must be deployed in a parent folder. Re-run `Install-D365FoCopilotSkills.ps1` and restart VS. For full automation switch Copilot Chat to **Agent** mode |
+| Index file appears locked | Stop any running `d365fo daemon` or `d365fo-mcp` process; `-wal` / `-shm` sidecar files are normal |
+| Settings differ between Developer PowerShell and PowerShell 7 | Re-run `d365fo init --persist-profile` — it writes both profiles and the JSON config |
+| Self-contained binary won't start on Linux | `chmod +x d365fo` after copying out of the publish folder |
+| Label values contain control characters | `search label` / `get label` strip them by default — pass `--raw-text` for the unfiltered value |
+
+Full failure-mode catalogue: [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 ---
 
-## Next steps
+## What's next
 
-- [EXAMPLES.md](EXAMPLES.md) — one worked example per command.
-- [ARCHITECTURE.md](ARCHITECTURE.md) — index schema, guardrails, bridge.
-- [TOKEN_ECONOMICS.md](TOKEN_ECONOMICS.md) — why CLI + Skills beats MCP on token cost.
-- [MIGRATION_FROM_MCP.md](MIGRATION_FROM_MCP.md) — switching from `d365fo-mcp-server`.
+| Topic | Documentation |
+|---|---|
+| One worked example per command | [EXAMPLES.md](EXAMPLES.md) |
+| Every env var and config option | [CONFIGURATION.md](CONFIGURATION.md) |
+| Index schema, guardrails, bridge, daemon | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| Why CLI + Skills beats MCP on token cost | [TOKEN_ECONOMICS.md](TOKEN_ECONOMICS.md) |
+| Moving off `d365fo-mcp-server` | [MIGRATION_FROM_MCP.md](MIGRATION_FROM_MCP.md) |
+| Tool decision matrix (when to use `d365fo` vs built-in editor tools) | [CAPABILITIES.md](CAPABILITIES.md) |

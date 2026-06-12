@@ -21,6 +21,8 @@
 | `D365FO_CUSTOM_MODELS` | Comma-separated list of custom model names | — |
 | `D365FO_BRIDGE_*` | Bridge server connection settings (see ARCHITECTURE.md) | — |
 | `D365FO_XREF_CONNECTIONSTRING` | Cross-reference DB connection string | — |
+| `D365FO_GROUNDING_ENFORCE` | `true` = `generate` rejects writes without a valid grounding token or with unresolved references / BP errors | `false` (warn only) |
+| `D365FO_FORM_PATTERN_ENFORCE` | `false` = disable the form-pattern write gate; by default `generate form` rejects structural pattern violations (FP001–FP005, FP007) | `true` |
 
 ---
 

@@ -106,6 +106,9 @@ not invent a name.
 | Offline BP check of X++/XML | `d365fo validate xpp --file <F>` |
 | Class methods | `d365fo get class <Name> --output json` |
 | Table fields/indexes/relations | `d365fo get table <Name> --output json` |
+| Several objects in one call (max 10) | `d365fo get batch table:CustTable class:CustTableType --output json` |
+| Form pattern spec (required structure) | `d365fo get form-pattern <Pattern> --output json` |
+| Validate form XML vs its pattern | `d365fo validate form-pattern <F> --output json` |
 | Method body | `d365fo read class <Name> --method <M>` |
 | Existing CoC wrappers | `d365fo find coc <Class>::<method> --output json` |
 | Event handlers | `d365fo find handlers <Target> --output json` |
@@ -131,6 +134,12 @@ Form patterns: `SimpleList`, `SimpleListDetails`, `DetailsMaster`,
 `DetailsTransaction`, `Dialog`, `TableOfContents`, `Lookup`, `ListPage`,
 `Workspace`. Aliases (`master`, `transaction`, `toc`, `panorama`,
 `drop-dialog`, …) are normalised.
+
+Form writes are pattern-gated: `generate form` validates the result against
+the pattern catalog (FP001–FP010) and rejects structural violations while
+`D365FO_FORM_PATTERN_ENFORCE=true` (default). `d365fo get form-pattern <P>`
+shows the required tree; `d365fo validate form-pattern <file>` re-checks any
+hand-edited form XML (exit 2 = structural errors).
 
 ────────────────────────────────────────────────────────────────────────────
 ## ⚡ Token discipline

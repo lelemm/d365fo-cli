@@ -324,6 +324,42 @@ Exposes the same index and scaffolding surface as the CLI over the `ModelContext
 
 ---
 
+## When to use built-in editor tools vs. `d365fo`
+
+> Quick reference for developers and AI agents working in VS 2022 / VS Code.
+
+| Scenario | Built-in editor / terminal tools | `d365fo` CLI |
+|---|---|---|
+| Read class structure (methods, signatures) | ❌ `get_file` on XML — unreliable schema | ✅ `d365fo get class <Name> --output json` |
+| Read a method body (X++ source) | ❌ | ✅ `d365fo read class <Name> --method <M>` |
+| Inspect table fields / indexes / relations | ❌ `get_file` on AxTable XML — unreliable | ✅ `d365fo get table <Name> --output json` |
+| Inspect several objects at once | ❌ | ✅ `d365fo get batch table:CustTable class:CustTableType --output json` |
+| Search for a class / table / method | ❌ `code_search` / `file_search` — can't parse AOT XML schema, returns misleading snippets | ✅ `d365fo search class <query> --output json` |
+| Check for existing CoC wrappers | ❌ | ✅ `d365fo find coc <Class>::<method> --output json` |
+| Form pattern structure / requirements | ❌ | ✅ `d365fo get form-pattern <Pattern> --output json` |
+| Validate a form against its pattern | ❌ | ✅ `d365fo validate form-pattern <file> --output json` |
+| Create a new AOT object (class, table, form…) | ❌ `create_file` — wrong location, wrong XML schema | ✅ `d365fo generate class/table/form … --install-to <Model>` |
+| Modify existing AOT XML — targeted method body edit (inside CDATA) | ⚠️ `replace_string_in_file` / `multi_replace_string_in_file` — allowed for method bodies only; run `d365fo index refresh` after | ✅ `d365fo generate … --overwrite` for full-file replace |
+| Modify existing AOT XML — structural change (add field, index, relation…) | ❌ `replace_string_in_file` — corrupts XML structure | ✅ `d365fo generate extension … --overwrite` or VS AOT |
+| Search for a label | ❌ | ✅ `d365fo search label "<text>" --output json` |
+| Resolve a label key | ❌ | ✅ `d365fo resolve label @SYS12345 --lang en-us,cs` |
+| Trace security (Role → Duty → Privilege) | ❌ | ✅ `d365fo get security <Role> --type Role --output json` |
+| Run best-practice check | ❌ | ✅ `d365fo validate xpp <file>` (offline) or `d365fo bp check` (Windows VM, on user request) |
+| Inspect model dependencies | ❌ | ✅ `d365fo models deps <Name> --output json` |
+| Build / compile — check errors across workspace | ⚠️ `run_build` — on explicit user request only | ✅ `d365fo build` — **on explicit user request only** |
+| Get compilation errors for a specific file (fast) | ✅ `get_errors` — per-file, no full build needed | ➖ not available |
+| Navigate workspace structure (projects, file lists) | ✅ `get_projects_in_solution`, `get_files_in_project` | ➖ not needed |
+| Read / edit non-AOT files (PS scripts, docs, JSON config) | ✅ `get_file`, `replace_string_in_file`, `multi_replace_string_in_file` | ➖ not needed |
+| Git operations (commit, diff, branch) | ✅ `run_command_in_terminal` — `git …` | ➖ not needed |
+| Refresh index after editing XML | ❌ | ✅ `d365fo index refresh --model <Model>` |
+| Verify index health | ❌ | ✅ `d365fo doctor --output json` + `d365fo index status --output json` |
+
+**One-line rule:** if the file ends in `.xml` and is an AOT object → always `d365fo`. Everything else (config, scripts, docs) → standard editor tools.
+
+> ⛔ **When `d365fo` returns `ok: false`** — report the error to the user and stop. Metadata read from open XML files does **not** substitute for the CLI. Never fall back to PowerShell / Python scripts to write AOT XML: spawned processes hang forever in VS 2022 (no interactive terminal).
+
+---
+
 ## Relevant source files
 
 | Path | Purpose |
