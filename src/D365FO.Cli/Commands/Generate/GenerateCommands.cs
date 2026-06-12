@@ -399,6 +399,25 @@ internal static class GenerateFormImpl
             return RenderHelpers.Render(kind, ToolResult<object>.Fail("RENDER_FAILED", ex.Message));
         }
 
+        // Pre-write pattern self-test: structural violations (FP001-FP005, FP007)
+        // block the write while D365FO_FORM_PATTERN_ENFORCE=true (the default),
+        // mirroring the upstream MCP form-pattern write gate.
+        var patternReport = D365FO.Core.FormPatterns.FormPatternValidator.ValidateXml(xml);
+        var patternWarnings = patternReport.Violations
+            .Select(v => $"form-pattern {v.Rule} [{v.Severity}] {v.Path}: {v.Excerpt}")
+            .ToList();
+        if (patternReport.HasErrors && FormPatternGate.EnforcementEnabled)
+        {
+            var errors = patternReport.Violations.Where(v => v.Severity == "error")
+                .Select(v => $"{v.Rule} {v.Path}: {v.Excerpt} → {v.Fix}");
+            return RenderHelpers.Render(kind, ToolResult<object>.Fail(
+                "FORM_PATTERN_VIOLATION",
+                $"Generated form violates pattern {patternReport.Pattern} (D365FO_FORM_PATTERN_ENFORCE=true):\n" +
+                string.Join("\n", errors),
+                "Fix the structure (see `d365fo get form-pattern " + (patternReport.Pattern ?? "<pattern>") + "`), " +
+                "or set D365FO_FORM_PATTERN_ENFORCE=false to bypass the gate."));
+        }
+
         try
         {
             var res = ScaffoldFileWriter.Write(xml, outPath!, overwrite);
@@ -413,7 +432,13 @@ internal static class GenerateFormImpl
                 model        = installTo,
                 fieldCount   = fields.Count,
                 sectionCount = sectionSpecs.Count,
-            }));
+                patternCheck = new
+                {
+                    enforced = FormPatternGate.EnforcementEnabled,
+                    errors   = patternReport.ErrorCount,
+                    warnings = patternReport.WarningCount,
+                },
+            }, patternWarnings.Count > 0 ? patternWarnings : null));
         }
         catch (Exception ex)
         {

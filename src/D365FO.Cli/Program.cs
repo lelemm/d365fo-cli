@@ -70,6 +70,8 @@ app.Configure(cfg =>
         b.AddCommand<GetServiceCommand>("service").WithDescription("SOAP service: operations.");
         b.AddCommand<GetServiceGroupCommand>("service-group").WithDescription("Service group: members.");
         b.AddCommand<GetObjectCommand>("object").WithDescription("Generic get by kind/name for agent workflows.");
+        b.AddCommand<GetBatchCommand>("batch").WithDescription("Fetch up to 10 objects (<kind>:<name> specs) in one call.");
+        b.AddCommand<GetFormPatternCommand>("form-pattern").WithDescription("Form pattern spec catalog: structure tree, versions, when-to-use, reference forms. Omit NAME to list all.");
         b.AddCommand<GetBusinessEventCommand>("business-event").WithDescription("Business event: class, category, contract.");
         b.AddCommand<GetSecurityPolicyCommand>("security-policy").WithDescription("XDS security policy: constrained table, query, operation type.");
     });
@@ -114,6 +116,7 @@ app.Configure(cfg =>
         b.AddCommand<ValidateNameCommand>("name").WithDescription("Check object name against naming conventions.");
         b.AddCommand<ValidateXppCommand>("xpp").WithDescription("Offline X++/XML best-practice validator over a file or stdin (no VM needed).");
         b.AddCommand<ValidateReferencesCommand>("references").WithDescription("Semantic anti-hallucination gate: verify every identifier in X++ code against the index.");
+        b.AddCommand<ValidateFormPatternCommand>("form-pattern").WithDescription("Structural form-pattern validator (FP001-FP010) over AxForm XML — same gate `generate form` enforces.");
     });
 
     cfg.AddBranch("label", b =>

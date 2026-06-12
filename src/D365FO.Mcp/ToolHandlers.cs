@@ -1002,7 +1002,130 @@ public sealed class ToolHandlers
             fields ?? Array.Empty<string>(),
             Array.Empty<D365FO.Core.Scaffolding.FormSectionSpec>(), linesTable);
 
+        // Pre-write pattern self-test — same gate as `d365fo generate form`.
+        var report = D365FO.Core.FormPatterns.FormPatternValidator.ValidateXml(xml);
+        if (report.HasErrors && FormPatternEnforced())
+        {
+            var errors = report.Violations.Where(v => v.Severity == "error")
+                .Select(v => $"{v.Rule} {v.Path}: {v.Excerpt} → {v.Fix}");
+            return ToolResult<object>.Fail("FORM_PATTERN_VIOLATION",
+                $"Generated form violates pattern {report.Pattern} (D365FO_FORM_PATTERN_ENFORCE=true):\n" +
+                string.Join("\n", errors),
+                "Fix the structure (see get_form_pattern_spec), or set D365FO_FORM_PATTERN_ENFORCE=false to bypass the gate.");
+        }
+
         return WriteScaffoldString(xml, name, "AxForm", "AxForm", installTo, outPath, overwrite,
             new { table, pattern = fp.ToString() });
+    }
+
+    private static bool FormPatternEnforced() =>
+        !string.Equals(Environment.GetEnvironmentVariable("D365FO_FORM_PATTERN_ENFORCE"), "false", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Up to 10 objects per call — parity with upstream <c>batch_get_info</c>.</summary>
+    public ToolResult<object> BatchGetInfo(string[]? objects)
+    {
+        if (objects is null || objects.Length == 0)
+            return ToolResult<object>.Fail("BAD_INPUT", "objects is required: array of \"<kind>:<name>\" specs.");
+        if (objects.Length > 10)
+            return ToolResult<object>.Fail("BAD_INPUT", $"Too many objects: {objects.Length} (max 10 per call).");
+
+        var items = new List<object>(objects.Length);
+        var found = 0;
+        foreach (var spec in objects)
+        {
+            var idx = spec.IndexOf(':');
+            if (idx <= 0 || idx == spec.Length - 1)
+            {
+                items.Add(new { spec, ok = false, error = new { code = "BAD_INPUT", message = $"Spec '{spec}' is not <kind>:<name>." } });
+                continue;
+            }
+            var kind = spec[..idx].Trim();
+            var name = spec[(idx + 1)..].Trim();
+            var (data, code, message) = ObjectLookup.Fetch(_repo, kind, name);
+            if (data is null)
+            {
+                items.Add(new { spec, kind, name, ok = false, error = new { code, message } });
+            }
+            else
+            {
+                found++;
+                items.Add(new { spec, kind, name, ok = true, data });
+            }
+        }
+        return ToolResult<object>.Success(new { requested = objects.Length, found, items });
+    }
+
+    public ToolResult<object> GetFormPatternSpec(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return ToolResult<object>.Success(new
+            {
+                patterns = D365FO.Core.FormPatterns.FormPatternCatalog.Patterns
+                    .Select(p => new { id = p.Id, xmlName = p.XmlName, displayName = p.DisplayName, purpose = p.Purpose, referenceForms = p.ReferenceForms }),
+                subPatterns = D365FO.Core.FormPatterns.FormPatternCatalog.SubPatterns
+                    .Select(sp => new { id = sp.Id, xmlName = sp.XmlName, displayName = sp.DisplayName, appliesTo = sp.AppliesToControlTypes, purpose = sp.Purpose }),
+            });
+        }
+
+        var spec = D365FO.Core.FormPatterns.FormPatternCatalog.Resolve(name);
+        if (spec is not null)
+        {
+            return ToolResult<object>.Success(new
+            {
+                id = spec.Id,
+                xmlName = spec.XmlName,
+                displayName = spec.DisplayName,
+                versions = spec.Versions,
+                purpose = spec.Purpose,
+                whenToUse = spec.WhenToUse,
+                whenNotToUse = spec.WhenNotToUse,
+                referenceForms = spec.ReferenceForms,
+                designProperties = spec.DesignProperties,
+                requiresDataSource = spec.RequiresDataSource,
+                lifecycleGuidance = spec.LifecycleGuidance,
+                notes = spec.Notes,
+            });
+        }
+
+        var sub = D365FO.Core.FormPatterns.FormPatternCatalog.ResolveSubPattern(name);
+        if (sub is not null)
+        {
+            return ToolResult<object>.Success(new
+            {
+                id = sub.Id,
+                xmlName = sub.XmlName,
+                displayName = sub.DisplayName,
+                kind = "subPattern",
+                versions = sub.Versions,
+                appliesToControlTypes = sub.AppliesToControlTypes,
+                parentPatterns = sub.ParentPatterns,
+                purpose = sub.Purpose,
+                referenceForms = sub.ReferenceForms,
+                notes = sub.Notes,
+            });
+        }
+
+        return ToolResult<object>.Fail("PATTERN_NOT_FOUND",
+            $"Unknown form pattern or sub-pattern '{name}'.",
+            $"Known patterns: {string.Join(", ", D365FO.Core.FormPatterns.FormPatternCatalog.KnownPatternNames())}.");
+    }
+
+    public ToolResult<object> ValidateFormPattern(string xml)
+    {
+        if (string.IsNullOrWhiteSpace(xml))
+            return ToolResult<object>.Fail("BAD_INPUT", "xml is required: complete AxForm XML.");
+
+        var report = D365FO.Core.FormPatterns.FormPatternValidator.ValidateXml(xml);
+        return ToolResult<object>.Success(new
+        {
+            formName = report.FormName,
+            pattern = report.Pattern,
+            patternVersion = report.PatternVersion,
+            errors = report.ErrorCount,
+            warnings = report.WarningCount,
+            coverage = new { containersTotal = report.ContainersTotal, containersPatterned = report.ContainersPatterned },
+            violations = report.Violations.Select(v => new { rule = v.Rule, severity = v.Severity, path = v.Path, excerpt = v.Excerpt, fix = v.Fix }),
+        });
     }
 }

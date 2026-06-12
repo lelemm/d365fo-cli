@@ -120,6 +120,9 @@ Copilot: "Since I cannot access the codebase, I'll provide generic guidance…"
 | Resolve label token | `d365fo resolve label @SYS12345 --lang en-us,cs` |
 | Trace security (Role → Duty → Privilege) | `d365fo get security <Role> --type Role --output json` |
 | Find table relations | `d365fo find relations <Table> --output json` |
+| Fetch several objects at once | `d365fo get batch table:CustTable class:CustTableType … --output json` (max 10) |
+| Form pattern spec (required structure) | `d365fo get form-pattern <Pattern> --output json` |
+| Validate form XML against its pattern | `d365fo validate form-pattern <file> --output json` |
 | Create new AOT object | `d365fo generate table\|class\|form\|coc\|entity\|edt\|enum … --install-to <Model>` |
 | Edit method body (CDATA only) | `replace_string_in_file` — then `d365fo index refresh --model <Model>` |
 | Structural change (add field, index, relation) | `d365fo generate … --overwrite` — NEVER `replace_string_in_file` on XML structure |
@@ -155,6 +158,11 @@ Copilot: "Since I cannot access the codebase, I'll provide generic guidance…"
    ActionPane/Body/Tab/FastTab/grid/QuickFilter elements as applicable). Never
    drop required pattern elements just because they were not mentioned in the
    prompt.
+12. **Form writes are pattern-gated.** `d365fo generate form` validates the
+   generated XML against the pattern catalog (FP001–FP010) and **rejects
+   structural violations** while `D365FO_FORM_PATTERN_ENFORCE=true` (default).
+   Consult `d365fo get form-pattern <Pattern>` for the required tree, and run
+   `d365fo validate form-pattern <file>` after any manual form-XML edit.
 
 ---
 
