@@ -1,10 +1,13 @@
 using D365FO.Core;
+using D365FO.Core.Bridge;
 using Spectre.Console;
 using Spectre.Console.Cli;
 
 namespace D365FO.Cli.Commands.Ops;
 
-internal sealed record DoctorCheck(string Name, bool Ok, string? Detail);
+internal enum DoctorSeverity { Ok, Warn, Fail }
+
+internal sealed record DoctorCheck(string Name, bool Ok, string? Detail, string Severity);
 
 public sealed class DoctorCommand : Command<DoctorCommand.Settings>
 {
@@ -16,19 +19,73 @@ public sealed class DoctorCommand : Command<DoctorCommand.Settings>
         var cfg = D365FoSettings.FromEnvironment();
         var checks = new List<DoctorCheck>();
 
-        void Add(string name, bool ok, string? detail = null) => checks.Add(new DoctorCheck(name, ok, detail));
+        void Add(string name, DoctorSeverity severity, string? detail = null)
+        {
+            // `Ok` stays true for Ok + Warn to preserve back-compat with
+            // callers that only key off the boolean. Hard failures (Fail)
+            // are the only ones that flip the overall doctor result.
+            var ok = severity != DoctorSeverity.Fail;
+            checks.Add(new DoctorCheck(name, ok, detail, severity.ToString().ToLowerInvariant()));
+        }
 
-        Add("config.databasePath resolvable", !string.IsNullOrEmpty(cfg.DatabasePath), cfg.DatabasePath);
-        Add("config.packagesPath set", !string.IsNullOrEmpty(cfg.PackagesPath),
+        Add("config.databasePath resolvable",
+            string.IsNullOrEmpty(cfg.DatabasePath) ? DoctorSeverity.Fail : DoctorSeverity.Ok,
+            cfg.DatabasePath);
+
+        Add("config.packagesPath set",
+            string.IsNullOrEmpty(cfg.PackagesPath) ? DoctorSeverity.Fail : DoctorSeverity.Ok,
             cfg.PackagesPath ?? "Set D365FO_PACKAGES_PATH or use --packages.");
-        Add("config.workspacePath set", !string.IsNullOrEmpty(cfg.WorkspacePath),
-            cfg.WorkspacePath ?? "Set D365FO_WORKSPACE_PATH to enable scaffold output.");
-        Add("index db exists", File.Exists(cfg.DatabasePath),
+
+        Add("config.customPackagesPaths",
+            cfg.CustomPackagesPaths.Count == 0 ? DoctorSeverity.Warn : DoctorSeverity.Ok,
+            cfg.CustomPackagesPaths.Count == 0
+                ? "not set (optional — set D365FO_CUSTOM_PACKAGES_PATH to your git repo for `generate --install-to`)."
+                : string.Join(", ", cfg.CustomPackagesPaths));
+
+        Add("config.workspacePath",
+            DoctorSeverity.Ok,
+            cfg.WorkspacePath ?? "not set (optional — only needed for `generate --out <PATH>` outside Packages).");
+
+        Add("index db exists",
+            File.Exists(cfg.DatabasePath) ? DoctorSeverity.Ok : DoctorSeverity.Fail,
             File.Exists(cfg.DatabasePath) ? null : "Run 'd365fo index build'.");
-        Add("runtime", true, $".NET {Environment.Version} on {Environment.OSVersion.Platform}");
+
+        Add("runtime", DoctorSeverity.Ok, $".NET {Environment.Version} on {Environment.OSVersion.Platform}");
+
         Add("platform.windows (build/sync/bp require it)",
-            OperatingSystem.IsWindows(),
+            OperatingSystem.IsWindows() ? DoctorSeverity.Ok : DoctorSeverity.Warn,
             OperatingSystem.IsWindows() ? null : "Non-Windows host: write-ops (build, sync, bp, test) are unavailable.");
+
+        // Bridge — required for `generate --install-to <Model>` and `find refs --xref`.
+        // Reports Warn (not Fail) when missing because read-only operations work
+        // without it via the SQLite index.
+        var bridgeFlag = Environment.GetEnvironmentVariable("D365FO_BRIDGE_ENABLED");
+        var bridgeEnabled = !string.IsNullOrWhiteSpace(bridgeFlag)
+            && (bridgeFlag == "1" || string.Equals(bridgeFlag, "true", StringComparison.OrdinalIgnoreCase));
+        Add("bridge.enabled (required for `generate --install-to`)",
+            bridgeEnabled ? DoctorSeverity.Ok : DoctorSeverity.Warn,
+            bridgeEnabled
+                ? "D365FO_BRIDGE_ENABLED=1"
+                : "Set D365FO_BRIDGE_ENABLED=\"1\" (quoted in settings.json) to enable model installs.");
+
+        if (bridgeEnabled)
+        {
+            var bridgeExe = BridgeOptions.ResolveExecutable(
+                Environment.GetEnvironmentVariable("D365FO_BRIDGE_PATH"));
+            Add("bridge.executable",
+                bridgeExe is null
+                    ? (OperatingSystem.IsWindows() ? DoctorSeverity.Fail : DoctorSeverity.Warn)
+                    : DoctorSeverity.Ok,
+                bridgeExe ?? "D365FO.Bridge.exe not found next to d365fo.exe; set D365FO_BRIDGE_PATH.");
+
+            var binPath = Environment.GetEnvironmentVariable("D365FO_BIN_PATH");
+            var binOk = !string.IsNullOrWhiteSpace(binPath) && Directory.Exists(binPath);
+            Add("bridge.binPath",
+                binOk ? DoctorSeverity.Ok : DoctorSeverity.Warn,
+                binOk
+                    ? binPath
+                    : "Set D365FO_BIN_PATH to the folder containing Microsoft.Dynamics.AX.Metadata.*.dll (e.g. <PackagesLocalDirectory>\\bin).");
+        }
 
         // Index freshness — the index is the single source of truth for
         // grounding, but only while it reflects the current workspace.
@@ -40,31 +97,49 @@ public sealed class DoctorCommand : Command<DoctorCommand.Settings>
                 var roots = new List<string> { cfg.PackagesPath! };
                 roots.AddRange(cfg.CustomPackagesPaths);
                 var staleness = D365FO.Core.Index.IndexStaleness.Check(repo, roots);
-                Add("index freshness (stale-index)", !staleness.IsStale,
+                Add("index freshness (stale-index)",
+                    staleness.IsStale ? DoctorSeverity.Fail : DoctorSeverity.Ok,
                     staleness.IsStale ? staleness.Detail : $"index extracted {staleness.LastExtractedUtc:O}");
             }
             catch (Exception ex)
             {
-                Add("index freshness (stale-index)", true, $"check skipped: {ex.Message}");
+                Add("index freshness (stale-index)", DoctorSeverity.Ok, $"check skipped: {ex.Message}");
             }
         }
 
         var allOk = checks.All(c => c.Ok);
+        var hasWarnings = checks.Any(c => c.Severity == "warn");
         var payload = allOk
-            ? ToolResult<object>.Success(new { allOk, checks })
+            ? ToolResult<object>.Success(new { allOk, hasWarnings, checks })
             : ToolResult<object>.Fail("DOCTOR_FAILED", "One or more checks failed.",
                 "Re-run with --output json and inspect 'error.hint' or 'data.checks'.");
 
         return RenderHelpers.Render(kind,
-            allOk ? payload : ToolResult<object>.Success(new { allOk, checks }), _ =>
+            allOk ? payload : ToolResult<object>.Success(new { allOk, hasWarnings, checks }), _ =>
         {
             foreach (var c in checks)
             {
-                var tick = c.Ok ? "[green]✓[/]" : "[red]✗[/]";
+                var tick = c.Severity switch
+                {
+                    "fail" => "[red]✗[/]",
+                    "warn" => "[yellow]![/]",
+                    _      => "[green]✓[/]",
+                };
                 var detail = c.Detail is null ? "" : $" [grey]— {RenderHelpers.Escape(c.Detail)}[/]";
                 AnsiConsole.MarkupLine($"{tick} {RenderHelpers.Escape(c.Name)}{detail}");
             }
-            AnsiConsole.MarkupLine(allOk ? "[green]All checks passed.[/]" : "[red]Some checks failed.[/]");
+            if (!allOk)
+            {
+                AnsiConsole.MarkupLine("[red]Some checks failed.[/]");
+            }
+            else if (hasWarnings)
+            {
+                AnsiConsole.MarkupLine("[yellow]All required checks passed (with warnings).[/]");
+            }
+            else
+            {
+                AnsiConsole.MarkupLine("[green]All checks passed.[/]");
+            }
         });
     }
 }
