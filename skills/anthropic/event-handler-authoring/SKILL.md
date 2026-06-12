@@ -18,9 +18,25 @@ applies_when: User intent mentions event handler, SubscribesTo, DataEventHandler
 # 1) Discover existing handlers on the target — avoid duplicates
 d365fo find handlers <TargetObject> --output json
 
-# 2) Confirm the target exists (for tables) and which events it emits
+# 2) Search likely handler classes in the target model/prefix
+d365fo search class <TargetObject> --output json
+
+# 3) Confirm the target exists (for tables) and which events it emits
 d365fo get table <Table> --output json
 ```
+
+If a suitable handler class already exists in the target custom model, add the
+new method to that class instead of creating another handler. `D365FO_CUSTOM_MODELS`
+can contain multiple models, so first resolve the active target model from the
+artifact named by the user, the model that already contains the related handler,
+or the model currently being edited. The handler suffix is separate from the
+model name: extract `<ExistingSuffix>` from existing related handler classes in
+the active model, such as `<Form>_<ExistingSuffix>_Form_EH` or
+`<Form>_<ExistingSuffix>_Form_EventHandler`. If no suffix can be derived and
+the user did not provide one, stop and ask for the suffix. If both `_EH` and
+`_EventHandler` naming styles exist, follow the existing style in that model.
+Do not create `<Form>_<Feature>_EH` or `<Form>_<Feature>_EventHandler` unless
+the user explicitly requests a separate class.
 
 ## Standard data events on tables → `[DataEventHandler]`
 
@@ -81,6 +97,8 @@ Attribute: `[SubscribesTo(classStr(SalesFormLetter), delegateStr(SalesFormLetter
 - Handlers do NOT chain via `next` — they are notification-only.
 - Handler methods must be `public static` (the runtime invokes them
   reflectively).
+- Never create a parallel handler class when an existing target/model handler
+  class already owns the same object/event family.
 - Never modify the buffer in a `Validating*` / `*ing` event without intent —
   changes leak into the persisted record.
 - Pre-flight `find handlers <Target>` to detect duplicates and ordering risks.

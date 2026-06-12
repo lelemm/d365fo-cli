@@ -67,6 +67,14 @@ not invent a name.
    - `warnings: ["stale-index"]` → `d365fo index refresh`.
 3. Pass `--install-to <Model>` (bridge writes into model folder) **or**
    `--out <PATH>`. Never guess the model — ask.
+4. Treat `D365FO_CUSTOM_MODELS` as the hard customization boundary. It can
+   contain multiple comma-separated models. Resolve the active target model from
+   the artifact named by the user, the model that already contains the related
+   extension/handler, or the model currently being edited. If more than one
+   custom model could own the change, ask. The artifact suffix is separate from
+   the model name: extract `<ExistingSuffix>` from existing related artifacts.
+   If no suffix can be derived and the user did not provide one, ask for it.
+   Feature names in the request are not suffixes.
 
 ────────────────────────────────────────────────────────────────────────────
 ## 🎯 The loop — minimum agentic rounds
@@ -102,6 +110,7 @@ not invent a name.
 | Existing CoC wrappers | `d365fo find coc <Class>::<method> --output json` |
 | Event handlers | `d365fo find handlers <Target> --output json` |
 | Relations | `d365fo find relations <Table> --output json` |
+| Existing object extensions | `d365fo find extensions <Target> --output json` |
 | Resolve label | `d365fo resolve label @SYS12345 --lang en-us,cs` |
 | Security trace | `d365fo get security <Object> --type <Kind>` |
 
@@ -227,6 +236,28 @@ public void salute(str message = "Hi") // ❌ forbidden
 - Form-nested wrapping (`formdatasourcestr`, `formdatafieldstr`,
   `formControlStr`) cannot ADD new methods.
 - Wrappers can read `protected` (PU9+); not `private`.
+- Reuse existing target/model extension and handler classes before creating new
+  ones. Example: with active target model `<ActiveCustomModel>`, add to
+  `<Target>_<ExistingSuffix>_Extension`,
+  `<Form>_<ExistingSuffix>_Form_EH`, or
+  `<Form>_<ExistingSuffix>_Form_EventHandler` if they already own the target.
+  If no existing suffix can be derived and the user did not provide one, ask;
+  do not create parallel feature-named artifacts unless the user explicitly
+  requests that separation.
+
+────────────────────────────────────────────────────────────────────────────
+## 🧾 AOT XML safety
+
+- Never rewrite an existing AOT XML file wholesale. Preserve unrelated
+  `<DataSourceModifications>`, `<DataSourceReferences>`, `<DataSources>`,
+  `<Controls>`, methods, extension properties, and pattern metadata.
+- Validate every changed XML file: XML parser first, then
+  `d365fo validate xpp --file <f> --code-type xml-any --output json`, then
+  `d365fo index refresh --model <Model>`, then re-read the object with
+  `d365fo get ... --output json`.
+- For new forms based on an example, read the example and keep the same pattern
+  contract unless the user asked otherwise. Required pattern controls/datasources
+  are mandatory, not optional inspiration.
 
 ────────────────────────────────────────────────────────────────────────────
 ## 🏛️ Class & method rules

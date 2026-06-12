@@ -46,6 +46,31 @@ If `count > 0`, list the existing extensions to the user. The naming
 convention is `<Target>.<Suffix>` (dot-separated; `Suffix` typically is the
 model short-name or the feature name).
 
+## Reuse before creating
+
+`D365FO_CUSTOM_MODELS` constrains the model, not the feature suffix. If the
+variable contains multiple models, resolve the active target model first from
+the artifact named by the user, the model that already contains the related
+extension, or the model currently being edited. If more than one custom model
+could own the change, stop and ask. The extension suffix is separate from the
+model name: extract `<ExistingSuffix>` from existing related extensions in the
+active model, such as `<Target>.<ExistingSuffix>` or
+`<Target>_<ExistingSuffix>_Extension`. If no suffix can be derived and the user
+did not provide one, stop and ask for the suffix. Do not create a feature-named
+extension such as `<Target>.<Feature>` or a class such as
+`<Target>_<Feature>_Extension` merely because the request mentions a feature,
+ticket, integration, customer name, or model name.
+
+Before scaffolding a new extension, inspect the existing result from
+`d365fo find extensions <Target> --output json`:
+
+- If an extension already exists in the target model and suffix family, modify
+  that existing extension.
+- If multiple extensions exist, stop and ask which artifact should own the
+  change unless the user has named one explicitly.
+- Create a new extension only when no existing extension owns that target/model
+  concern or when the user explicitly asks for isolation.
+
 ## Scaffolding
 
 ```sh
@@ -123,6 +148,13 @@ d365fo get security-policy CustCustomSecurityPolicy --output json
 
 - Never have two extensions with the same `<Target>.<Suffix>` in the same
   model — `d365fo find extensions` first.
+- Never create a feature-specific extension when a model-level extension for
+  the same target already exists and is the natural owner of the change.
+- Never rewrite an existing extension XML file wholesale. Preserve unrelated
+  nodes and only add the requested structural element(s).
+- After changing extension XML, validate XML well-formedness, run
+  `d365fo validate xpp --file <file> --code-type xml-any --output json`, run
+  `d365fo index refresh --model <Model>`, and re-read the target metadata.
 - Never use `extension` for class behaviour changes — that is CoC's job
   (`d365fo generate coc <Class>`).
 - Never modify the standard object directly (over-layering) — extensions are
