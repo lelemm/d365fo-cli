@@ -77,12 +77,20 @@ public sealed class DoctorCommand : Command<DoctorCommand.Settings>
                     : DoctorSeverity.Ok,
                 bridgeExe ?? "D365FO.Bridge.exe not found next to d365fo.exe; set D365FO_BRIDGE_PATH.");
 
+            // Mirror the bridge's own resolution (MetadataBootstrap.ResolveBinPath):
+            // D365FO_BIN_PATH when set, otherwise <D365FO_PACKAGES_PATH>\bin.
             var binPath = D365FoSettings.Resolve("D365FO_BIN_PATH");
+            var binSource = "D365FO_BIN_PATH";
+            if (string.IsNullOrWhiteSpace(binPath) && !string.IsNullOrEmpty(cfg.PackagesPath))
+            {
+                binPath = Path.Combine(cfg.PackagesPath, "bin");
+                binSource = "D365FO_PACKAGES_PATH\\bin";
+            }
             var binOk = !string.IsNullOrWhiteSpace(binPath) && Directory.Exists(binPath);
             Add("bridge.binPath",
                 binOk ? DoctorSeverity.Ok : DoctorSeverity.Warn,
                 binOk
-                    ? binPath
+                    ? $"{binPath} (from {binSource})"
                     : "Set D365FO_BIN_PATH to the folder containing Microsoft.Dynamics.AX.Metadata.*.dll (e.g. <PackagesLocalDirectory>\\bin).");
         }
 
