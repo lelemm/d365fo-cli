@@ -31,12 +31,31 @@ public sealed record D365FoSettings(
 
     /// <summary>
     /// settings.json contents, loaded once per process and cached. Invalidated
-    /// by <see cref="SaveJsonConfig"/>.
+    /// by <see cref="SaveJsonConfig"/>. Protected by <see cref="_cacheLock"/>.
     /// </summary>
+    private static readonly object _cacheLock = new();
     private static Dictionary<string, string>? jsonConfigCache;
 
-    private static Dictionary<string, string> JsonConfig =>
-        jsonConfigCache ??= LoadJsonConfig();
+    /// <summary>
+    /// Override the config file path. For unit tests only — do not set in
+    /// production code. Reset to null and call <see cref="ClearCacheForTests"/>
+    /// between tests.
+    /// </summary>
+    internal static string? ConfigPathOverrideForTests;
+
+    /// <summary>Clear the in-process JSON config cache. For unit tests only.</summary>
+    internal static void ClearCacheForTests()
+    {
+        lock (_cacheLock) { jsonConfigCache = null; }
+    }
+
+    private static Dictionary<string, string> GetJsonConfig()
+    {
+        lock (_cacheLock)
+        {
+            return jsonConfigCache ??= LoadJsonConfig();
+        }
+    }
 
     /// <summary>
     /// Resolve a single configuration value using the standard precedence:
@@ -48,7 +67,8 @@ public sealed record D365FoSettings(
     {
         var env = Environment.GetEnvironmentVariable(key);
         if (!string.IsNullOrWhiteSpace(env)) return env;
-        return JsonConfig.TryGetValue(key, out var jv) && !string.IsNullOrWhiteSpace(jv)
+        var config = GetJsonConfig();
+        return config.TryGetValue(key, out var jv) && !string.IsNullOrWhiteSpace(jv)
             ? jv
             : null;
     }
@@ -107,14 +127,14 @@ public sealed record D365FoSettings(
         File.WriteAllText(path, JsonSerializer.Serialize(merged, D365Json.Pretty));
 
         // Keep the in-process cache consistent with what we just persisted.
-        jsonConfigCache = merged;
+        lock (_cacheLock) { jsonConfigCache = merged; }
     }
 
     // ---- private helpers -----------------------------------------------------
 
     private static Dictionary<string, string> LoadJsonConfig()
     {
-        var path = GetDefaultConfigPath();
+        var path = ConfigPathOverrideForTests ?? GetDefaultConfigPath();
         if (!File.Exists(path)) return new(StringComparer.OrdinalIgnoreCase);
         try
         {

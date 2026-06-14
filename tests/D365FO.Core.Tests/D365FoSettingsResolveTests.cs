@@ -76,4 +76,124 @@ public class D365FoSettingsResolveTests
             Environment.SetEnvironmentVariable(FlagKey, prev);
         }
     }
+
+    // ---- JSON fallback tests -------------------------------------------------
+
+    [Fact]
+    public void Resolve_falls_back_to_settings_json_when_env_not_set()
+    {
+        var tmp = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tmp, $"{{\"{Key}\": \"from-json\"}}");
+            D365FoSettings.ConfigPathOverrideForTests = tmp;
+            D365FoSettings.ClearCacheForTests();
+
+            // Env var must be absent so the JSON fallback is reached.
+            var prev = Environment.GetEnvironmentVariable(Key);
+            Environment.SetEnvironmentVariable(Key, null);
+            try
+            {
+                Assert.Equal("from-json", D365FoSettings.Resolve(Key));
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(Key, prev);
+            }
+        }
+        finally
+        {
+            D365FoSettings.ConfigPathOverrideForTests = null;
+            D365FoSettings.ClearCacheForTests();
+            File.Delete(tmp);
+        }
+    }
+
+    [Fact]
+    public void Resolve_env_var_takes_priority_over_settings_json()
+    {
+        var tmp = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tmp, $"{{\"{Key}\": \"from-json\"}}");
+            D365FoSettings.ConfigPathOverrideForTests = tmp;
+            D365FoSettings.ClearCacheForTests();
+
+            var prev = Environment.GetEnvironmentVariable(Key);
+            Environment.SetEnvironmentVariable(Key, "from-env");
+            try
+            {
+                Assert.Equal("from-env", D365FoSettings.Resolve(Key));
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(Key, prev);
+            }
+        }
+        finally
+        {
+            D365FoSettings.ConfigPathOverrideForTests = null;
+            D365FoSettings.ClearCacheForTests();
+            File.Delete(tmp);
+        }
+    }
+
+    [Fact]
+    public void Resolve_settings_json_keys_are_case_insensitive()
+    {
+        var tmp = Path.GetTempFileName();
+        try
+        {
+            // Store the key in lowercase; resolve with the canonical uppercase name.
+            File.WriteAllText(tmp, $"{{\"{Key.ToLowerInvariant()}\": \"case-ok\"}}");
+            D365FoSettings.ConfigPathOverrideForTests = tmp;
+            D365FoSettings.ClearCacheForTests();
+
+            var prev = Environment.GetEnvironmentVariable(Key);
+            Environment.SetEnvironmentVariable(Key, null);
+            try
+            {
+                Assert.Equal("case-ok", D365FoSettings.Resolve(Key));
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(Key, prev);
+            }
+        }
+        finally
+        {
+            D365FoSettings.ConfigPathOverrideForTests = null;
+            D365FoSettings.ClearCacheForTests();
+            File.Delete(tmp);
+        }
+    }
+
+    [Fact]
+    public void ResolveFlag_reads_flag_from_settings_json()
+    {
+        var tmp = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tmp, $"{{\"{FlagKey}\": \"true\"}}");
+            D365FoSettings.ConfigPathOverrideForTests = tmp;
+            D365FoSettings.ClearCacheForTests();
+
+            var prev = Environment.GetEnvironmentVariable(FlagKey);
+            Environment.SetEnvironmentVariable(FlagKey, null);
+            try
+            {
+                Assert.True(D365FoSettings.ResolveFlag(FlagKey));
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(FlagKey, prev);
+            }
+        }
+        finally
+        {
+            D365FoSettings.ConfigPathOverrideForTests = null;
+            D365FoSettings.ClearCacheForTests();
+            File.Delete(tmp);
+        }
+    }
 }
