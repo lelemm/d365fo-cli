@@ -723,11 +723,17 @@ public static class XppScaffolder
             return el;
         });
 
+        // D365FO's metadata reader requires the XMLSchema-instance namespace declaration on
+        // the root element (it is emitted by Visual Studio on every AxEnum file). IsExtensible
+        // is a CLR bool, so the DataContractSerializer expects "true"/"false" — the NoYes-style
+        // "Yes"/"No" written previously produced an invalid file VS refused to read.
+        XNamespace xsi = "http://www.w3.org/2001/XMLSchema-instance";
         return new XDocument(
             new XElement("AxEnum",
+                new XAttribute(XNamespace.Xmlns + "i", xsi.NamespaceName),
                 new XElement("Name", name),
                 string.IsNullOrEmpty(label) ? null : new XElement("Label", label),
-                new XElement("IsExtensible", isExtensible ? "Yes" : "No"),
+                new XElement("IsExtensible", isExtensible ? "true" : "false"),
                 enumVals.Count > 0 ? new XElement("EnumValues", valEls) : null));
     }
 
