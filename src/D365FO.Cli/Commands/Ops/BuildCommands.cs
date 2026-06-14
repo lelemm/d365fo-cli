@@ -228,8 +228,8 @@ public sealed class BpCheckCommand : Command<BpCheckCommand.Settings>
         //   metadataPath = ModelStoreFolder   (where custom source XML lives)
         // In traditional environments both roles are served by packagesRoot.
         var packagesRoot = settings.PackagesPath
-            ?? Environment.GetEnvironmentVariable("D365FO_PACKAGES_PATH")
-            ?? @"K:\AosService\PackagesLocalDirectory";
+            ?? D365FoSettings.Resolve("D365FO_PACKAGES_PATH")
+            ?? DefaultPackagesRoot();
         var metadataPath = settings.MetadataPath ?? packagesRoot;
 
         var bp = settings.BpToolPath
@@ -274,6 +274,25 @@ public sealed class BpCheckCommand : Command<BpCheckCommand.Settings>
             : ToolResult<object>.Fail("BP_FAILED",
                 $"Best practice check exited with {exit}.",
                 string.Join('\n', stderr.Split('\n').TakeLast(5))));
+    }
+
+    // Well-known D365FO PackagesLocalDirectory locations, used only as a
+    // last-resort fallback when neither --packages nor D365FO_PACKAGES_PATH
+    // (env or settings.json) is set. K:\ is the cloud-hosted layout; C:\ is the
+    // standard local VHD layout.
+    private static readonly string[] DefaultPackageRoots =
+    {
+        @"K:\AosService\PackagesLocalDirectory",
+        @"C:\AosService\PackagesLocalDirectory",
+    };
+
+    private static string DefaultPackagesRoot()
+    {
+        foreach (var root in DefaultPackageRoots)
+        {
+            if (Directory.Exists(root)) return root;
+        }
+        return DefaultPackageRoots[0];
     }
 }
 

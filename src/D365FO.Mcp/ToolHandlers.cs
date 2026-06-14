@@ -1019,7 +1019,7 @@ public sealed class ToolHandlers
     }
 
     private static bool FormPatternEnforced() =>
-        !string.Equals(Environment.GetEnvironmentVariable("D365FO_FORM_PATTERN_ENFORCE"), "false", StringComparison.OrdinalIgnoreCase);
+        !string.Equals(D365FoSettings.Resolve("D365FO_FORM_PATTERN_ENFORCE"), "false", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Up to 10 objects per call — parity with upstream <c>batch_get_info</c>.</summary>
     public ToolResult<object> BatchGetInfo(string[]? objects)

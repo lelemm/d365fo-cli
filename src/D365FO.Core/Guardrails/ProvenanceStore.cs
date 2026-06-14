@@ -35,14 +35,14 @@ public static class ProvenanceStore
     private static readonly TimeSpan Ttl = TimeSpan.FromMinutes(30);
 
     public static bool EnforcementEnabled =>
-        string.Equals(Environment.GetEnvironmentVariable(EnforceEnvVar), "true", StringComparison.OrdinalIgnoreCase);
+        string.Equals(D365FoSettings.Resolve(EnforceEnvVar), "true", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Storage directory; override via D365FO_HOME for tests.</summary>
     internal static string StoreDirectory
     {
         get
         {
-            var home = Environment.GetEnvironmentVariable("D365FO_HOME");
+            var home = D365FoSettings.Resolve("D365FO_HOME");
             var root = string.IsNullOrEmpty(home)
                 ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".d365fo")
                 : home;

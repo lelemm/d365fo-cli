@@ -58,10 +58,9 @@ public sealed class DoctorCommand : Command<DoctorCommand.Settings>
 
         // Bridge — required for `generate --install-to <Model>` and `find refs --xref`.
         // Reports Warn (not Fail) when missing because read-only operations work
-        // without it via the SQLite index.
-        var bridgeFlag = Environment.GetEnvironmentVariable("D365FO_BRIDGE_ENABLED");
-        var bridgeEnabled = !string.IsNullOrWhiteSpace(bridgeFlag)
-            && (bridgeFlag == "1" || string.Equals(bridgeFlag, "true", StringComparison.OrdinalIgnoreCase));
+        // without it via the SQLite index. Resolved via the unified config chain
+        // (env var → settings.json) so a value set in settings.json is honored.
+        var bridgeEnabled = D365FoSettings.ResolveFlag("D365FO_BRIDGE_ENABLED");
         Add("bridge.enabled (required for `generate --install-to`)",
             bridgeEnabled ? DoctorSeverity.Ok : DoctorSeverity.Warn,
             bridgeEnabled
@@ -71,14 +70,14 @@ public sealed class DoctorCommand : Command<DoctorCommand.Settings>
         if (bridgeEnabled)
         {
             var bridgeExe = BridgeOptions.ResolveExecutable(
-                Environment.GetEnvironmentVariable("D365FO_BRIDGE_PATH"));
+                D365FoSettings.Resolve("D365FO_BRIDGE_PATH"));
             Add("bridge.executable",
                 bridgeExe is null
                     ? (OperatingSystem.IsWindows() ? DoctorSeverity.Fail : DoctorSeverity.Warn)
                     : DoctorSeverity.Ok,
                 bridgeExe ?? "D365FO.Bridge.exe not found next to d365fo.exe; set D365FO_BRIDGE_PATH.");
 
-            var binPath = Environment.GetEnvironmentVariable("D365FO_BIN_PATH");
+            var binPath = D365FoSettings.Resolve("D365FO_BIN_PATH");
             var binOk = !string.IsNullOrWhiteSpace(binPath) && Directory.Exists(binPath);
             Add("bridge.binPath",
                 binOk ? DoctorSeverity.Ok : DoctorSeverity.Warn,
