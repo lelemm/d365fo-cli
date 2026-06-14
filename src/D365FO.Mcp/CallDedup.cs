@@ -20,9 +20,12 @@ public static class CallDedup
     /// <summary>Tools whose repeated identical calls are legitimate — never dedup, never loop-hint.</summary>
     public static readonly HashSet<string> ExcludedTools = new(StringComparer.Ordinal)
     {
-        "create_label", "rename_label", "delete_label",
-        "generate_table", "generate_class", "generate_coc", "generate_form",
+        // Write tools (`generate`, `labels`) are already excluded via
+        // ToolCatalog.WriteTools; these are stateful reads whose answer can
+        // change between identical calls (index freshness, workspace config).
         "index_status", "get_workspace_info", "index_history",
+        // `prepare` issues a fresh provenance token on every call — never dedup.
+        "prepare",
     };
 
     private sealed record Entry(string Body, bool IsError, DateTimeOffset At);

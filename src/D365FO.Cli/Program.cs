@@ -88,6 +88,43 @@ app.Configure(cfg =>
         b.AddCommand<FindFormPatternsCommand>("form-patterns").WithDescription("Analyse indexed forms by Microsoft pattern / primary table / similarity to a reference form.");
         b.AddCommand<FindRelatedCommand>("related").WithDescription("Generic relation lookup by relation/name for agent workflows.");
         b.AddCommand<FindBatchJobsCommand>("batch-jobs").WithDescription("Find all RunBaseBatch / SysOperationServiceController subclasses.");
+        // Parity aliases matching the unified MCP tool names (find_event_handlers / find_references).
+        b.AddCommand<FindHandlersCommand>("event-handlers").WithDescription("Alias of `find handlers` — event handlers subscribed to a form/table/delegate.");
+        b.AddCommand<FindRefsCommand>("references").WithDescription("Alias of `find refs` — reverse references to a symbol in indexed X++ source.");
+    });
+
+    // Unified `security` branch — mirrors the MCP `security_info` tool
+    // (mode=artifact → role/duty/privilege; mode=coverage → coverage).
+    cfg.AddBranch("security", b =>
+    {
+        b.SetDescription("Security hierarchy: named artifacts and reverse coverage. Mirrors the MCP `security_info` tool.");
+        b.AddCommand<GetRoleCommand>("role").WithDescription("Security role: duties + privileges.");
+        b.AddCommand<GetDutyCommand>("duty").WithDescription("Security duty: privileges.");
+        b.AddCommand<GetPrivilegeCommand>("privilege").WithDescription("Security privilege: entry points.");
+        b.AddCommand<GetSecurityCommand>("coverage").WithDescription("Role→Duty→Privilege routes that grant access to an object.");
+    });
+
+    // Unified `form-pattern` branch — mirrors the MCP `form_pattern` tool
+    // (action=analyze|spec|validate).
+    cfg.AddBranch("form-pattern", b =>
+    {
+        b.SetDescription("Form-pattern advisor, spec catalog, and structural validator. Mirrors the MCP `form_pattern` tool.");
+        b.AddCommand<FindFormPatternsCommand>("analyze").WithDescription("Analyse indexed forms by Microsoft pattern / primary table / similarity to a reference form.");
+        b.AddCommand<GetFormPatternCommand>("spec").WithDescription("Form pattern spec catalog: structure tree, versions, when-to-use, reference forms. Omit NAME to list all.");
+        b.AddCommand<ValidateFormPatternCommand>("validate").WithDescription("Structural form-pattern validator (FP001-FP010) over AxForm XML.");
+    });
+
+    // Unified `labels` branch — mirrors the MCP `labels` tool
+    // (action=search|fts|info|resolve|create|rename|delete).
+    cfg.AddBranch("labels", b =>
+    {
+        b.SetDescription("All label operations: search, resolve, and edit *.label.txt files. Mirrors the MCP `labels` tool.");
+        b.AddCommand<SearchLabelCommand>("search").WithDescription("Search label file entries (FTS5-ranked; pass --fts for explicit FTS syntax).");
+        b.AddCommand<ResolveLabelCommand>("resolve").WithDescription("Resolve a @SYS12345-style label token to its text across languages.");
+        b.AddCommand<GetLabelCommand>("info").WithDescription("Fetch one label entry by (file, language, key).");
+        b.AddCommand<D365FO.Cli.Commands.Label.LabelCreateCommand>("create").WithDescription("Create or update a label entry.");
+        b.AddCommand<D365FO.Cli.Commands.Label.LabelRenameCommand>("rename").WithDescription("Rename a label key.");
+        b.AddCommand<D365FO.Cli.Commands.Label.LabelDeleteCommand>("delete").WithDescription("Delete a label entry.");
     });
 
     cfg.AddBranch("resolve", b =>

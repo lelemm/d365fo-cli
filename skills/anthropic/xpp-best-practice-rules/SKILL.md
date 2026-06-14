@@ -24,8 +24,8 @@ TransDate today = DateTimeUtil::getToday(DateTimeUtil::getUserPreferredTimeZone(
 Every string passed to `info()` / `warning()` / `error()` / `Box::yesNo()` etc. must be a label token of the form `@File:Key`. Search before you create:
 
 ```sh
-d365fo search label "Vehicle is required" --lang en-us --output json
-d365fo resolve label @SYS12345                          # confirm an existing token
+d365fo labels search "Vehicle is required" --lang en-us --output json
+d365fo labels resolve @SYS12345                          # confirm an existing token
 ```
 
 If no match → create the label via your model's labels file, then reference it. Never inline.
@@ -64,10 +64,10 @@ A unique index on the natural key, marked `AlternateKey = Yes`. The CLI's `d365f
 `@File:Key` tokens must resolve to a real entry in an indexed label file. Confirm with:
 
 ```sh
-d365fo resolve label @File:Key --lang en-us,cs --output json
+d365fo labels resolve @File:Key --lang en-us,cs --output json
 ```
 
-If the result is `ok:false` with `LABEL_NOT_FOUND`, **stop** and either pick an existing label (`d365fo search label …`) or add the entry to the model's labels file before referencing it.
+If the result is `ok:false` with `LABEL_NOT_FOUND`, **stop** and either pick an existing label (`d365fo labels search …`) or add the entry to the model's labels file before referencing it.
 
 ### `BPXmlDocNoDocumentationComments` — meaningful doc comments
 

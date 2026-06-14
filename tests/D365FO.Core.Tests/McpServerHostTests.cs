@@ -61,10 +61,11 @@ public class McpServerHostTests : IDisposable
     {
         var args = new Dictionary<string, JsonElement>
         {
+            ["objectType"] = JsonDocument.Parse("\"entity\"").RootElement,
             ["name"] = JsonDocument.Parse("\"NotThere\"").RootElement,
         };
         var result = McpServerHost.Invoke(Handlers(),
-            new CallToolRequestParams { Name = "get_data_entity", Arguments = args });
+            new CallToolRequestParams { Name = "get_object_info", Arguments = args });
 
         Assert.True(result.IsError);
         var text = Assert.IsType<TextContentBlock>(result.Content[0]).Text;

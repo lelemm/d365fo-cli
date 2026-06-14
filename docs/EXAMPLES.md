@@ -47,9 +47,9 @@ Use before `generate form` to confirm the right pattern.
 #### `get form-pattern` — pattern spec catalog
 
 ```sh
-d365fo get form-pattern --output json                  # list all patterns + sub-patterns
-d365fo get form-pattern DetailsMaster --output json    # full structural spec
-d365fo get form-pattern FieldsFieldGroups --output json  # container sub-pattern spec
+d365fo form-pattern spec --output json                  # list all patterns + sub-patterns
+d365fo form-pattern spec DetailsMaster --output json    # full structural spec
+d365fo form-pattern spec FieldsFieldGroups --output json  # container sub-pattern spec
 ```
 
 Returns the machine-readable spec the form-pattern validator enforces: required
@@ -71,7 +71,7 @@ Up to 10 `<kind>:<name>` specs per call. Each item carries its own `ok`/`error`
 ### `resolve label` — look up a label token
 
 ```sh
-d365fo resolve label @SYS12345 --lang en-US,cs
+d365fo labels resolve @SYS12345 --lang en-US,cs
 ```
 
 ### `read` — pull X++ source from AOT XML
@@ -279,12 +279,12 @@ summary carries a `patternCheck` block and any recommendations as `warnings`.
 #### `validate form-pattern` — re-check any form XML
 
 ```sh
-d365fo validate form-pattern src/MyModel/AxForm/FmVehicleDetails.xml --output json
-cat FmVehicles.xml | d365fo validate form-pattern        # stdin works too
+d365fo form-pattern validate src/MyModel/AxForm/FmVehicleDetails.xml --output json
+cat FmVehicles.xml | d365fo form-pattern validate        # stdin works too
 ```
 
 Exit codes: `0` clean (or warnings only), `2` structural errors. Run after any
-hand edit of form XML; `d365fo get form-pattern <P>` shows the required tree
+hand edit of form XML; `d365fo form-pattern spec <P>` shows the required tree
 when a violation needs fixing.
 
 ### Data entity (`AxDataEntityView`)
@@ -577,8 +577,8 @@ Reports `MISSING_DUTY`, `MISSING_PRIVILEGE`, `MISSING_EDT`, `MISSING_LABEL`, `PA
 
 ```sh
 # Read
-d365fo search label "Customer invoice"
-d365fo search label "customer invoice" --fts        # rank-sorted FTS5
+d365fo labels search "Customer invoice"
+d365fo labels search "customer invoice" --fts        # rank-sorted FTS5
 d365fo get label @SYS12345 --language en-us
 
 # Write \u2014 atomic, preserves comments, BOM UTF-8

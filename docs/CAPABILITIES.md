@@ -52,6 +52,27 @@ get business-event|security-policy
 
 `get table <T> --odata-metadata` emits an OData `<EntityType>` + `<EntitySet>` XML fragment for the table.
 
+### `security`
+
+Security hierarchy, mirroring the MCP `security_info` tool. (`get role|duty|privilege` and `get security` remain as aliases.)
+
+```
+security role <Name>           — Role: duties + privileges
+security duty <Name>           — Duty: privileges
+security privilege <Name>      — Privilege: entry points
+security coverage <Object>     — Role → Duty → Privilege routes that reach an object
+```
+
+### `form-pattern`
+
+Form-pattern advisor, spec catalog, and structural validator (mirrors the MCP `form_pattern` tool).
+
+```
+form-pattern analyze [--pattern P|--table T|--similar-to Form]  — pattern histogram / advisor
+form-pattern spec [Name]        — required structure tree, versions, reference forms
+form-pattern validate [File]    — FP001–FP010 structural validation of AxForm XML
+```
+
 ### `find`
 
 Cross-reference queries.
@@ -213,18 +234,22 @@ d365fo report-integrations [--model M] --output json
 
 ## Labels
 
+All label operations live under the unified `labels` branch (mirrors the MCP
+`labels` tool). The older `search label` / `resolve label` / `label *` forms
+still work as aliases.
+
 ```sh
 # Read
-d365fo search label "Customer invoice"
-d365fo search label "..." --fts                        # FTS5 ranked search
-d365fo get label @SYS12345 --language en-us
-d365fo resolve label @SYS12345 --lang en-US,cs
+d365fo labels search "Customer invoice"
+d365fo labels search "..." --fts                        # FTS5 ranked search
+d365fo labels info @SYS12345 --language en-us
+d365fo labels resolve @SYS12345 --lang en-US,cs
 
 # Write (atomic, preserves BOM + comments)
-d365fo label create Key "Value" --file path/Foo.en-us.label.txt
-d365fo label create Key "New"   --file path/Foo.en-us.label.txt --overwrite
-d365fo label rename OldKey NewKey --file path/Foo.en-us.label.txt
-d365fo label delete Key           --file path/Foo.en-us.label.txt
+d365fo labels create Key "Value" --file path/Foo.en-us.label.txt
+d365fo labels create Key "New"   --file path/Foo.en-us.label.txt --overwrite
+d365fo labels rename OldKey NewKey --file path/Foo.en-us.label.txt
+d365fo labels delete Key           --file path/Foo.en-us.label.txt
 ```
 
 ---
@@ -281,7 +306,7 @@ Returns `UNSUPPORTED_PLATFORM` on non-Windows.
 
 ## MCP server
 
-Exposes the same index and scaffolding surface as the CLI over the `ModelContextProtocol` C# SDK via stdio. ~55 tools covering search, get, find, scaffolding, lint, analysis, and aggregation.
+Exposes the same index and scaffolding surface as the CLI over the `ModelContextProtocol` C# SDK via stdio. The tool surface is **consolidated** into ~23 discriminator-based tools (`search`, `get_object_info`, `get_method`, `labels`, `security_info`, `form_pattern`, `generate`, `generate_xml`, `analyze`, `models`, …) instead of one tool per object type — mirroring the upstream `d365fo-mcp-server`. See [MIGRATION_FROM_MCP.md](MIGRATION_FROM_MCP.md) for the full old→new mapping.
 
 ```jsonc
 {
@@ -299,7 +324,7 @@ Exposes the same index and scaffolding surface as the CLI over the `ModelContext
 
 ## Copilot Skills
 
-15 instruction files in `skills/copilot/` cover the full X++ authoring and review canon. Deploy to an X++ project with the `Install-D365FoCopilotSkills.ps1` script (see [SETUP.md](SETUP.md)).
+19 instruction files in `skills/copilot/` cover the full X++ authoring and review canon. Deploy to an X++ project with the `Install-D365FoCopilotSkills.ps1` script (see [SETUP.md](SETUP.md)).
 
 | Skill | Covers |
 |-------|--------|
@@ -336,14 +361,14 @@ Exposes the same index and scaffolding surface as the CLI over the `ModelContext
 | Inspect several objects at once | ❌ | ✅ `d365fo get batch table:CustTable class:CustTableType --output json` |
 | Search for a class / table / method | ❌ `code_search` / `file_search` — can't parse AOT XML schema, returns misleading snippets | ✅ `d365fo search class <query> --output json` |
 | Check for existing CoC wrappers | ❌ | ✅ `d365fo find coc <Class>::<method> --output json` |
-| Form pattern structure / requirements | ❌ | ✅ `d365fo get form-pattern <Pattern> --output json` |
-| Validate a form against its pattern | ❌ | ✅ `d365fo validate form-pattern <file> --output json` |
+| Form pattern structure / requirements | ❌ | ✅ `d365fo form-pattern spec <Pattern> --output json` |
+| Validate a form against its pattern | ❌ | ✅ `d365fo form-pattern validate <file> --output json` |
 | Create a new AOT object (class, table, form…) | ❌ `create_file` — wrong location, wrong XML schema | ✅ `d365fo generate class/table/form … --install-to <Model>` |
 | Modify existing AOT XML — targeted method body edit (inside CDATA) | ⚠️ `replace_string_in_file` / `multi_replace_string_in_file` — allowed for method bodies only; run `d365fo index refresh` after | ✅ `d365fo generate … --overwrite` for full-file replace |
 | Modify existing AOT XML — structural change (add field, index, relation…) | ❌ `replace_string_in_file` — corrupts XML structure | ✅ `d365fo generate extension … --overwrite` or VS AOT |
-| Search for a label | ❌ | ✅ `d365fo search label "<text>" --output json` |
-| Resolve a label key | ❌ | ✅ `d365fo resolve label @SYS12345 --lang en-us,cs` |
-| Trace security (Role → Duty → Privilege) | ❌ | ✅ `d365fo get security <Role> --type Role --output json` |
+| Search for a label | ❌ | ✅ `d365fo labels search "<text>" --output json` |
+| Resolve a label key | ❌ | ✅ `d365fo labels resolve @SYS12345 --lang en-us,cs` |
+| Trace security (Role → Duty → Privilege) | ❌ | ✅ `d365fo security coverage <Role> --type Role --output json` |
 | Run best-practice check | ❌ | ✅ `d365fo validate xpp <file>` (offline) or `d365fo bp check` (Windows VM, on user request) |
 | Inspect model dependencies | ❌ | ✅ `d365fo models deps <Name> --output json` |
 | Build / compile — check errors across workspace | ⚠️ `run_build` — on explicit user request only | ✅ `d365fo build` — **on explicit user request only** |

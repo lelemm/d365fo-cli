@@ -157,7 +157,7 @@ d365fo index extract --languages en-US,cs-CZ
 
 ### Label not found after extraction
 
-If `d365fo resolve label @SYS12345 --lang cs-CZ` returns `LABEL_NOT_FOUND`:
+If `d365fo labels resolve @SYS12345 --lang cs-CZ` returns `LABEL_NOT_FOUND`:
 
 1. Check the language code is correct: `d365fo index status --output json` lists indexed languages under `data.languages`.
 2. Re-run extraction with the language included: `d365fo index extract --languages cs-CZ --force`.
@@ -203,12 +203,12 @@ If you see `NO_INDEX` errors, run `index build` then `index extract`. If data is
 The generated form failed the structural pattern self-test (rules FP001–FP005,
 FP007). The error message lists each violation with its tree path and a fix.
 
-1. `d365fo get form-pattern <Pattern> --output json` — see the required
+1. `d365fo form-pattern spec <Pattern> --output json` — see the required
    structure (control types, order, allowed sub-patterns).
 2. Adjust the `generate form` flags (`--pattern`, `--table`, `--lines-table`,
    `--section`) and retry.
 3. After hand edits, re-check with
-   `d365fo validate form-pattern <file> --output json` (exit 2 = errors).
+   `d365fo form-pattern validate <file> --output json` (exit 2 = errors).
 
 To bypass the gate deliberately (e.g. replicating a legacy form), set
 `D365FO_FORM_PATTERN_ENFORCE=false` for that invocation. Warnings

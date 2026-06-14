@@ -59,58 +59,88 @@ d365fo index status
 
 ---
 
+## The CLI's own MCP tool surface (unified)
+
+This repository also ships `d365fo-mcp`, a JSON-RPC 2.0 adapter over the same
+index. Its tool surface was **consolidated to mirror the upstream server**:
+~70 per-type tools collapsed into a small set of **discriminator-based** tools
+(a single tool dispatches on a `type` / `objectType` / `mode` / `action` /
+`include` field). Fewer tools for the agent to choose from, identical coverage.
+
+| Unified tool | Discriminator | Replaces |
+|---|---|---|
+| `search` | `type`, `queries[]` (batch) | all per-type `search_*`, `search_any`, `batch_search`, `find_usages` |
+| `get_object_info` | `objectType` (+ `relations`/`methods`/`indexes`/`deleteActions` for tables) | all `get_*_details`, `get_form/query/view/...`, `get_table_*` |
+| `get_method` | `include` (signature/source/both) | reads X++ source (was CLI `read` only) |
+| `labels` | `action` (search/fts/info/resolve/create/rename/delete) | `search_labels(_fts)`, `get_label`, `resolve_label`, `create/rename/delete_label` |
+| `security_info` | `mode` (artifact/coverage) | `get_security_role/duty/privilege`, `get_security_coverage_for_object` |
+| `form_pattern` | `action` (spec/validate) | `get_form_pattern_spec`, `validate_form_pattern` |
+| `generate` | `objectType` (table/class/coc/form) | `generate_table/class/coc/form` (writes to disk) |
+| `generate_xml` | `objectType` (edt/enum/query/sysoperation/business-event/runbase/security-policy) | the XML-only scaffolders |
+| `analyze` | `mode` (integration/impact/report) | `analyze_integration`, `analyze_impact`, `report_integrations` |
+| `models` | `action` (list/deps/coupling) | `list_models`, `get_model_dependencies`, `models_coupling` |
+| `prepare` | `mode` (change/create) | single-round context aggregator + grounding token (was CLI-only) |
+| `find_references` | — | reverse references via regex scan of indexed X++ source (was CLI-only) |
+| `find_coc_extensions`, `find_event_handlers`, `find_extensions`, `get_table_extension_info`, `analyze_extension_points`, `validate_object_naming`, `get_workspace_info`, `suggest_edt`, `batch_get_info`, `lint`, `stats`, `index_status`, `index_history` | — | kept (parity names) |
+
+Run `d365fo schema --full` for the machine-readable command/tool manifest; every
+CLI command's `mcpTool` field names the unified MCP tool it maps to.
+
+---
+
 ## Command mapping
 
-Complete map of the MCP server's current tool surface (61 tools) onto CLI commands.
+Map of the upstream `d365fo-mcp-server`'s **consolidated** tool surface onto CLI
+commands. Both surfaces use the same discriminator-based naming.
 
 ### Discovery & read
 
 | MCP tool | CLI command |
 |---|---|
-| `search` | `d365fo search any <q>` |
-| `batch_search` | `d365fo search batch <q1> <q2> …` |
+| `search` (default) | `d365fo search any <q>` |
+| `search` (`queries[]`) | `d365fo search batch <q1> <q2> …` |
 | `batch_get_info` | `d365fo get batch table:CustTable class:X …` (max 10) |
-| `search_extensions` | `d365fo find extensions <Target>` |
-| `search_labels` | `d365fo search label <q> --lang en-us,cs` |
-| `get_class_info` / `get_table_info` / `get_edt_info` / `get_enum_info` / `get_form_info` / `get_query_info` / `get_view_info` / `get_report_info` / `get_data_entity_info` / `get_menu_item_info` | `d365fo get <kind> <name>` or `d365fo get object <kind> <name>` |
+| `search` (`scope=extensions`) | `d365fo find extensions <Target>` |
+| `labels` (`action=search`) | `d365fo labels search <q> --lang en-us,cs` |
+| `get_object_info` (`objectType=class\|table\|edt\|enum\|form\|query\|view\|report\|entity\|menu-item`) | `d365fo get <kind> <name>` or `d365fo get object <kind> <name>` |
 | `get_table_extension_info` | `d365fo find extensions <Table> --kind Table` |
-| `get_method_signature` | `d365fo get class <Name>` (signatures included) |
-| `get_method_source` | `d365fo read class <Name> --method <M>` |
-| `get_label_info` | `d365fo get label` / `d365fo resolve label @SYS12345` |
-| `get_security_artifact_info` | `d365fo get role\|duty\|privilege <Name>` |
-| `get_security_coverage_for_object` | `d365fo get security <obj> --type <kind>` |
+| `get_method` (`include=signature`) | `d365fo get class <Name>` (signatures included) |
+| `get_method` (`include=source`) | `d365fo read class <Name> --method <M>` |
+| `labels` (`action=info\|resolve`) | `d365fo labels info` / `d365fo labels resolve @SYS12345` |
+| `security_info` (`mode=artifact`) | `d365fo security role\|duty\|privilege <Name>` |
+| `security_info` (`mode=coverage`) | `d365fo security coverage <obj> --type <kind>` |
 | `find_coc_extensions` | `d365fo find coc <Class>[::<method>]` |
-| `find_event_handlers` | `d365fo find handlers <Target>` |
-| `find_references` / `resolve_references` | `d365fo find refs <Name>` / `d365fo validate references --file <F>` |
+| `find_event_handlers` | `d365fo find event-handlers <Target>` |
+| `find_references` / `resolve_references` | `d365fo find references <Name>` / `d365fo validate references --file <F>` |
 | `get_workspace_info` | `d365fo doctor` + `d365fo index status` (incl. stale-index detection) |
 
 ### Grounded generation & gates
 
 | MCP tool | CLI command |
 |---|---|
-| `prepare_change` | `d365fo prepare change <Object> --method <M> --goal "…"` → grounding token |
-| `prepare_create` | `d365fo prepare create <Name> --type <T> --goal "…"` → grounding token |
+| `prepare` (`mode=change`) | `d365fo prepare change <Object> --method <M> --goal "…"` → grounding token |
+| `prepare` (`mode=create`) | `d365fo prepare create <Name> --type <T> --goal "…"` → grounding token |
 | `validate_xpp` | `d365fo validate xpp [FILE]` (offline BP rules, data-driven property stats) |
 | `validate_object_naming` | `d365fo validate name <KIND> <NAME>` |
-| `validate_form_pattern` | `d365fo validate form-pattern [FILE]` (FP001–FP010) |
-| `get_form_patterns` | `d365fo find form-patterns [--pattern\|--table\|--similar-to]` |
-| `get_form_pattern_spec` | `d365fo get form-pattern [NAME]` |
-| `get_table_patterns` | `d365fo generate table --pattern <P>` (P1 patterns built in) |
-| `recommend_extension_strategy` / `analyze_extension_points` | `d365fo suggest extension <Target>` |
+| `form_pattern` (`action=validate`) | `d365fo form-pattern validate [FILE]` (FP001–FP010) |
+| `form_pattern` (`action=analyze`) | `d365fo form-pattern analyze [--pattern\|--table\|--similar-to]` |
+| `form_pattern` (`action=spec`) | `d365fo form-pattern spec [NAME]` |
+| `generate` (`objectType=table`, patterns) | `d365fo generate table --pattern <P>` (P1 patterns built in) |
+| `analyze_extension_points` / `recommend_extension_strategy` | `d365fo suggest extension <Target>` |
 | `suggest_edt` | `d365fo suggest edt <FieldName>` |
-| `analyze_class_completeness` | `d365fo analyze completeness` |
+| `analyze` (`mode=…`) | `d365fo analyze completeness\|integration\|impact` |
 
 ### Writes
 
 | MCP tool | CLI command |
 |---|---|
-| `create_d365fo_file` / `generate_d365fo_xml` / `generate_code` | `d365fo generate <kind> … --install-to <Model>` |
-| `generate_smart_table` | `d365fo generate table <Name> --pattern <P> --field …` |
-| `generate_smart_form` | `d365fo generate form <Name> --pattern <P>` (pattern-gated write) |
-| `generate_smart_report` | `d365fo generate report <Name> --dataset …` |
-| `modify_d365fo_file` | targeted editor edit of CDATA method bodies + `d365fo index refresh`; structural changes via `generate … --overwrite` |
+| `d365fo_file` (`action=create`) / `generate` | `d365fo generate <kind> … --install-to <Model>` |
+| `generate` (`objectType=table`) | `d365fo generate table <Name> --pattern <P> --field …` |
+| `generate` (`objectType=form`) | `d365fo generate form <Name> --pattern <P>` (pattern-gated write) |
+| `generate_xml` (`objectType=…`) | `d365fo generate edt\|enum\|query\|sysoperation\|business-event\|runbase\|security-policy` (XML only) |
+| `d365fo_file` (`action=modify`) | targeted editor edit of CDATA method bodies + `d365fo index refresh`; structural changes via `generate … --overwrite` |
 | `undo_last_modification` | `.bak` backups written by every overwrite + `git checkout` |
-| `create_label` / `rename_label` | `d365fo label create\|rename\|delete` (multi-language via `--lang`) |
+| `labels` (`action=create\|rename\|delete`) | `d365fo labels create\|rename\|delete` (multi-language via `--lang`) |
 | `review_workspace_changes` | `d365fo review diff` |
 | `update_symbol_index` | `d365fo index refresh [--model <M>]` |
 
@@ -127,10 +157,10 @@ Complete map of the MCP server's current tool surface (61 tools) onto CLI comman
 
 | MCP tool | CLI equivalent |
 |---|---|
-| `get_xpp_knowledge` | 19 lazy-loaded Skills (`skills/anthropic/`, `skills/copilot/`) — X++ rule canon loaded only when relevant |
-| `get_d365fo_error_help` | `xpp-best-practice-rules` skill + `d365fo validate xpp` diagnostics with `fix` hints |
-| `get_api_usage_patterns` / `analyze_code_patterns` | `xpp-database-queries`, `x++-class-authoring`, … skills + `d365fo find refs` |
-| `suggest_method_implementation` / `code_completion` | covered by the host agent grounded via `prepare change` + `read class` |
+| `get_knowledge` (`kind=knowledge`) | 19 lazy-loaded Skills (`skills/anthropic/`, `skills/copilot/`) — X++ rule canon loaded only when relevant |
+| `get_knowledge` (`kind=error`) | `xpp-best-practice-rules` skill + `d365fo validate xpp` diagnostics with `fix` hints |
+| `analyze_code` (`mode=api-usage\|patterns`) | `xpp-database-queries`, `x++-class-authoring`, … skills + `d365fo find references` |
+| `analyze_code` (`mode=implementations`) / `code_completion` | covered by the host agent grounded via `prepare change` + `read class` |
 
 ### CLI-only commands (no MCP equivalent)
 

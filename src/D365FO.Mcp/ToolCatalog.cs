@@ -30,8 +30,10 @@ public static class ToolCatalog
     /// </summary>
     public static readonly HashSet<string> WriteTools = new(StringComparer.Ordinal)
     {
-        "create_label", "rename_label", "delete_label",
-        "generate_table", "generate_class", "generate_coc", "generate_form",
+        // Unified write tools. `generate` writes AOT XML to disk; `labels` mixes
+        // read actions (search/info) with write actions (create/rename/delete) —
+        // it is flagged here so clients confirm before the write actions run.
+        "generate", "labels",
     };
 
     /// <summary>
@@ -58,254 +60,173 @@ public static class ToolCatalog
 
     public static IReadOnlyList<Descriptor> All { get; } = new[]
     {
-        new Descriptor("search_classes",
-            "Find X++ classes by substring match on the class name.",
-            Schema(("query", "string", true), ("model", "string", false), ("limit", "integer", false)),
-            (h, p) => h.SearchClasses(Str(p, "query"), StrOrNull(p, "model"), Int(p, "limit", 50))),
+        // ──────────────────────────────────────────────────────────────────
+        // Unified tool surface. Each tool dispatches to the underlying
+        // ToolHandlers methods via a discriminator (type / objectType / mode /
+        // action / include). This mirrors the upstream d365fo-mcp-server
+        // consolidation: fewer tools for the agent to choose from, identical
+        // coverage. No handler logic changed.
+        // ──────────────────────────────────────────────────────────────────
 
-        new Descriptor("search_tables",
-            "Find AxTable objects by substring.",
-            Schema(("query", "string", true), ("model", "string", false), ("limit", "integer", false)),
-            (h, p) => h.SearchTables(Str(p, "query"), StrOrNull(p, "model"), Int(p, "limit", 50))),
+        // ---- Search & discovery ----
 
-        new Descriptor("search_edts",
-            "Find Extended Data Types by substring.",
-            Schema(("query", "string", true), ("limit", "integer", false)),
-            (h, p) => h.SearchEdts(Str(p, "query"), Int(p, "limit", 50))),
+        new Descriptor("search",
+            "Unified metadata search across the index. `type` selects the kind: " +
+            "class | table | edt | enum | query | view | entity | report | service | workflow | " +
+            "business-event | security-policy | configuration-key | tile | workspace | batch-jobs | any. " +
+            "Pass `queries` (array) to run several searches in one call (batch). Omit `type` (or use `any`) " +
+            "for a scope-agnostic search across every kind. `model` filters class/table searches; " +
+            "`category` filters business-event searches.",
+            Schema(("type", "string", false), ("query", "string", false), ("queries", "array", false),
+                   ("model", "string", false), ("category", "string", false), ("limit", "integer", false)),
+            (h, p) =>
+            {
+                var queries = StrArray(p, "queries");
+                if (queries is { Length: > 0 }) return h.BatchSearch(queries, Int(p, "limit", 50));
+                var query = Str(p, "query");
+                var limit = Int(p, "limit", 50);
+                var model = StrOrNull(p, "model");
+                return StrOr(p, "type", "any").ToLowerInvariant() switch
+                {
+                    "class"             => h.SearchClasses(query, model, limit),
+                    "table"             => h.SearchTables(query, model, limit),
+                    "edt"               => h.SearchEdts(query, limit),
+                    "enum"              => h.SearchEnums(query, limit),
+                    "query"             => h.SearchQueries(query, limit),
+                    "view"              => h.SearchViews(query, limit),
+                    "entity" or "data-entity" => h.SearchDataEntities(query, limit),
+                    "report"            => h.SearchReports(query, limit),
+                    "service"           => h.SearchServices(query, limit),
+                    "workflow"          => h.SearchWorkflowTypes(query, limit),
+                    "business-event"    => h.SearchBusinessEvents(query, StrOrNull(p, "category"), limit),
+                    "security-policy"   => h.SearchSecurityPolicies(query, limit),
+                    "configuration-key" => h.SearchConfigurationKeys(query, limit),
+                    "tile"              => h.SearchTiles(query, limit),
+                    "workspace"         => h.SearchWorkspaces(query, limit),
+                    "batch-jobs"        => h.FindBatchJobs(model),
+                    _                   => h.SearchAny(query, limit),
+                };
+            }),
 
-        new Descriptor("search_enums",
-            "Find base enums by substring.",
-            Schema(("query", "string", true), ("limit", "integer", false)),
-            (h, p) => h.SearchEnums(Str(p, "query"), Int(p, "limit", 50))),
+        new Descriptor("batch_get_info",
+            "Fetch up to 10 objects in one call. Each spec is \"<kind>:<name>\" (kinds: class, table, edt, enum, form, menu-item, query, view, entity, report, service, service-group, role, duty, privilege). One failed lookup never fails the batch.",
+            Schema(("objects", "array", true)),
+            (h, p) => h.BatchGetInfo(StrArray(p, "objects"))),
 
-        new Descriptor("search_labels",
-            "Search label files for a key or value substring. Values are sanitised unless raw=true.",
-            Schema(("query", "string", true), ("languages", "array", false), ("limit", "integer", false), ("raw", "boolean", false)),
-            (h, p) => h.SearchLabels(Str(p, "query"), StrArray(p, "languages"), Int(p, "limit", 100), Bool(p, "raw"))),
+        // ---- Object info ----
 
-        new Descriptor("search_labels_fts",
-            "Rank-sorted SQLite FTS5 search over label values/keys. Supports phrase queries (\"customer invoice\"), NEAR, column filters like Value:customer.",
-            Schema(("query", "string", true), ("languages", "array", false), ("limit", "integer", false), ("raw", "boolean", false)),
-            (h, p) => h.SearchLabelsFts(Str(p, "query"), StrArray(p, "languages"), Int(p, "limit", 100), Bool(p, "raw"))),
+        new Descriptor("get_object_info",
+            "Read one object's full metadata by `objectType`: table | class | edt | enum | form | query | view | " +
+            "entity | report | service | service-group | menu-item | business-event. For tables, set exactly one of " +
+            "`relations` | `methods` | `indexes` | `deleteActions` to return just that slice instead of the full table.",
+            Schema(("objectType", "string", true), ("name", "string", true),
+                   ("relations", "boolean", false), ("methods", "boolean", false),
+                   ("indexes", "boolean", false), ("deleteActions", "boolean", false)),
+            (h, p) =>
+            {
+                var name = Str(p, "name");
+                return StrOr(p, "objectType", "").ToLowerInvariant() switch
+                {
+                    "table" => Bool(p, "relations")     ? h.GetTableRelations(name)
+                             : Bool(p, "methods")       ? h.GetTableMethods(name)
+                             : Bool(p, "indexes")       ? h.GetTableIndexes(name)
+                             : Bool(p, "deleteActions") ? h.GetTableDeleteActions(name)
+                             : h.GetTable(name),
+                    "class"                   => h.GetClass(name),
+                    "edt"                     => h.GetEdt(name),
+                    "enum"                    => h.GetEnum(name),
+                    "form"                    => h.GetForm(name),
+                    "query"                   => h.GetQuery(name),
+                    "view"                    => h.GetView(name),
+                    "entity" or "data-entity" => h.GetDataEntity(name),
+                    "report"                  => h.GetReport(name),
+                    "service"                 => h.GetService(name),
+                    "service-group"           => h.GetServiceGroup(name),
+                    "menu-item"               => h.GetMenuItem(name),
+                    "business-event"          => h.GetBusinessEvent(name),
+                    _ => D365FO.Core.ToolResult<object>.Fail("BAD_INPUT",
+                            $"Unknown objectType '{Str(p, "objectType")}'.",
+                            "Use one of: table, class, edt, enum, form, query, view, entity, report, service, service-group, menu-item, business-event."),
+                };
+            }),
 
-        new Descriptor("get_table_details",
-            "Return fields + relations for a table.",
-            Schema(("name", "string", true)),
-            (h, p) => h.GetTable(Str(p, "name"))),
+        new Descriptor("get_method",
+            "Read X++ source from the index. `objectType` (class | table | form, default class), `name`, optional `method`. " +
+            "`include` = signature | source | both (default both — signature is the cheap header for CoC planning). " +
+            "Omit `method` to list every method's signature.",
+            Schema(("objectType", "string", false), ("name", "string", true),
+                   ("method", "string", false), ("include", "string", false)),
+            (h, p) => h.ReadMethod(StrOr(p, "objectType", "class"), Str(p, "name"),
+                StrOrNull(p, "method"), StrOr(p, "include", "both"))),
 
-        new Descriptor("get_edt_details",
-            "Return a single EDT definition.",
-            Schema(("name", "string", true)),
-            (h, p) => h.GetEdt(Str(p, "name"))),
+        // ---- Labels ----
 
-        new Descriptor("get_class_details",
-            "Return class metadata: extends, methods, flags.",
-            Schema(("name", "string", true)),
-            (h, p) => h.GetClass(Str(p, "name"))),
+        new Descriptor("labels",
+            "Unified label operations via `action`: " +
+            "search (substring across label files) · fts (ranked FTS5; supports phrases, NEAR, Value: filters) · " +
+            "info (all translations of a token like @SYS12345, or one entry by file+language+key) · " +
+            "resolve (alias of info) · create (write a key=value; needs file or installTo) · " +
+            "rename (rename a key in place) · delete (remove a key). Values are sanitised unless raw=true.",
+            Schema(("action", "string", true), ("query", "string", false), ("token", "string", false),
+                   ("languages", "array", false), ("limit", "integer", false), ("raw", "boolean", false),
+                   ("file", "string", false), ("language", "string", false), ("key", "string", false),
+                   ("value", "string", false), ("overwrite", "boolean", false),
+                   ("installTo", "string", false), ("lang", "string", false), ("labelFile", "string", false),
+                   ("oldKey", "string", false), ("newKey", "string", false)),
+            (h, p) => StrOr(p, "action", "search").ToLowerInvariant() switch
+            {
+                "fts"    => h.SearchLabelsFts(Str(p, "query"), StrArray(p, "languages"), Int(p, "limit", 100), Bool(p, "raw")),
+                "info" or "resolve" => StrOrNull(p, "file") is not null
+                            ? h.GetLabel(Str(p, "file"), Str(p, "language"), Str(p, "key"), Bool(p, "raw"))
+                            : h.ResolveLabel(Str(p, "token"), StrArray(p, "languages"), Bool(p, "raw")),
+                "create" => h.CreateLabel(StrOrNull(p, "file"), Str(p, "key"), Str(p, "value"), Bool(p, "overwrite"),
+                                StrOrNull(p, "installTo"), StrOrNull(p, "lang"), StrOrNull(p, "labelFile")),
+                "rename" => h.RenameLabel(Str(p, "file"), Str(p, "oldKey"), Str(p, "newKey"), Bool(p, "overwrite")),
+                "delete" => h.DeleteLabel(Str(p, "file"), Str(p, "key")),
+                _        => h.SearchLabels(Str(p, "query"), StrArray(p, "languages"), Int(p, "limit", 100), Bool(p, "raw")),
+            }),
 
-        new Descriptor("get_enum_details",
-            "Return enum header + values.",
-            Schema(("name", "string", true)),
-            (h, p) => h.GetEnum(Str(p, "name"))),
+        // ---- Security ----
 
-        new Descriptor("get_menu_item",
-            "Resolve a menu item to the object it launches.",
-            Schema(("name", "string", true)),
-            (h, p) => h.GetMenuItem(Str(p, "name"))),
+        new Descriptor("security_info",
+            "Security lookup. `mode=artifact` returns a named role/duty/privilege (set `type` = role | duty | privilege, and `name`). " +
+            "`mode=coverage` returns which roles → duties → privileges grant access to `object` (set `objectKind`, default Menuitem).",
+            Schema(("mode", "string", true), ("type", "string", false), ("name", "string", false),
+                   ("object", "string", false), ("objectKind", "string", false)),
+            (h, p) => StrOr(p, "mode", "artifact").ToLowerInvariant() switch
+            {
+                "coverage" => h.GetSecurity(Str(p, "object"), StrOr(p, "objectKind", "Menuitem")),
+                _ => StrOr(p, "type", "role").ToLowerInvariant() switch
+                {
+                    "duty"      => h.GetSecurityDuty(Str(p, "name")),
+                    "privilege" => h.GetSecurityPrivilege(Str(p, "name")),
+                    _           => h.GetSecurityRole(Str(p, "name")),
+                },
+            }),
 
-        new Descriptor("get_label",
-            "Fetch one label entry by (file, language, key).",
-            Schema(("file", "string", true), ("language", "string", true), ("key", "string", true), ("raw", "boolean", false)),
-            (h, p) => h.GetLabel(Str(p, "file"), Str(p, "language"), Str(p, "key"), Bool(p, "raw"))),
+        // ---- Extensions & handlers ----
 
         new Descriptor("find_coc_extensions",
             "Find Chain-of-Command extensions for a target class (optionally scoped to method).",
             Schema(("target", "string", true), ("method", "string", false)),
             (h, p) => h.FindCoc(Str(p, "target"), StrOrNull(p, "method"))),
 
-        new Descriptor("get_security_coverage_for_object",
-            "Return Role→Duty→Privilege routes that grant access to an object.",
-            Schema(("object", "string", true), ("type", "string", false)),
-            (h, p) => h.GetSecurity(Str(p, "object"), StrOr(p, "type", "Menuitem"))),
-
-        new Descriptor("get_table_relations",
-            "Return inbound / outbound FK relations for a table.",
-            Schema(("table", "string", true)),
-            (h, p) => h.GetTableRelations(Str(p, "table"))),
-
-        new Descriptor("find_usages",
-            "Substring-match any indexed entity (Tables/Classes/EDTs/Enums/MenuItems).",
-            Schema(("symbol", "string", true), ("limit", "integer", false)),
-            (h, p) => h.FindUsages(Str(p, "symbol"), Int(p, "limit", 100))),
-
-        new Descriptor("index_status",
-            "Current row counts of every entity table.",
-            Schema(),
-            (h, _) => h.IndexStatus()),
-
-        // ---- Parity: forms / queries / views / entities / reports / services / workflows ----
-
-        new Descriptor("get_form",
-            "Return form metadata: data sources, source path.",
-            Schema(("name", "string", true)),
-            (h, p) => h.GetForm(Str(p, "name"))),
-
-        new Descriptor("search_queries",
-            "Find AxQuery objects by substring.",
-            Schema(("query", "string", true), ("limit", "integer", false)),
-            (h, p) => h.SearchQueries(Str(p, "query"), Int(p, "limit", 50))),
-
-        new Descriptor("get_query",
-            "Return query metadata (data sources).",
-            Schema(("name", "string", true)),
-            (h, p) => h.GetQuery(Str(p, "name"))),
-
-        new Descriptor("search_views",
-            "Find AxView objects by substring.",
-            Schema(("query", "string", true), ("limit", "integer", false)),
-            (h, p) => h.SearchViews(Str(p, "query"), Int(p, "limit", 50))),
-
-        new Descriptor("get_view",
-            "Return view metadata (fields + source query).",
-            Schema(("name", "string", true)),
-            (h, p) => h.GetView(Str(p, "name"))),
-
-        new Descriptor("search_data_entities",
-            "Find data entities by AOT name, public entity name, or collection name.",
-            Schema(("query", "string", true), ("limit", "integer", false)),
-            (h, p) => h.SearchDataEntities(Str(p, "query"), Int(p, "limit", 50))),
-
-        new Descriptor("get_data_entity",
-            "Return data entity metadata (public names, staging table, fields).",
-            Schema(("name", "string", true)),
-            (h, p) => h.GetDataEntity(Str(p, "name"))),
-
-        new Descriptor("search_reports",
-            "Find SSRS reports by substring.",
-            Schema(("query", "string", true), ("limit", "integer", false)),
-            (h, p) => h.SearchReports(Str(p, "query"), Int(p, "limit", 50))),
-
-        new Descriptor("get_report",
-            "Return report metadata (datasets).",
-            Schema(("name", "string", true)),
-            (h, p) => h.GetReport(Str(p, "name"))),
-
-        new Descriptor("search_services",
-            "Find AxService objects by substring.",
-            Schema(("query", "string", true), ("limit", "integer", false)),
-            (h, p) => h.SearchServices(Str(p, "query"), Int(p, "limit", 50))),
-
-        new Descriptor("get_service",
-            "Return service metadata (class + operations).",
-            Schema(("name", "string", true)),
-            (h, p) => h.GetService(Str(p, "name"))),
-
-        new Descriptor("get_service_group",
-            "Return service group metadata (member services).",
-            Schema(("name", "string", true)),
-            (h, p) => h.GetServiceGroup(Str(p, "name"))),
-
-        new Descriptor("search_workflow_types",
-            "Find AxWorkflowType objects by name or document class.",
-            Schema(("query", "string", true), ("limit", "integer", false)),
-            (h, p) => h.SearchWorkflowTypes(Str(p, "query"), Int(p, "limit", 50))),
-
-        // ---- Security details ----
-
-        new Descriptor("get_security_role",
-            "Return a security role (duties + privileges).",
-            Schema(("name", "string", true)),
-            (h, p) => h.GetSecurityRole(Str(p, "name"))),
-
-        new Descriptor("get_security_duty",
-            "Return a security duty (privileges).",
-            Schema(("name", "string", true)),
-            (h, p) => h.GetSecurityDuty(Str(p, "name"))),
-
-        new Descriptor("get_security_privilege",
-            "Return a security privilege (entry points).",
-            Schema(("name", "string", true)),
-            (h, p) => h.GetSecurityPrivilege(Str(p, "name"))),
-
-        // ---- Models ----
-
-        new Descriptor("list_models",
-            "List every indexed model with publisher / layer / custom flag.",
-            Schema(),
-            (h, _) => h.ListModels()),
-
-        new Descriptor("get_model_dependencies",
-            "Return dependsOn / dependedBy for a model.",
-            Schema(("name", "string", true)),
-            (h, p) => h.GetModelDependencies(Str(p, "name"))),
-
-        // ---- Extensions & handlers ----
+        new Descriptor("find_event_handlers",
+            "Find DataEventHandler / SubscribesTo handlers bound to a source object.",
+            Schema(("source", "string", true), ("sourceKind", "string", false)),
+            (h, p) => h.FindEventSubscribers(Str(p, "source"), StrOrNull(p, "sourceKind"))),
 
         new Descriptor("find_extensions",
             "Find Table/Form/Enum/EDT _Extension objects targeting a given name.",
             Schema(("target", "string", true), ("kind", "string", false)),
             (h, p) => h.FindExtensions(Str(p, "target"), StrOrNull(p, "kind"))),
 
-        new Descriptor("find_event_subscribers",
-            "Find DataEventHandler / SubscribesTo handlers bound to a source object.",
-            Schema(("source", "string", true), ("sourceKind", "string", false)),
-            (h, p) => h.FindEventSubscribers(Str(p, "source"), StrOrNull(p, "sourceKind"))),
-
-        // ---- Labels ----
-
-        new Descriptor("resolve_label",
-            "Resolve a label token like @SYS12345 across languages.",
-            Schema(("token", "string", true), ("languages", "array", false), ("raw", "boolean", false)),
-            (h, p) => h.ResolveLabel(Str(p, "token"), StrArray(p, "languages"), Bool(p, "raw"))),
-
-        // ---- Table details pieces ----
-
-        new Descriptor("get_table_methods",
-            "Return methods declared on a table.",
-            Schema(("table", "string", true)),
-            (h, p) => h.GetTableMethods(Str(p, "table"))),
-
-        new Descriptor("get_table_indexes",
-            "Return indexes defined on a table.",
-            Schema(("table", "string", true)),
-            (h, p) => h.GetTableIndexes(Str(p, "table"))),
-
-        new Descriptor("get_table_delete_actions",
-            "Return delete actions defined on a table.",
-            Schema(("table", "string", true)),
-            (h, p) => h.GetTableDeleteActions(Str(p, "table"))),
-
-        // ---- Heuristics & workspace ----
-
-        new Descriptor("search_any",
-            "Scope-agnostic substring search across every indexed kind (tables, classes, EDTs, enums, menu items, forms, queries, views, data entities, reports, services, workflows).",
-            Schema(("query", "string", true), ("limit", "integer", false)),
-            (h, p) => h.SearchAny(Str(p, "query"), Int(p, "limit", 100))),
-
-        new Descriptor("suggest_edt",
-            "Suggest indexed EDTs for a field name using similarity heuristics. Returns confidence-ranked candidates.",
-            Schema(("fieldName", "string", true), ("limit", "integer", false)),
-            (h, p) => h.SuggestEdt(Str(p, "fieldName"), Int(p, "limit", 5))),
-
-        new Descriptor("get_workspace_info",
-            "Return the effective D365FO_* settings the server is using (paths, custom-model patterns, label languages).",
-            Schema(),
-            (h, _) => h.GetWorkspaceInfo()),
-
-        new Descriptor("stats",
-            "Aggregate counters over the index: totals + top-N tables (by fields), top-N classes (by methods), top-N CoC targets, and per-model counts.",
-            Schema(("topN", "integer", false)),
-            (h, p) => h.Stats(Int(p, "topN", 10))),
-
-        new Descriptor("batch_search",
-            "Run several scope-agnostic searches in a single call. Returns a result-per-query block.",
-            Schema(("queries", "array", true), ("limit", "integer", false)),
-            (h, p) => h.BatchSearch(StrArray(p, "queries") ?? Array.Empty<string>(), Int(p, "limit", 50))),
-
-        new Descriptor("validate_object_naming",
-            "Static naming-rule check (PascalCase, length, character set, extension suffix, optional publisher prefix). No index access required.",
-            Schema(("kind", "string", true), ("name", "string", true), ("prefix", "string", false)),
-            (h, p) => h.ValidateObjectNaming(Str(p, "kind"), Str(p, "name"), StrOrNull(p, "prefix"))),
+        new Descriptor("find_references",
+            "Reverse references: regex scan of indexed X++ source for where a symbol is used. " +
+            "`kind` (class/table/form) and `model` narrow the scan; `limit` caps hits (default 200). " +
+            "Returns the method + up to 3 sample lines per hit.",
+            Schema(("name", "string", true), ("kind", "string", false), ("model", "string", false), ("limit", "integer", false)),
+            (h, p) => h.FindReferences(Str(p, "name"), StrOrNull(p, "kind"), StrOrNull(p, "model"), Int(p, "limit", 200))),
 
         new Descriptor("get_table_extension_info",
             "Return all TableExtensions targeting a given table.",
@@ -317,181 +238,153 @@ public static class ToolCatalog
             Schema(("target", "string", true)),
             (h, p) => h.AnalyzeExtensionPoints(Str(p, "target"))),
 
+        new Descriptor("validate_object_naming",
+            "Static naming-rule check (PascalCase, length, character set, extension suffix, optional publisher prefix). No index access required.",
+            Schema(("kind", "string", true), ("name", "string", true), ("prefix", "string", false)),
+            (h, p) => h.ValidateObjectNaming(Str(p, "kind"), Str(p, "name"), StrOrNull(p, "prefix"))),
+
+        new Descriptor("get_workspace_info",
+            "Return the effective configuration in use (paths, custom-model patterns, label languages). Each D365FO_* key resolves via CLI flag → environment variable → settings.json → default.",
+            Schema(),
+            (h, _) => h.GetWorkspaceInfo()),
+
+        // ---- Forms ----
+
+        new Descriptor("form_pattern",
+            "Form-pattern helper via `action`: spec (catalog spec for a pattern/sub-pattern — versions, when-to-use, " +
+            "reference forms, lifecycle; omit `name` to list all) · validate (structural validator FP001-FP010 over " +
+            "complete AxForm `xml` — the same gate `generate(objectType=form)` enforces before writing).",
+            Schema(("action", "string", true), ("name", "string", false), ("xml", "string", false)),
+            (h, p) => StrOr(p, "action", "spec").ToLowerInvariant() switch
+            {
+                "validate" => h.ValidateFormPattern(Str(p, "xml")),
+                _          => h.GetFormPatternSpec(StrOrNull(p, "name")),
+            }),
+
+        // ---- Generation ----
+
+        new Descriptor("generate",
+            "Scaffold an AOT object and WRITE it into the model on disk (requires `installTo` model name — resolves the " +
+            "path from the configured packages paths — or `out` explicit path). `objectType`: " +
+            "table (pattern-aware, `fields` \"<name>:<edt>[:mandatory]\", `pattern` main|transaction|parameter|group|reference|miscellaneous) · " +
+            "class (`extends`, `nonFinal`) · coc (`target` + `methods`, writes <target>_Extension) · " +
+            "form (`table`, `pattern` SimpleList|SimpleListDetails|DetailsMaster|DetailsTransaction|Dialog|TableOfContents|Lookup|ListPage|Workspace, `caption`, `fields`, `linesTable`).",
+            Schema(("objectType", "string", true), ("name", "string", false), ("label", "string", false),
+                   ("fields", "array", false), ("pattern", "string", false),
+                   ("extends", "string", false), ("nonFinal", "boolean", false),
+                   ("target", "string", false), ("methods", "array", false),
+                   ("table", "string", false), ("caption", "string", false), ("linesTable", "string", false),
+                   ("installTo", "string", false), ("out", "string", false), ("overwrite", "boolean", false)),
+            (h, p) => StrOr(p, "objectType", "").ToLowerInvariant() switch
+            {
+                "class" => h.GenerateClass(Str(p, "name"), StrOrNull(p, "extends"), Bool(p, "nonFinal"),
+                            StrOrNull(p, "installTo"), StrOrNull(p, "out"), Bool(p, "overwrite")),
+                "coc"   => h.GenerateCoc(Str(p, "target"), StrArray(p, "methods") ?? Array.Empty<string>(),
+                            StrOrNull(p, "installTo"), StrOrNull(p, "out"), Bool(p, "overwrite")),
+                "form"  => h.GenerateForm(Str(p, "name"), StrOrNull(p, "table"), StrOrNull(p, "pattern"),
+                            StrOrNull(p, "caption"), StrArray(p, "fields"), StrOrNull(p, "linesTable"),
+                            StrOrNull(p, "installTo"), StrOrNull(p, "out"), Bool(p, "overwrite")),
+                "table" => h.GenerateTable(Str(p, "name"), StrOrNull(p, "label"), StrArray(p, "fields"),
+                            StrOrNull(p, "pattern"), StrOrNull(p, "installTo"), StrOrNull(p, "out"), Bool(p, "overwrite")),
+                _ => D365FO.Core.ToolResult<object>.Fail("BAD_INPUT",
+                        $"Unknown objectType '{Str(p, "objectType")}' for generate.",
+                        "Use one of: table, class, coc, form. For XML-only previews use generate_xml."),
+            }),
+
+        new Descriptor("generate_xml",
+            "Produce AOT XML as text only (no file written — cloud/Linux friendly). `objectType`: " +
+            "edt (`extends`, `label`, `size`) · enum (`label`, `values`) · query (`rootTable`, `label`) · " +
+            "sysoperation (`executionMode`; returns Contract+Service+Controller) · " +
+            "business-event (`contractName`, `category`; returns event+contract) · " +
+            "runbase (`batch`) · security-policy (`constrainedTable`, `policyQuery`).",
+            Schema(("objectType", "string", true), ("name", "string", false), ("extends", "string", false),
+                   ("label", "string", false), ("size", "integer", false), ("values", "array", false),
+                   ("rootTable", "string", false), ("executionMode", "string", false),
+                   ("contractName", "string", false), ("category", "string", false), ("batch", "boolean", false),
+                   ("constrainedTable", "string", false), ("policyQuery", "string", false)),
+            (h, p) => StrOr(p, "objectType", "").ToLowerInvariant() switch
+            {
+                "edt"             => h.GenerateEdt(Str(p, "name"), StrOrNull(p, "extends"), StrOrNull(p, "label"), Int(p, "size", 0)),
+                "enum"            => h.GenerateEnum(Str(p, "name"), StrOrNull(p, "label"), StrArray(p, "values")),
+                "query"           => h.GenerateQuery(Str(p, "name"), Str(p, "rootTable"), StrOrNull(p, "label")),
+                "sysoperation"    => h.GenerateSysOperation(Str(p, "name"), StrOr(p, "executionMode", "Synchronous")),
+                "business-event"  => h.GenerateBusinessEvent(Str(p, "name"), StrOrNull(p, "contractName"), StrOr(p, "category", "Custom")),
+                "runbase"         => h.GenerateRunBase(Str(p, "name"), Bool(p, "batch")),
+                "security-policy" => h.GenerateSecurityPolicy(Str(p, "name"), Str(p, "constrainedTable"), StrOrNull(p, "policyQuery")),
+                _ => D365FO.Core.ToolResult<object>.Fail("BAD_INPUT",
+                        $"Unknown objectType '{Str(p, "objectType")}' for generate_xml.",
+                        "Use one of: edt, enum, query, sysoperation, business-event, runbase, security-policy."),
+            }),
+
+        new Descriptor("suggest_edt",
+            "Suggest indexed EDTs for a field name using similarity heuristics. Returns confidence-ranked candidates.",
+            Schema(("fieldName", "string", true), ("limit", "integer", false)),
+            (h, p) => h.SuggestEdt(Str(p, "fieldName"), Int(p, "limit", 5))),
+
+        // ---- Analysis ----
+
+        new Descriptor("analyze",
+            "Cross-index analysis via `mode`: integration (OData/DMF readiness of data entities — duplicate PublicEntityName, " +
+            "missing staging table, zero-field entities) · impact (downstream consumers of `object`: CoC wrappers, event " +
+            "handlers, extensions, form datasources, data entities, queries) · report (aggregated integration surface: OData " +
+            "entities, custom services, business events, workflow types, batch jobs). `model` scopes integration/report.",
+            Schema(("mode", "string", true), ("object", "string", false), ("model", "string", false)),
+            (h, p) => StrOr(p, "mode", "integration").ToLowerInvariant() switch
+            {
+                "impact" => h.AnalyzeImpact(Str(p, "object")),
+                "report" => h.ReportIntegrations(StrOrNull(p, "model")),
+                _        => h.AnalyzeIntegration(StrOrNull(p, "model")),
+            }),
+
+        new Descriptor("prepare",
+            "Single-round context aggregator that issues a 30-min grounding token. " +
+            "`mode=change` (extend/modify an existing `object`): signature + CoC eligibility, existing wrappers, " +
+            "strategy, naming check (`proposedName`/`prefix`), similar objects — set `method` for a specific method. " +
+            "`mode=create` (new object `name` of `type`): collision check, naming, similar objects, EDT suggestions " +
+            "for `fields[]`, reusable labels, mined property defaults.",
+            Schema(("mode", "string", true), ("object", "string", false), ("name", "string", false),
+                   ("type", "string", false), ("goal", "string", false), ("method", "string", false),
+                   ("proposedName", "string", false), ("prefix", "string", false), ("fields", "array", false)),
+            (h, p) => StrOr(p, "mode", "change").ToLowerInvariant() switch
+            {
+                "create" => h.PrepareCreate(StrOr(p, "name", Str(p, "object")), StrOr(p, "type", "class"),
+                                StrOrNull(p, "goal"), StrArray(p, "fields"), StrOrNull(p, "prefix")),
+                _        => h.PrepareChange(StrOr(p, "object", Str(p, "name")), StrOrNull(p, "goal"),
+                                StrOrNull(p, "method"), StrOrNull(p, "type"), StrOrNull(p, "proposedName"), StrOrNull(p, "prefix")),
+            }),
+
         new Descriptor("lint",
             "In-process Best-Practice gate. Categories: table-no-index, ext-named-not-attributed, string-without-edt.",
             Schema(("categories", "array", false), ("onlyCustomModels", "boolean", false)),
             (h, p) => h.Lint(StrArray(p, "categories"), Bool(p, "onlyCustomModels", true))),
 
-        new Descriptor("create_label",
-            "Create or update a key=value entry in a *.label.txt file. Supply either 'file' (absolute path to the .label.txt) or 'installTo' (model name — auto-resolves <PackagesPath>/<model>/<model>/AxLabelFile/LabelResources/<lang>/<model>.<lang>.label.txt from D365FO_CUSTOM_PACKAGES_PATH or D365FO_PACKAGES_PATH). Fails with KEY_EXISTS unless overwrite=true.",
-            Schema(("file", "string", false), ("key", "string", true), ("value", "string", true), ("overwrite", "boolean", false),
-                   ("installTo", "string", false), ("lang", "string", false), ("labelFile", "string", false)),
-            (h, p) => h.CreateLabel(StrOrNull(p, "file"), Str(p, "key"), Str(p, "value"), Bool(p, "overwrite"),
-                StrOrNull(p, "installTo"), StrOrNull(p, "lang"), StrOrNull(p, "labelFile"))),
+        new Descriptor("stats",
+            "Aggregate counters over the index: totals + top-N tables (by fields), top-N classes (by methods), top-N CoC targets, and per-model counts.",
+            Schema(("topN", "integer", false)),
+            (h, p) => h.Stats(Int(p, "topN", 10))),
 
-        new Descriptor("rename_label",
-            "Rename a label key in place, preserving its value.",
-            Schema(("file", "string", true), ("oldKey", "string", true), ("newKey", "string", true), ("overwrite", "boolean", false)),
-            (h, p) => h.RenameLabel(Str(p, "file"), Str(p, "oldKey"), Str(p, "newKey"), Bool(p, "overwrite"))),
+        // ---- Models & index ----
 
-        new Descriptor("delete_label",
-            "Delete a label entry from a *.label.txt file.",
-            Schema(("file", "string", true), ("key", "string", true)),
-            (h, p) => h.DeleteLabel(Str(p, "file"), Str(p, "key"))),
+        new Descriptor("models",
+            "Model inspection via `action`: list (every indexed model — name/publisher/layer/custom) · " +
+            "deps (dependsOn / dependedBy for `name`) · coupling (fan-in / fan-out / instability + dependency cycles; `topN`, `onlyCycles`).",
+            Schema(("action", "string", true), ("name", "string", false), ("topN", "integer", false), ("onlyCycles", "boolean", false)),
+            (h, p) => StrOr(p, "action", "list").ToLowerInvariant() switch
+            {
+                "deps"     => h.GetModelDependencies(Str(p, "name")),
+                "coupling" => h.ModelsCoupling(Int(p, "topN", 20), Bool(p, "onlyCycles")),
+                _          => h.ListModels(),
+            }),
+
+        new Descriptor("index_status",
+            "Current row counts of every entity table.",
+            Schema(),
+            (h, _) => h.IndexStatus()),
 
         new Descriptor("index_history",
             "Recent ExtractionRuns telemetry (per-model timings). Returns newest first.",
             Schema(("limit", "integer", false), ("model", "string", false)),
             (h, p) => h.IndexHistory(Int(p, "limit", 50), Str(p, "model"))),
-
-        new Descriptor("models_coupling",
-            "Coupling metrics over ModelDependencies: fan-in, fan-out, instability, dependency cycles.",
-            Schema(("topN", "integer", false), ("onlyCycles", "boolean", false)),
-            (h, p) => h.ModelsCoupling(Int(p, "topN", 20), Bool(p, "onlyCycles"))),
-
-        // ---- search / get tools ----
-
-        new Descriptor("search_business_events",
-            "Search indexed D365FO business events by name or contract class.",
-            Schema(("query", "string", true), ("category", "string", false), ("limit", "integer", false)),
-            (h, p) => h.SearchBusinessEvents(Str(p, "query"), StrOrNull(p, "category"), Int(p, "limit", 50))),
-
-        new Descriptor("get_business_event",
-            "Return full details for a business event by name.",
-            Schema(("name", "string", true)),
-            (h, p) => h.GetBusinessEvent(Str(p, "name"))),
-
-        new Descriptor("search_security_policies",
-            "Search indexed AxSecurityPolicy (XDS row-level security) objects.",
-            Schema(("query", "string", true), ("limit", "integer", false)),
-            (h, p) => h.SearchSecurityPolicies(Str(p, "query"), Int(p, "limit", 50))),
-
-        new Descriptor("search_configuration_keys",
-            "Search indexed AxConfigurationKey objects.",
-            Schema(("query", "string", true), ("limit", "integer", false)),
-            (h, p) => h.SearchConfigurationKeys(Str(p, "query"), Int(p, "limit", 50))),
-
-        new Descriptor("search_tiles",
-            "Search indexed AxTile navigation tile objects.",
-            Schema(("query", "string", true), ("limit", "integer", false)),
-            (h, p) => h.SearchTiles(Str(p, "query"), Int(p, "limit", 50))),
-
-        new Descriptor("search_workspaces",
-            "Search indexed AxWorkspace navigation workspace descriptors.",
-            Schema(("query", "string", true), ("limit", "integer", false)),
-            (h, p) => h.SearchWorkspaces(Str(p, "query"), Int(p, "limit", 50))),
-
-        // ---- integration analysis tools ----
-
-        new Descriptor("analyze_integration",
-            "Cross-check indexed data entities for OData/DMF integration readiness. Returns issues such as duplicate PublicEntityName, missing staging table, and zero-field entities.",
-            Schema(("model", "string", false)),
-            (h, p) => h.AnalyzeIntegration(StrOrNull(p, "model"))),
-
-        new Descriptor("report_integrations",
-            "Aggregated integration surface report: OData entities, custom services, business events, workflow types, and batch jobs.",
-            Schema(("model", "string", false)),
-            (h, p) => h.ReportIntegrations(StrOrNull(p, "model"))),
-
-        // ---- developer experience tools ----
-
-        new Descriptor("analyze_impact",
-            "Change-impact analysis: list all downstream consumers (CoC wrappers, event handlers, extensions, form datasources, data entities, queries) of an AOT object.",
-            Schema(("object", "string", true)),
-            (h, p) => h.AnalyzeImpact(Str(p, "object"))),
-
-        new Descriptor("find_batch_jobs",
-            "Find all RunBaseBatch / SysOperationServiceController subclasses in the index.",
-            Schema(("model", "string", false)),
-            (h, p) => h.FindBatchJobs(StrOrNull(p, "model"))),
-
-        // ---- scaffolding tools (return XML content) ----
-
-        new Descriptor("generate_edt",
-            "Scaffold an AxEdt Extended Data Type. Returns the XML content as a string.",
-            Schema(("name", "string", true), ("extends", "string", false), ("label", "string", false), ("size", "integer", false)),
-            (h, p) => h.GenerateEdt(Str(p, "name"), StrOrNull(p, "extends"), StrOrNull(p, "label"), Int(p, "size", 0))),
-
-        new Descriptor("generate_enum",
-            "Scaffold an AxEnum base enumeration. Returns the XML content as a string.",
-            Schema(("name", "string", true), ("label", "string", false), ("values", "array", false)),
-            (h, p) => h.GenerateEnum(Str(p, "name"), StrOrNull(p, "label"), StrArray(p, "values"))),
-
-        new Descriptor("generate_query",
-            "Scaffold an AxQuery with a root data source. Returns the XML content as a string.",
-            Schema(("name", "string", true), ("rootTable", "string", true), ("label", "string", false)),
-            (h, p) => h.GenerateQuery(Str(p, "name"), Str(p, "rootTable"), StrOrNull(p, "label"))),
-
-        new Descriptor("generate_sysoperation",
-            "Scaffold a SysOperation DataContract + Service + Controller triplet. Returns XML content.",
-            Schema(("name", "string", true), ("executionMode", "string", false)),
-            (h, p) => h.GenerateSysOperation(Str(p, "name"), StrOr(p, "executionMode", "Synchronous"))),
-
-        new Descriptor("generate_business_event",
-            "Scaffold a D365FO business event class + contract class. Returns XML content for both files.",
-            Schema(("name", "string", true), ("contractName", "string", false), ("category", "string", false)),
-            (h, p) => h.GenerateBusinessEvent(Str(p, "name"), StrOrNull(p, "contractName"), StrOr(p, "category", "Custom"))),
-
-        new Descriptor("generate_runbase",
-            "Scaffold a RunBase / RunBaseBatch class. Returns XML content.",
-            Schema(("name", "string", true), ("batch", "boolean", false)),
-            (h, p) => h.GenerateRunBase(Str(p, "name"), Bool(p, "batch"))),
-
-        new Descriptor("generate_security_policy",
-            "Scaffold an AxSecurityPolicy (XDS) XML. Returns XML content.",
-            Schema(("name", "string", true), ("constrainedTable", "string", true), ("policyQuery", "string", false)),
-            (h, p) => h.GenerateSecurityPolicy(Str(p, "name"), Str(p, "constrainedTable"), StrOrNull(p, "policyQuery"))),
-
-        // ---- write-to-disk scaffolding tools ----
-        // These tools generate XML AND write it directly into the AOT at
-        //   <D365FO_CUSTOM_PACKAGES_PATH>/<model>/<model>/Ax<Kind>/<name>.xml
-        // Either `installTo` (model name) or `out` (explicit path) is required.
-
-        new Descriptor("generate_table",
-            "Scaffold an AxTable and write it into the AOT. Requires either installTo (model name, resolves path automatically from D365FO_CUSTOM_PACKAGES_PATH or D365FO_PACKAGES_PATH) or out (explicit file path). Fields format: \"<name>:<edt>[:mandatory]\". Pattern aliases: main, transaction, parameter, group, reference, miscellaneous.",
-            Schema(("name", "string", true), ("label", "string", false), ("fields", "array", false),
-                   ("pattern", "string", false), ("installTo", "string", false),
-                   ("out", "string", false), ("overwrite", "boolean", false)),
-            (h, p) => h.GenerateTable(Str(p, "name"), StrOrNull(p, "label"), StrArray(p, "fields"),
-                StrOrNull(p, "pattern"), StrOrNull(p, "installTo"), StrOrNull(p, "out"), Bool(p, "overwrite"))),
-
-        new Descriptor("generate_class",
-            "Scaffold an AxClass and write it into the AOT. Requires either installTo (model name) or out (explicit path).",
-            Schema(("name", "string", true), ("extends", "string", false), ("nonFinal", "boolean", false),
-                   ("installTo", "string", false), ("out", "string", false), ("overwrite", "boolean", false)),
-            (h, p) => h.GenerateClass(Str(p, "name"), StrOrNull(p, "extends"), Bool(p, "nonFinal"),
-                StrOrNull(p, "installTo"), StrOrNull(p, "out"), Bool(p, "overwrite"))),
-
-        new Descriptor("generate_coc",
-            "Scaffold a Chain-of-Command extension class (<target>_Extension) and write it into the AOT. Wraps the given methods with next calls. Requires either installTo or out.",
-            Schema(("target", "string", true), ("methods", "array", true),
-                   ("installTo", "string", false), ("out", "string", false), ("overwrite", "boolean", false)),
-            (h, p) => h.GenerateCoc(Str(p, "target"), StrArray(p, "methods") ?? Array.Empty<string>(),
-                StrOrNull(p, "installTo"), StrOrNull(p, "out"), Bool(p, "overwrite"))),
-
-        new Descriptor("batch_get_info",
-            "Fetch up to 10 objects in one call. Each spec is \"<kind>:<name>\" (kinds: class, table, edt, enum, form, menu-item, query, view, entity, report, service, service-group, role, duty, privilege). One failed lookup never fails the batch.",
-            Schema(("objects", "array", true)),
-            (h, p) => h.BatchGetInfo(StrArray(p, "objects"))),
-
-        new Descriptor("get_form_pattern_spec",
-            "Form pattern spec catalog: versions, when-to-use, reference forms, lifecycle guidance. Omit name to list all known patterns + sub-patterns.",
-            Schema(("name", "string", false)),
-            (h, p) => h.GetFormPatternSpec(StrOrNull(p, "name"))),
-
-        new Descriptor("validate_form_pattern",
-            "Structural form-pattern validator (FP001-FP010) over complete AxForm XML — the same gate generate_form enforces before writing.",
-            Schema(("xml", "string", true)),
-            (h, p) => h.ValidateFormPattern(Str(p, "xml"))),
-
-        new Descriptor("generate_form",
-            "Scaffold a pattern-correct AxForm and write it into the AOT. Patterns: SimpleList, SimpleListDetails, DetailsMaster, DetailsTransaction, Dialog, TableOfContents, Lookup, ListPage, Workspace. Requires either installTo or out.",
-            Schema(("name", "string", true), ("table", "string", false), ("pattern", "string", false),
-                   ("caption", "string", false), ("fields", "array", false), ("linesTable", "string", false),
-                   ("installTo", "string", false), ("out", "string", false), ("overwrite", "boolean", false)),
-            (h, p) => h.GenerateForm(Str(p, "name"), StrOrNull(p, "table"), StrOrNull(p, "pattern"),
-                StrOrNull(p, "caption"), StrArray(p, "fields"), StrOrNull(p, "linesTable"),
-                StrOrNull(p, "installTo"), StrOrNull(p, "out"), Bool(p, "overwrite"))),
     };
 
     // ---- JSON helpers ----

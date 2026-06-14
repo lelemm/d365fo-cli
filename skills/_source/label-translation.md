@@ -6,7 +6,7 @@ applyTo:
   - "**/AxLabelFile/**"
   - "**/*.label.txt"
   - "**/*Labels*.xml"
-appliesWhen: User intent mentions labels, translations, `@SYS`, `@MODULE`, display strings, or any of the `d365fo label create / rename / delete` operations.
+appliesWhen: User intent mentions labels, translations, `@SYS`, `@MODULE`, display strings, or any of the `d365fo labels create / rename / delete` operations.
 ---
 
 > ⛔ **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema (`<AxClass>`, `<AxTable>`, `<AxForm>`, `<Methods>`, `<SourceCode>`) is proprietary — LLMs have not been trained on it reliably. **ALWAYS use `d365fo generate …` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
@@ -20,8 +20,8 @@ appliesWhen: User intent mentions labels, translations, `@SYS`, `@MODULE`, displ
 ## 1. Reuse first — search before you create
 
 ```sh
-d365fo search label "Customer account" --lang en-us,cs --output json
-d365fo resolve label @SYS4724 --lang en-us,cs --output json     # confirm an existing token
+d365fo labels search "Customer account" --lang en-us,cs --output json
+d365fo labels resolve @SYS4724 --lang en-us,cs --output json     # confirm an existing token
 ```
 
 - Pick an existing `key` if any value matches your intent exactly.
@@ -34,7 +34,7 @@ d365fo resolve label @SYS4724 --lang en-us,cs --output json     # confirm an exi
 ## 2. Create a new label entry
 
 ```sh
-d365fo label create "@FleetManagement:VehicleVin" "VIN" \
+d365fo labels create "@FleetManagement:VehicleVin" "VIN" \
     --file PackagesLocalDirectory/FleetManagement/FleetManagement/AxLabelFile/FleetManagement.label.txt \
     --lang en-us
 ```
@@ -48,7 +48,7 @@ d365fo label create "@FleetManagement:VehicleVin" "VIN" \
 ## 3. Rename a label key (refactor across the model)
 
 ```sh
-d365fo label rename @FleetManagement:OldKey @FleetManagement:NewKey \
+d365fo labels rename @FleetManagement:OldKey @FleetManagement:NewKey \
     --file <path>.label.txt
 ```
 
@@ -60,10 +60,10 @@ update them yourself, then `d365fo index refresh --model <Model>` so
 ## 4. Delete a label entry
 
 ```sh
-d365fo label delete @FleetManagement:DeprecatedKey --file <path>.label.txt
+d365fo labels delete @FleetManagement:DeprecatedKey --file <path>.label.txt
 ```
 
-- Pre-flight: `d365fo find refs @FleetManagement:DeprecatedKey` to ensure no
+- Pre-flight: `d365fo find references @FleetManagement:DeprecatedKey` to ensure no
   remaining references — deleting a referenced label triggers
   `BPErrorUnknownLabel` on every consumer.
 

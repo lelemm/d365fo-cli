@@ -6,8 +6,8 @@ using Spectre.Console.Cli;
 namespace D365FO.Cli.Commands.Validate;
 
 /// <summary>
-/// Structural form-pattern validator over AxForm XML — port of the upstream
-/// MCP <c>validate_form_pattern</c> tool. Checks the Design tree against the
+/// Structural form-pattern validator over AxForm XML — the unified MCP
+/// <c>form_pattern</c> tool's <c>action=validate</c>. Checks the Design tree against the
 /// curated pattern catalog (FP001-FP010); requires no index and no VM.
 /// Exit codes: 0 = clean (or warnings only), 1 = command failure, 2 = errors found.
 /// </summary>

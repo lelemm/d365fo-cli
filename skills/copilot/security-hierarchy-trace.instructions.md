@@ -10,12 +10,12 @@ applyTo: '**/AxSecurityRole/**,**/AxSecurityDuty/**,**/AxSecurityPrivilege/**'
 
 1. **Top-down** — which entry points does a role reach?
    ```sh
-   d365fo get security <RoleName> --type Role --output json
+   d365fo security coverage <RoleName> --type Role --output json
    ```
 
 2. **Bottom-up** — which roles reach this object?
    ```sh
-   d365fo get security <ObjectName> --type Menuitem --output json
+   d365fo security coverage <ObjectName> --type Menuitem --output json
    # type may be Table, Form, Report, Class, Menuitem
    ```
 
@@ -62,4 +62,4 @@ d365fo generate duty FmNewDuty --privilege FmSomePrivilege \
 ```
 
 **Scaffold order:** menu item → privilege (references the menu item) → duty (bundles privileges) → role (bundles duties).
-Always run `d365fo get security <Name> --type Role --output json` after to verify the new objects appear in the hierarchy.
+Always run `d365fo security coverage <Name> --type Role --output json` after to verify the new objects appear in the hierarchy.
