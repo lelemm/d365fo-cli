@@ -104,6 +104,8 @@ public class McpDispatcherTests : IDisposable
         Assert.Contains("generate", names);
         Assert.Contains("models", names);
         Assert.Contains("analyze", names);
+        Assert.Contains("prepare", names);
+        Assert.Contains("find_references", names);
         // The old per-type tools must be gone.
         Assert.DoesNotContain("search_classes", names);
         Assert.DoesNotContain("get_data_entity", names);
@@ -130,6 +132,30 @@ public class McpDispatcherTests : IDisposable
             .GetProperty("content")[0].GetProperty("text").GetString()!);
         Assert.False(payload.RootElement.GetProperty("ok").GetBoolean());
         Assert.Equal("SERVICE_NOT_FOUND", payload.RootElement.GetProperty("error").GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task Prepare_create_issues_grounding_token_on_fresh_db()
+    {
+        var resp = await Roundtrip("""{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"prepare","arguments":{"mode":"create","name":"FmWidget","type":"class"}}}""");
+        var doc = Assert.Single(resp);
+        var payload = JsonDocument.Parse(doc.RootElement.GetProperty("result")
+            .GetProperty("content")[0].GetProperty("text").GetString()!);
+        Assert.True(payload.RootElement.GetProperty("ok").GetBoolean());
+        var data = payload.RootElement.GetProperty("data");
+        Assert.False(string.IsNullOrEmpty(data.GetProperty("groundingToken").GetString()));
+        Assert.Equal("class", data.GetProperty("objectType").GetString());
+    }
+
+    [Fact]
+    public async Task FindReferences_returns_empty_on_fresh_db()
+    {
+        var resp = await Roundtrip("""{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"find_references","arguments":{"name":"CustTable"}}}""");
+        var doc = Assert.Single(resp);
+        var payload = JsonDocument.Parse(doc.RootElement.GetProperty("result")
+            .GetProperty("content")[0].GetProperty("text").GetString()!);
+        Assert.True(payload.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal(0, payload.RootElement.GetProperty("data").GetProperty("count").GetInt32());
     }
 
     [Theory]

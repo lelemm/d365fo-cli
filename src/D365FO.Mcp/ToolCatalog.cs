@@ -221,6 +221,13 @@ public static class ToolCatalog
             Schema(("target", "string", true), ("kind", "string", false)),
             (h, p) => h.FindExtensions(Str(p, "target"), StrOrNull(p, "kind"))),
 
+        new Descriptor("find_references",
+            "Reverse references: regex scan of indexed X++ source for where a symbol is used. " +
+            "`kind` (class/table/form) and `model` narrow the scan; `limit` caps hits (default 200). " +
+            "Returns the method + up to 3 sample lines per hit.",
+            Schema(("name", "string", true), ("kind", "string", false), ("model", "string", false), ("limit", "integer", false)),
+            (h, p) => h.FindReferences(Str(p, "name"), StrOrNull(p, "kind"), StrOrNull(p, "model"), Int(p, "limit", 200))),
+
         new Descriptor("get_table_extension_info",
             "Return all TableExtensions targeting a given table.",
             Schema(("table", "string", true)),
@@ -327,6 +334,23 @@ public static class ToolCatalog
                 "impact" => h.AnalyzeImpact(Str(p, "object")),
                 "report" => h.ReportIntegrations(StrOrNull(p, "model")),
                 _        => h.AnalyzeIntegration(StrOrNull(p, "model")),
+            }),
+
+        new Descriptor("prepare",
+            "Single-round context aggregator that issues a 30-min grounding token. " +
+            "`mode=change` (extend/modify an existing `object`): signature + CoC eligibility, existing wrappers, " +
+            "strategy, naming check (`proposedName`/`prefix`), similar objects — set `method` for a specific method. " +
+            "`mode=create` (new object `name` of `type`): collision check, naming, similar objects, EDT suggestions " +
+            "for `fields[]`, reusable labels, mined property defaults.",
+            Schema(("mode", "string", true), ("object", "string", false), ("name", "string", false),
+                   ("type", "string", false), ("goal", "string", false), ("method", "string", false),
+                   ("proposedName", "string", false), ("prefix", "string", false), ("fields", "array", false)),
+            (h, p) => StrOr(p, "mode", "change").ToLowerInvariant() switch
+            {
+                "create" => h.PrepareCreate(StrOr(p, "name", Str(p, "object")), StrOr(p, "type", "class"),
+                                StrOrNull(p, "goal"), StrArray(p, "fields"), StrOrNull(p, "prefix")),
+                _        => h.PrepareChange(StrOr(p, "object", Str(p, "name")), StrOrNull(p, "goal"),
+                                StrOrNull(p, "method"), StrOrNull(p, "type"), StrOrNull(p, "proposedName"), StrOrNull(p, "prefix")),
             }),
 
         new Descriptor("lint",

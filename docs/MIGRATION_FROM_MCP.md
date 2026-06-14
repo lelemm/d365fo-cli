@@ -79,6 +79,8 @@ index. Its tool surface was **consolidated to mirror the upstream server**:
 | `generate_xml` | `objectType` (edt/enum/query/sysoperation/business-event/runbase/security-policy) | the XML-only scaffolders |
 | `analyze` | `mode` (integration/impact/report) | `analyze_integration`, `analyze_impact`, `report_integrations` |
 | `models` | `action` (list/deps/coupling) | `list_models`, `get_model_dependencies`, `models_coupling` |
+| `prepare` | `mode` (change/create) | single-round context aggregator + grounding token (was CLI-only) |
+| `find_references` | — | reverse references via regex scan of indexed X++ source (was CLI-only) |
 | `find_coc_extensions`, `find_event_handlers`, `find_extensions`, `get_table_extension_info`, `analyze_extension_points`, `validate_object_naming`, `get_workspace_info`, `suggest_edt`, `batch_get_info`, `lint`, `stats`, `index_status`, `index_history` | — | kept (parity names) |
 
 Run `d365fo schema --full` for the machine-readable command/tool manifest; every

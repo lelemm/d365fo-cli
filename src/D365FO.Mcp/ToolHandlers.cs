@@ -1,5 +1,6 @@
 using D365FO.Core;
 using D365FO.Core.Extract;
+using D365FO.Core.Guardrails;
 using D365FO.Core.Index;
 using System.IO;
 
@@ -1187,6 +1188,317 @@ public sealed class ToolHandlers
             warnings = report.WarningCount,
             coverage = new { containersTotal = report.ContainersTotal, containersPatterned = report.ContainersPatterned },
             violations = report.Violations.Select(v => new { rule = v.Rule, severity = v.Severity, path = v.Path, excerpt = v.Excerpt, fix = v.Fix }),
+        });
+    }
+
+    // ---- prepare (single-round context aggregators + grounding token) ----
+
+    /// <summary>
+    /// Aggregate context for extending/modifying an existing object: signature +
+    /// CoC eligibility, existing wrappers, strategy, naming, similar objects, and
+    /// a 30-min grounding token. Backs the unified <c>prepare</c> MCP tool
+    /// (<c>mode=change</c>) and the CLI <c>prepare change</c> command.
+    /// </summary>
+    public ToolResult<object> PrepareChange(string objectName, string? goal, string? method, string? type, string? proposedName, string? prefix)
+    {
+        if (string.IsNullOrWhiteSpace(objectName))
+            return ToolResult<object>.Fail("BAD_INPUT", "Object name required.");
+
+        objectName = objectName.Trim();
+        var resolvedGoal = goal ?? "(not stated)";
+
+        var kinds = _repo.SymbolKinds(objectName);
+        var objectType = type?.Trim().ToLowerInvariant() ?? kinds.FirstOrDefault();
+        if (kinds.Count == 0 && type is null)
+            return ToolResult<object>.Fail("OBJECT_NOT_FOUND",
+                $"\"{objectName}\" not found in the index.",
+                $"Use search (type=any) for \"{objectName}\" to find the correct name — do not invent one.");
+
+        object? methodInfo = null;
+        if (!string.IsNullOrEmpty(method))
+        {
+            var m = _repo.FindMethod(objectName, method!);
+            if (m is null)
+            {
+                methodInfo = new
+                {
+                    name = method,
+                    found = false,
+                    eligibility = $"Method \"{method}\" not found on {objectName} (checked inheritance chain and extensions). " +
+                                  $"Use get_object_info (objectType={(objectType == "table" ? "table" : "class")}) for {objectName} to list real methods.",
+                };
+            }
+            else
+            {
+                var attrs = _repo.GetMethodAttributes(objectName, method!);
+                var blockers = new List<string>();
+                foreach (var (attrName, rawArgs) in attrs)
+                {
+                    var falseArg = rawArgs?.Contains("false", StringComparison.OrdinalIgnoreCase) ?? false;
+                    if (attrName.Contains("Hookable", StringComparison.OrdinalIgnoreCase) && falseArg)
+                        blockers.Add("[Hookable(false)] — CoC is blocked on this method.");
+                    if (attrName.Contains("Wrappable", StringComparison.OrdinalIgnoreCase) && falseArg)
+                        blockers.Add("[Wrappable(false)] — wrapping is blocked on this method.");
+                }
+                var isFinal = m.Signature?.Contains("final", StringComparison.OrdinalIgnoreCase) ?? false;
+                if (isFinal && blockers.Count == 0)
+                    blockers.Add("Method is final — requires [Wrappable(true)] to enable CoC.");
+                methodInfo = new
+                {
+                    name = method,
+                    found = true,
+                    signature = m.Signature ?? "(signature unavailable — method proven via extension metadata)",
+                    eligibility = blockers.Count > 0 ? string.Join(" ", blockers) : "Method appears CoC-eligible.",
+                };
+            }
+        }
+
+        var coc = _repo.FindCocExtensions(objectName, method)
+            .Select(c => new { c.TargetMethod, c.ExtensionClass, c.Model })
+            .ToList();
+
+        object? naming = null;
+        if (!string.IsNullOrEmpty(proposedName))
+        {
+            var violations = ObjectNamingRules.Validate("Coc", proposedName!, prefix);
+            var collision = _repo.SymbolKinds(proposedName!);
+            naming = new
+            {
+                proposedName,
+                ok = !violations.Any(v => v.Severity == "error") && collision.Count == 0,
+                collision = collision.Count > 0 ? $"\"{proposedName}\" already exists ({string.Join(", ", collision)})." : null,
+                violations = violations.Select(v => new { code = v.Code, severity = v.Severity, message = v.Message }),
+            };
+        }
+
+        var similar = _repo.FindSimilarObjects(objectType ?? "class", LastToken(objectName))
+            .Where(s => !s.Name.Equals(objectName, StringComparison.OrdinalIgnoreCase))
+            .Select(s => new { s.Name, s.Model })
+            .ToList();
+
+        var token = ProvenanceStore.CreateToken(new ProvenanceContext(
+            resolvedGoal, objectName, method, objectType, proposedName));
+
+        return ToolResult<object>.Success(new
+        {
+            goal = resolvedGoal,
+            objectName,
+            objectType,
+            method = methodInfo,
+            existingCocExtensions = coc,
+            recommendedStrategies = StrategiesFor(objectType),
+            namingValidation = naming,
+            similarObjects = similar,
+            groundingToken = token,
+            groundingNote = ProvenanceStore.EnforcementEnabled
+                ? $"D365FO_GROUNDING_ENFORCE=true — pass the grounding token to generate (coc/extension/event-handler). " +
+                  $"The token is bound to \"{objectName}\" and expires in 30 minutes."
+                : "Pass the grounding token to generate to confirm this context was used. " +
+                  "Set D365FO_GROUNDING_ENFORCE=true to require it.",
+        });
+    }
+
+    /// <summary>
+    /// Aggregate context for a brand-new object: collision check, naming, similar
+    /// objects, EDT suggestions, reusable labels, mined property defaults, and a
+    /// grounding token. Backs the unified <c>prepare</c> MCP tool
+    /// (<c>mode=create</c>) and the CLI <c>prepare create</c> command.
+    /// </summary>
+    public ToolResult<object> PrepareCreate(string name, string type, string? goal, string[]? fields, string? prefix)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return ToolResult<object>.Fail("BAD_INPUT", "Object name required.");
+
+        var baseName = name.Trim();
+        var resolvedGoal = goal ?? "(not stated)";
+        var objectType = (string.IsNullOrWhiteSpace(type) ? "class" : type).Trim().ToLowerInvariant();
+        var finalName = string.IsNullOrEmpty(prefix) || baseName.StartsWith(prefix!, StringComparison.OrdinalIgnoreCase)
+            ? baseName
+            : prefix + baseName;
+
+        var collisions = new List<object>();
+        foreach (var candidate in new[] { baseName, finalName }.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var hit = _repo.SymbolKinds(candidate);
+            if (hit.Count > 0)
+                collisions.Add(new { name = candidate, existsAs = hit });
+        }
+
+        var namingKind = objectType switch
+        {
+            "data-entity" => "Entity",
+            "menu-item" => "MenuItem",
+            _ => char.ToUpperInvariant(objectType[0]) + objectType[1..],
+        };
+        var violations = ObjectNamingRules.Validate(namingKind, finalName, prefix);
+
+        var similar = _repo.FindSimilarObjects(objectType, LastToken(baseName))
+            .Select(s => new { s.Name, s.Model })
+            .ToList();
+
+        var fieldSuggestions = new List<object>();
+        foreach (var field in (fields ?? Array.Empty<string>()).Take(10))
+        {
+            var suggestions = EdtSuggester.Suggest(_repo, field, 3);
+            fieldSuggestions.Add(new
+            {
+                field,
+                edts = suggestions.Select(s => new { s.Edt.Name, s.Confidence, s.Reason }),
+                hint = suggestions.Count == 0
+                    ? $"No EDT match — use suggest_edt for \"{field}\" or base it on a primitive + label."
+                    : null,
+            });
+        }
+
+        var words = System.Text.RegularExpressions.Regex.Replace(baseName, "([A-Z])", " $1").Trim();
+        IReadOnlyList<LabelMatch> labels;
+        try { labels = _repo.SearchLabels(words, new[] { "en-us" }, 5); }
+        catch { labels = Array.Empty<LabelMatch>(); }
+
+        object? propertyDefaults = null;
+        if (objectType == "table" && _repo.HasPropertyStats())
+        {
+            var props = new List<object>();
+            foreach (var prop in new[] { "Label", "TableGroup", "ClusteredIndex", "AlternateKeyIndex", "CacheLookup" })
+            {
+                var (present, total, ratio) = _repo.GetPropertyPresenceRatio("AxTable", prop);
+                if (total == 0) continue;
+                props.Add(new { property = prop, standardUsage = Math.Round(ratio * 100) + "%", required = ratio >= 0.8 });
+            }
+            var dist = _repo.GetPropertyValueDistribution("AxTable", "TableGroup", 4);
+            propertyDefaults = new
+            {
+                properties = props,
+                tableGroupValues = dist.Select(d => new { d.Value, d.Count }),
+            };
+        }
+
+        var token = ProvenanceStore.CreateToken(new ProvenanceContext(
+            resolvedGoal, baseName, null, objectType, finalName));
+
+        return ToolResult<object>.Success(new
+        {
+            goal = resolvedGoal,
+            objectType,
+            baseName,
+            finalName,
+            collisions = collisions.Count > 0 ? collisions : null,
+            collisionVerdict = collisions.Count > 0
+                ? "Name already exists — pick a different name or extend the existing object instead."
+                : $"No collision — neither \"{finalName}\" nor \"{baseName}\" exists in the index.",
+            namingViolations = violations.Select(v => new { code = v.Code, severity = v.Severity, message = v.Message }),
+            similarObjects = similar,
+            fieldEdtSuggestions = fieldSuggestions.Count > 0 ? fieldSuggestions : null,
+            reusableLabels = labels.Select(l => new { token = $"@{l.File}:{l.Key}", l.Value, l.Language }),
+            labelHint = labels.Count > 0
+                ? "Reuse instead of creating duplicates (rule: labels action=search before labels action=create)."
+                : "No matching labels — create new ones via labels action=create.",
+            propertyDefaults,
+            groundingToken = token,
+        });
+    }
+
+    internal static string LastToken(string name)
+    {
+        var tokens = System.Text.RegularExpressions.Regex
+            .Split(name, "(?=[A-Z])")
+            .Where(t => t.Length >= 4)
+            .ToList();
+        return tokens.Count > 0 ? tokens[^1] : name;
+    }
+
+    internal static IReadOnlyList<string> StrategiesFor(string? objectType) => objectType switch
+    {
+        "table" => new[]
+        {
+            "Table extension (AxTableExtension) — add fields, indexes, relations, field groups: generate extension table <Target> <Suffix>",
+            "Table extension class [ExtensionOf(tableStr(...))] — CoC on table methods: generate (objectType=coc)",
+            "Event handler [DataEventHandler(tableStr(X), DataEventType::...)] — subscribe to data events: generate event-handler",
+            "New standalone class — if no suitable extension point exists",
+        },
+        "class" => new[]
+        {
+            "Class extension [ExtensionOf(classStr(...))] — CoC on class methods: generate (objectType=coc)",
+            "Event handler [SubscribesTo(...)] — subscribe to delegate events: generate event-handler",
+            "New standalone class — if no suitable extension point exists",
+        },
+        "form" => new[]
+        {
+            "Form extension (AxFormExtension) — add controls, data sources, menu items: generate extension form <Target> <Suffix>",
+            "Form extension class [ExtensionOf(formStr(...))] — CoC on form methods",
+            "Form datasource extension [ExtensionOf(formDataSourceStr(...))] — CoC on DS methods",
+            "New standalone class — if no suitable extension point exists",
+        },
+        "map" => new[]
+        {
+            "Map extension class [ExtensionOf(mapStr(...))] — add/wrap map methods",
+            "New standalone class — if no suitable extension point exists",
+        },
+        _ => new[]
+        {
+            "Extension class via [ExtensionOf] — check the object type for supported extension mechanisms",
+            "New standalone class — if no suitable extension point exists",
+        },
+    };
+
+    // ---- find_references (reverse references in indexed X++ source) ----
+
+    /// <summary>
+    /// Regex scan of indexed X++ source for reverse references to a symbol.
+    /// Backs the unified <c>find_references</c> MCP tool. (The bridge-backed
+    /// DYNAMICSXREFDB path stays CLI-only via <c>find refs --xref</c>.)
+    /// </summary>
+    public ToolResult<object> FindReferences(string name, string? kind, string? model, int limit = 200)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return ToolResult<object>.Fail("BAD_INPUT", "name is required.");
+
+        var sources = _repo.EnumerateSourcePaths(model);
+        if (!string.IsNullOrWhiteSpace(kind))
+            sources = sources.Where(s => string.Equals(s.Kind, kind, StringComparison.OrdinalIgnoreCase)).ToList();
+
+        var rx = new System.Text.RegularExpressions.Regex(
+            $@"\b{System.Text.RegularExpressions.Regex.Escape(name)}\b",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        var hits = new System.Collections.Concurrent.ConcurrentBag<object>();
+        int scanned = 0;
+
+        System.Threading.Tasks.Parallel.ForEach(sources,
+            new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount },
+            row =>
+            {
+                System.Threading.Interlocked.Increment(ref scanned);
+                var src = XppSourceReader.Read(row.SourcePath);
+                if (src is null) return;
+                foreach (var m in src.Methods)
+                {
+                    if (!rx.IsMatch(m.Body)) continue;
+                    var lines = m.Body.Replace("\r\n", "\n").Split('\n');
+                    var sampleLines = new List<object>();
+                    for (int i = 0; i < lines.Length && sampleLines.Count < 3; i++)
+                        if (rx.IsMatch(lines[i]))
+                            sampleLines.Add(new { line = i + 1, text = lines[i].Trim() });
+                    hits.Add(new
+                    {
+                        kind = row.Kind,
+                        name = row.Name,
+                        model = row.Model,
+                        method = m.Name,
+                        matches = sampleLines,
+                        path = row.SourcePath,
+                    });
+                }
+            });
+
+        var items = hits.Take(limit).ToList();
+        return ToolResult<object>.Success(new
+        {
+            needle = name,
+            filesScanned = scanned,
+            count = items.Count,
+            truncated = hits.Count > limit,
+            items,
         });
     }
 }

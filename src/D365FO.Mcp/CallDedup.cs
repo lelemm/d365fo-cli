@@ -24,6 +24,8 @@ public static class CallDedup
         // ToolCatalog.WriteTools; these are stateful reads whose answer can
         // change between identical calls (index freshness, workspace config).
         "index_status", "get_workspace_info", "index_history",
+        // `prepare` issues a fresh provenance token on every call — never dedup.
+        "prepare",
     };
 
     private sealed record Entry(string Body, bool IsError, DateTimeOffset At);

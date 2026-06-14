@@ -180,59 +180,12 @@ public sealed class FindRefsCommand : Command<FindRefsCommand.Settings>
             // Fall through to regex scan if bridge / DB unavailable.
         }
 
+        // Regex scan over indexed X++ source — shared with the unified
+        // `find_references` MCP tool (D365FO.Mcp.ToolHandlers.FindReferences).
         var repo = RepoFactory.Create();
-        var sources = repo.EnumerateSourcePaths(settings.Model);
-        if (!string.IsNullOrWhiteSpace(settings.Kind))
-        {
-            var k = settings.Kind!;
-            sources = sources.Where(s => string.Equals(s.Kind, k, StringComparison.OrdinalIgnoreCase)).ToList();
-        }
-
-        var rx = new System.Text.RegularExpressions.Regex(
-            $@"\b{System.Text.RegularExpressions.Regex.Escape(settings.Name)}\b",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-        var hits = new System.Collections.Concurrent.ConcurrentBag<object>();
-        int scanned = 0;
-
-        System.Threading.Tasks.Parallel.ForEach(sources,
-            new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount },
-            row =>
-            {
-                System.Threading.Interlocked.Increment(ref scanned);
-                var src = XppSourceReader.Read(row.SourcePath);
-                if (src is null) return;
-                foreach (var method in src.Methods)
-                {
-                    if (!rx.IsMatch(method.Body)) continue;
-                    var lines = method.Body.Replace("\r\n", "\n").Split('\n');
-                    var sampleLines = new List<object>();
-                    for (int i = 0; i < lines.Length && sampleLines.Count < 3; i++)
-                    {
-                        if (rx.IsMatch(lines[i]))
-                            sampleLines.Add(new { line = i + 1, text = lines[i].Trim() });
-                    }
-                    hits.Add(new
-                    {
-                        kind = row.Kind,
-                        name = row.Name,
-                        model = row.Model,
-                        method = method.Name,
-                        matches = sampleLines,
-                        path = row.SourcePath,
-                    });
-                }
-            });
-
-        var items = hits.Take(settings.Limit).ToList();
-        return RenderHelpers.Render(kind, ToolResult<object>.Success(new
-        {
-            needle = settings.Name,
-            filesScanned = scanned,
-            count = items.Count,
-            truncated = hits.Count > settings.Limit,
-            items,
-        }));
+        var result = new D365FO.Mcp.ToolHandlers(repo)
+            .FindReferences(settings.Name, settings.Kind, settings.Model, settings.Limit);
+        return RenderHelpers.Render(kind, result);
     }
 }
 
