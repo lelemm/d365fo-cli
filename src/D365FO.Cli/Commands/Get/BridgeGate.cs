@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using D365FO.Core;
 using D365FO.Core.Bridge;
 
 namespace D365FO.Cli.Commands.Get;
@@ -12,17 +13,18 @@ namespace D365FO.Cli.Commands.Get;
 /// </summary>
 internal static class BridgeGate
 {
-    internal static bool ShouldTry()
-    {
-        var flag = System.Environment.GetEnvironmentVariable("D365FO_BRIDGE_ENABLED");
-        if (string.IsNullOrWhiteSpace(flag))
-        {
-            return false;
-        }
+    internal static bool ShouldTry() => D365FoSettings.ResolveFlag("D365FO_BRIDGE_ENABLED");
 
-        return flag == "1"
-            || string.Equals(flag, "true", System.StringComparison.OrdinalIgnoreCase);
-    }
+    /// <summary>
+    /// Build bridge options from the unified config resolver so values set in
+    /// settings.json (not just real env vars) reach the bridge child process.
+    /// </summary>
+    private static BridgeOptions DefaultOptions() => new()
+    {
+        MetadataBinPath = D365FoSettings.Resolve("D365FO_BIN_PATH"),
+        PackagesPath = D365FoSettings.Resolve("D365FO_PACKAGES_PATH"),
+        XrefConnectionString = D365FoSettings.Resolve("D365FO_XREF_CONNECTIONSTRING"),
+    };
 
     internal static object? TryReadClass(string name) => TryRead("readClass", name);
     internal static object? TryReadTable(string name) => TryRead("readTable", name);
@@ -46,10 +48,7 @@ internal static class BridgeGate
 
         try
         {
-            var options = new BridgeOptions
-            {
-                MetadataBinPath = System.Environment.GetEnvironmentVariable("D365FO_BIN_PATH"),
-            };
+            var options = DefaultOptions();
             using var client = new BridgeClient(options);
             var args = new JsonObject
             {
@@ -88,10 +87,7 @@ internal static class BridgeGate
         if (!BridgeClient.IsAvailable()) return null;
         try
         {
-            var options = new BridgeOptions
-            {
-                MetadataBinPath = System.Environment.GetEnvironmentVariable("D365FO_BIN_PATH"),
-            };
+            var options = DefaultOptions();
             using var client = new BridgeClient(options);
             var args = new JsonObject { ["symbol"] = symbol, ["limit"] = limit };
             if (!string.IsNullOrEmpty(kind)) args["kind"] = kind;
@@ -117,10 +113,7 @@ internal static class BridgeGate
         if (!BridgeClient.IsAvailable()) return null;
         try
         {
-            var options = new BridgeOptions
-            {
-                MetadataBinPath = System.Environment.GetEnvironmentVariable("D365FO_BIN_PATH"),
-            };
+            var options = DefaultOptions();
             using var client = new BridgeClient(options);
             var result = client.SendAsync("getModelFolder", new JsonObject { ["name"] = model })
                 .GetAwaiter().GetResult();
@@ -144,10 +137,7 @@ internal static class BridgeGate
 
         try
         {
-            var options = new BridgeOptions
-            {
-                MetadataBinPath = System.Environment.GetEnvironmentVariable("D365FO_BIN_PATH"),
-            };
+            var options = DefaultOptions();
             using var client = new BridgeClient(options);
             var result = client.SendAsync(method, new JsonObject { ["name"] = name })
                 .GetAwaiter()

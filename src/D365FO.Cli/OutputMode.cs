@@ -1,5 +1,6 @@
 using Spectre.Console;
 using Spectre.Console.Cli;
+using D365FO.Core;
 
 namespace D365FO.Cli;
 
@@ -12,7 +13,7 @@ public static class OutputMode
     public static bool IsTty =>
         !Console.IsOutputRedirected
         && !Console.IsErrorRedirected
-        && Environment.GetEnvironmentVariable("D365FO_FORCE_JSON") != "1";
+        && !D365FoSettings.ResolveFlag("D365FO_FORCE_JSON");
 
     public enum Kind { Json, Table, Raw }
 

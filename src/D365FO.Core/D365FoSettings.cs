@@ -29,17 +29,66 @@ public sealed record D365FoSettings(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "d365fo-cli", ConfigFileName);
 
+    /// <summary>
+    /// settings.json contents, loaded once per process and cached. Invalidated
+    /// by <see cref="SaveJsonConfig"/>. Protected by <see cref="_cacheLock"/>.
+    /// </summary>
+    private static readonly object _cacheLock = new();
+    private static Dictionary<string, string>? jsonConfigCache;
+
+    /// <summary>
+    /// Override the config file path. For unit tests only — do not set in
+    /// production code. Reset to null and call <see cref="ClearCacheForTests"/>
+    /// between tests.
+    /// </summary>
+    internal static string? ConfigPathOverrideForTests;
+
+    /// <summary>Clear the in-process JSON config cache. For unit tests only.</summary>
+    internal static void ClearCacheForTests()
+    {
+        lock (_cacheLock) { jsonConfigCache = null; }
+    }
+
+    private static Dictionary<string, string> GetJsonConfig()
+    {
+        lock (_cacheLock)
+        {
+            return jsonConfigCache ??= LoadJsonConfig();
+        }
+    }
+
+    /// <summary>
+    /// Resolve a single configuration value using the standard precedence:
+    /// (1) process environment variable, (2) settings.json. Returns null when
+    /// the key is set in neither. This is the single entry point every call
+    /// site should use so that settings.json is honored consistently.
+    /// </summary>
+    public static string? Resolve(string key)
+    {
+        var env = Environment.GetEnvironmentVariable(key);
+        if (!string.IsNullOrWhiteSpace(env)) return env;
+        var config = GetJsonConfig();
+        return config.TryGetValue(key, out var jv) && !string.IsNullOrWhiteSpace(jv)
+            ? jv
+            : null;
+    }
+
+    /// <summary>
+    /// Resolve a boolean flag via <see cref="Resolve"/>. True when the resolved
+    /// value is <c>"1"</c> or <c>"true"</c> (case-insensitive); otherwise
+    /// <paramref name="defaultValue"/> when the key is unset.
+    /// </summary>
+    public static bool ResolveFlag(string key, bool defaultValue = false)
+    {
+        var v = Resolve(key);
+        if (v is null) return defaultValue;
+        return v == "1" || string.Equals(v, "true", StringComparison.OrdinalIgnoreCase);
+    }
+
     public static D365FoSettings FromEnvironment(string? databaseOverride = null)
     {
-        // Load JSON config file as fallback; env vars always take priority.
-        var jsonConfig = LoadJsonConfig();
-
-        string Env(string k)
-        {
-            var v = Environment.GetEnvironmentVariable(k);
-            if (!string.IsNullOrWhiteSpace(v)) return v;
-            return jsonConfig.TryGetValue(k, out var jv) ? jv ?? string.Empty : string.Empty;
-        }
+        // Env var first, then settings.json fallback — same chain as Resolve.
+        static string Env(string k) => Resolve(k) ?? string.Empty;
 
         var models = Split(Env("D365FO_CUSTOM_MODELS"));
         var langs = Split(Env("D365FO_LABEL_LANGUAGES"));
@@ -76,23 +125,28 @@ public sealed record D365FoSettings(
         foreach (var (k, v) in values) merged[k] = v;
 
         File.WriteAllText(path, JsonSerializer.Serialize(merged, D365Json.Pretty));
+
+        // Keep the in-process cache consistent with what we just persisted.
+        lock (_cacheLock) { jsonConfigCache = merged; }
     }
 
     // ---- private helpers -----------------------------------------------------
 
     private static Dictionary<string, string> LoadJsonConfig()
     {
-        var path = GetDefaultConfigPath();
-        if (!File.Exists(path)) return new();
+        var path = ConfigPathOverrideForTests ?? GetDefaultConfigPath();
+        if (!File.Exists(path)) return new(StringComparer.OrdinalIgnoreCase);
         try
         {
             var json = File.ReadAllText(path);
-            return JsonSerializer.Deserialize<Dictionary<string, string>>(json, D365Json.Options)
-                   ?? new();
+            return new Dictionary<string, string>(
+                JsonSerializer.Deserialize<Dictionary<string, string>>(json, D365Json.Options)
+                    ?? new(),
+                StringComparer.OrdinalIgnoreCase);
         }
         catch
         {
-            return new();
+            return new(StringComparer.OrdinalIgnoreCase);
         }
     }
 

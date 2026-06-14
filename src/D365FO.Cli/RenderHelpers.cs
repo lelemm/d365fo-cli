@@ -97,12 +97,10 @@ public static class RenderHelpers
 
     private static IReadOnlyCollection<string> ResolveLanguages()
     {
-        var env = Environment.GetEnvironmentVariable("D365FO_LABEL_LANGUAGES");
-        if (string.IsNullOrWhiteSpace(env))
-        {
-            return new[] { "en-us" };
-        }
-        return env.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var raw = D365FoSettings.Resolve("D365FO_LABEL_LANGUAGES");
+        return string.IsNullOrWhiteSpace(raw)
+            ? new[] { "en-us" }
+            : raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 
     public static string Escape(string? s) => s is null ? string.Empty : Markup.Escape(s);

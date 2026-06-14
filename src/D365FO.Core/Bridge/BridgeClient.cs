@@ -34,6 +34,19 @@ public sealed record BridgeOptions
     public string? MetadataBinPath { get; init; }
 
     /// <summary>
+    /// PackagesLocalDirectory root. Forwarded to the bridge via
+    /// <c>D365FO_PACKAGES_PATH</c> so that a value configured only in
+    /// settings.json still reaches the child process.
+    /// </summary>
+    public string? PackagesPath { get; init; }
+
+    /// <summary>
+    /// DYNAMICSXREFDB connection string. Forwarded to the bridge via
+    /// <c>D365FO_XREF_CONNECTIONSTRING</c> when set.
+    /// </summary>
+    public string? XrefConnectionString { get; init; }
+
+    /// <summary>
     /// Per-request timeout. Defaults to 10 s to match upstream.
     /// </summary>
     public TimeSpan RequestTimeout { get; init; } = TimeSpan.FromSeconds(10);
@@ -55,7 +68,7 @@ public sealed record BridgeOptions
             return explicitPath;
         }
 
-        var env = Environment.GetEnvironmentVariable("D365FO_BRIDGE_PATH");
+        var env = D365FoSettings.Resolve("D365FO_BRIDGE_PATH");
         if (!string.IsNullOrWhiteSpace(env) && File.Exists(env))
         {
             return env;
@@ -265,6 +278,14 @@ public sealed class BridgeClient : IDisposable
             if (!string.IsNullOrWhiteSpace(options.MetadataBinPath))
             {
                 psi.Environment["D365FO_BIN_PATH"] = options.MetadataBinPath;
+            }
+            if (!string.IsNullOrWhiteSpace(options.PackagesPath))
+            {
+                psi.Environment["D365FO_PACKAGES_PATH"] = options.PackagesPath;
+            }
+            if (!string.IsNullOrWhiteSpace(options.XrefConnectionString))
+            {
+                psi.Environment["D365FO_XREF_CONNECTIONSTRING"] = options.XrefConnectionString;
             }
 
             process = Process.Start(psi);
