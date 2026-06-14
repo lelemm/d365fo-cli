@@ -6,8 +6,8 @@ using Spectre.Console.Cli;
 namespace D365FO.Cli.Commands.Get;
 
 /// <summary>
-/// Form pattern spec catalog — port of the upstream MCP
-/// <c>get_form_pattern_spec</c> tool. With no argument, lists every known
+/// Form pattern spec catalog — the unified MCP <c>form_pattern</c> tool's
+/// <c>action=spec</c>. With no argument, lists every known
 /// top-level pattern and container sub-pattern; with a name, returns the full
 /// machine-readable spec (structure tree, versions, when-to-use, reference
 /// forms, lifecycle guidance). Pure catalog data — needs no index.

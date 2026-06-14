@@ -15,7 +15,7 @@ applyTo: '**/AxClass/**EventHandler*.xml,**/AxClass/**Handler*.xml'
 
 ```sh
 # 1) Discover existing handlers on the target — avoid duplicates
-d365fo find handlers <TargetObject> --output json
+d365fo find event-handlers <TargetObject> --output json
 
 # 2) Search likely handler classes in the target model/prefix
 d365fo search class <TargetObject> --output json

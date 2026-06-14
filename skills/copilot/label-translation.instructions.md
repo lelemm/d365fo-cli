@@ -13,8 +13,8 @@ applyTo: '**/*.xpp,**/AxLabelFile/**,**/*.label.txt,**/*Labels*.xml'
 ## 1. Reuse first — search before you create
 
 ```sh
-d365fo search label "Customer account" --lang en-us,cs --output json
-d365fo resolve label @SYS4724 --lang en-us,cs --output json     # confirm an existing token
+d365fo labels search "Customer account" --lang en-us,cs --output json
+d365fo labels resolve @SYS4724 --lang en-us,cs --output json     # confirm an existing token
 ```
 
 - Pick an existing `key` if any value matches your intent exactly.
@@ -27,7 +27,7 @@ d365fo resolve label @SYS4724 --lang en-us,cs --output json     # confirm an exi
 ## 2. Create a new label entry
 
 ```sh
-d365fo label create "@FleetManagement:VehicleVin" "VIN" \
+d365fo labels create "@FleetManagement:VehicleVin" "VIN" \
     --file PackagesLocalDirectory/FleetManagement/FleetManagement/AxLabelFile/FleetManagement.label.txt \
     --lang en-us
 ```
@@ -41,7 +41,7 @@ d365fo label create "@FleetManagement:VehicleVin" "VIN" \
 ## 3. Rename a label key (refactor across the model)
 
 ```sh
-d365fo label rename @FleetManagement:OldKey @FleetManagement:NewKey \
+d365fo labels rename @FleetManagement:OldKey @FleetManagement:NewKey \
     --file <path>.label.txt
 ```
 
@@ -53,10 +53,10 @@ update them yourself, then `d365fo index refresh --model <Model>` so
 ## 4. Delete a label entry
 
 ```sh
-d365fo label delete @FleetManagement:DeprecatedKey --file <path>.label.txt
+d365fo labels delete @FleetManagement:DeprecatedKey --file <path>.label.txt
 ```
 
-- Pre-flight: `d365fo find refs @FleetManagement:DeprecatedKey` to ensure no
+- Pre-flight: `d365fo find references @FleetManagement:DeprecatedKey` to ensure no
   remaining references — deleting a referenced label triggers
   `BPErrorUnknownLabel` on every consumer.
 

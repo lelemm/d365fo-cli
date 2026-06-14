@@ -120,4 +120,4 @@ d365fo bp check --output json    # only on user request
 - Never put `next` inside `if` / `while` / `for` / `do-while` / boolean expressions (PU21+: `try` / `catch` / `finally` only).
 - Never remove `next` on a non-`[Replaceable]` method.
 - Never wrap a constructor.
-- Never hardcode labels — `d365fo search label` first.
+- Never hardcode labels — `d365fo labels search` first.

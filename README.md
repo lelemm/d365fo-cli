@@ -114,7 +114,7 @@ d365fo search table Cust --output json
 d365fo get table CustTable --output json
 d365fo get batch table:CustTable class:CustTableType edt:CustAccount --output json
 d365fo find coc SalesTable::insert --output json
-d365fo resolve label @SYS12345 --lang en-us,cs
+d365fo labels resolve @SYS12345 --lang en-us,cs
 ```
 
 ### Scaffold your first object
@@ -132,7 +132,7 @@ d365fo generate table FmVehicle \
 d365fo generate coc SalesTable --method insert --out src/MyModel/AxClass/SalesTable_MyExt.xml
 
 # Form — consult the pattern spec, scaffold, and the write is pattern-gated
-d365fo get form-pattern SimpleList --output json
+d365fo form-pattern spec SimpleList --output json
 d365fo generate form FmVehicles \
   --pattern SimpleList \
   --table FmVehicle \
@@ -168,7 +168,7 @@ Reference the `SKILL.md` files from `skills/anthropic/` in your session prompt o
 
 ### MCP (Claude Desktop, Continue, VS Code MCP)
 
-The bundled `d365fo-mcp` adapter speaks JSON-RPC 2.0 over the same index — including `batch_get_info`, `get_form_pattern_spec`, and `validate_form_pattern`:
+The bundled `d365fo-mcp` adapter speaks JSON-RPC 2.0 over the same index. Its tool surface is **consolidated** into discriminator-based tools (e.g. `search`, `get_object_info`, `get_method`, `labels`, `security_info`, `form_pattern`, `generate`, `analyze`, `models`) — see [docs/MIGRATION_FROM_MCP.md](docs/MIGRATION_FROM_MCP.md):
 
 ```json
 {
@@ -215,15 +215,16 @@ See [docs/TOKEN_ECONOMICS.md](docs/TOKEN_ECONOMICS.md) for the full analysis and
 | Group | Commands |
 |---|---|
 | **Prepare** | `prepare change`, `prepare create` — single-round context aggregators returning a grounding token |
-| **Validate** | `validate name`, `validate xpp` (offline BP rules), `validate references` (anti-hallucination gate), `validate form-pattern` (FP001–FP010 structural validator) |
+| **Validate** | `validate name`, `validate xpp` (offline BP rules), `validate references` (anti-hallucination gate) |
 | **Index** | `index build`, `index extract`, `index refresh`, `index status` (incl. `stale-index` detection), `index export`, `index import`, `index optimize`, `index history` |
 | **Discover** | `search any`, `search batch`, `search class\|table\|edt\|enum\|form\|query\|view\|entity\|report\|service\|workflow\|label\|business-event\|security-policy\|configuration-key\|tile\|workspace` |
-| **Get** | `get object`, `get batch` (up to 10 objects per call), `get form-pattern` (pattern spec catalog), `get table\|class\|edt\|enum\|form\|menu-item\|security\|label\|role\|duty\|privilege\|query\|view\|entity\|report\|service\|business-event\|security-policy` |
-| **Find** | `find related`, `find coc`, `find relations`, `find usages`, `find extensions`, `find handlers`, `find refs`, `find form-patterns`, `find batch-jobs` |
-| **Read** | `read class`, `read table`, `read form` |
-| **Resolve** | `resolve label` |
+| **Get** | `get object`, `get batch` (up to 10 objects per call), `get table\|class\|edt\|enum\|form\|menu-item\|query\|view\|entity\|report\|service\|business-event` |
+| **Security** | `security role\|duty\|privilege` (artifacts), `security coverage` (Role → Duty → Privilege reach) — mirrors the MCP `security_info` tool |
+| **Form patterns** | `form-pattern analyze` (advisor), `form-pattern spec` (catalog), `form-pattern validate` (FP001–FP010) — mirrors the MCP `form_pattern` tool |
+| **Find** | `find related`, `find coc`, `find relations`, `find usages`, `find extensions`, `find event-handlers`, `find references`, `find form-patterns`, `find batch-jobs` |
+| **Read** | `read class`, `read table`, `read form` (= MCP `get_method`) |
 | **Generate** | `generate table\|class\|coc\|form\|entity\|extension\|event-handler\|privilege\|duty\|role\|report\|sysoperation\|number-sequence\|workflow\|menu-item\|edt\|enum\|query\|business-event\|custom-service\|migration-script\|runbase\|security-policy` |
-| **Labels** | `label create\|rename\|delete` — in-place `*.label.txt` edits, multi-language via `--lang` |
+| **Labels** | `labels search\|resolve\|info\|create\|rename\|delete` — search/resolve plus in-place `*.label.txt` edits, multi-language via `--lang` (mirrors the MCP `labels` tool) |
 | **Analyze** | `analyze completeness`, `analyze integration`, `analyze impact`, `lint`, `suggest edt`, `suggest extension`, `report-integrations` |
 | **Review** | `review diff` |
 | **Models** | `models list`, `models deps`, `models coupling` |
@@ -260,7 +261,7 @@ The full scenario-by-scenario decision table lives in **[docs/CAPABILITIES.md](d
 | `PACKAGES_PATH_NOT_FOUND` | Set `D365FO_PACKAGES_PATH` or pass `--packages <PATH>` |
 | `UNSUPPORTED_PLATFORM` | `build` / `sync` / `test` / `bp` require Windows + a D365FO dev VM |
 | `NO_INDEX` | Run `d365fo index build` then `d365fo index extract` |
-| `FORM_PATTERN_VIOLATION` | The generated/edited form breaks its pattern — `d365fo get form-pattern <P>` shows the required structure |
+| `FORM_PATTERN_VIOLATION` | The generated/edited form breaks its pattern — `d365fo form-pattern spec <P>` shows the required structure |
 | Index appears stale after editing XML | Run `d365fo index refresh --model <Model>` |
 | Index file locked | Stop any running `d365fo daemon` or `d365fo-mcp` process; WAL sidecar files (`-wal`, `-shm`) are normal |
 

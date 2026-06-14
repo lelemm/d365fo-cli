@@ -40,8 +40,8 @@ d365fo search form <Name> --output json          # collision check
 d365fo get table <PrimaryTable> --output json    # field list for the grid
 
 # Pattern spec — required structure, versions, when-to-use, reference forms
-d365fo get form-pattern --output json                  # list all known patterns + sub-patterns
-d365fo get form-pattern DetailsMaster --output json    # full structural spec for one pattern
+d365fo form-pattern spec --output json                  # list all known patterns + sub-patterns
+d365fo form-pattern spec DetailsMaster --output json    # full structural spec for one pattern
 
 # Pattern reconnaissance — what do peers use for THIS table / similar entities?
 d365fo find form-patterns --table <PrimaryTable> --output json
@@ -127,9 +127,9 @@ section template is `--section Name:Caption` (split on the first `:`).
   writing; structural violations (unknown pattern, missing required controls,
   wrong order, disallowed children, misapplied sub-patterns) **block the write**
   while `D365FO_FORM_PATTERN_ENFORCE=true` (the default). Don't bypass the gate —
-  fix the structure (`d365fo get form-pattern <P>` shows the required tree).
+  fix the structure (`d365fo form-pattern spec <P>` shows the required tree).
 - After editing form XML by hand or via an example, validate it:
-  `d365fo validate form-pattern <file> --output json` (exit 2 = structural errors).
+  `d365fo form-pattern validate <file> --output json` (exit 2 = structural errors).
 - Never skip the primary datasource for SimpleList / Lookup / ListPage / Master / Transaction patterns.
 - Never drop required pattern controls or metadata from a generated form copied
   from an example. Validate against the example's pattern before finishing.

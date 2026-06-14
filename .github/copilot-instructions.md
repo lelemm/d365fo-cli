@@ -58,7 +58,7 @@ the same target object or integration family:
 
 ```sh
 d365fo find extensions <TargetObject> --output json
-d365fo find handlers <TargetObject> --output json
+d365fo find event-handlers <TargetObject> --output json
 d365fo search class <TargetOrPrefix> --output json
 ```
 
@@ -115,14 +115,14 @@ Copilot: "Since I cannot access the codebase, I'll provide generic guidance…"
 | Multiple searches in one call | `d365fo search batch <q1> <q2> … --output json` |
 | Multiple searches limited to one kind | `d365fo search batch <q1> <q2> … --kind class --output json` |
 | Check existing CoC wrappers | `d365fo find coc <Class>::<method> --output json` |
-| Find event handlers | `d365fo find handlers <Target> --output json` |
-| Find label | `d365fo search label "<text>" --output json` |
-| Resolve label token | `d365fo resolve label @SYS12345 --lang en-us,cs` |
-| Trace security (Role → Duty → Privilege) | `d365fo get security <Role> --type Role --output json` |
+| Find event handlers | `d365fo find event-handlers <Target> --output json` |
+| Find label | `d365fo labels search "<text>" --output json` |
+| Resolve label token | `d365fo labels resolve @SYS12345 --lang en-us,cs` |
+| Trace security (Role → Duty → Privilege) | `d365fo security coverage <Role> --type Role --output json` |
 | Find table relations | `d365fo find relations <Table> --output json` |
 | Fetch several objects at once | `d365fo get batch table:CustTable class:CustTableType … --output json` (max 10) |
-| Form pattern spec (required structure) | `d365fo get form-pattern <Pattern> --output json` |
-| Validate form XML against its pattern | `d365fo validate form-pattern <file> --output json` |
+| Form pattern spec (required structure) | `d365fo form-pattern spec <Pattern> --output json` |
+| Validate form XML against its pattern | `d365fo form-pattern validate <file> --output json` |
 | Create new AOT object | `d365fo generate table\|class\|form\|coc\|entity\|edt\|enum … --install-to <Model>` |
 | Edit method body (CDATA only) | `replace_string_in_file` — then `d365fo index refresh --model <Model>` |
 | Structural change (add field, index, relation) | `d365fo generate … --overwrite` — NEVER `replace_string_in_file` on XML structure |
@@ -140,7 +140,7 @@ Copilot: "Since I cannot access the codebase, I'll provide generic guidance…"
 3. **Never auto-run `d365fo build`, `sync`, `bp check`, or `test run`** — slow, blocks the user. Only on explicit request.
 4. **Never copy default parameter values into CoC wrapper signatures.** Causes compile errors.
 5. **Never use `today()`** — use `DateTimeUtil::getToday(DateTimeUtil::getUserPreferredTimeZone())`.
-6. **Never hardcode strings in `Info()` / `warning()` / `error()`** — use `@Model:Label`. Search first: `d365fo search label`.
+6. **Never hardcode strings in `Info()` / `warning()` / `error()`** — use `@Model:Label`. Search first: `d365fo labels search`.
 7. **Never nest `while select` loops** — use joins, `exists join`, or pre-load to `Map` / temp table.
 8. **Never use `replace_string_in_file` on `.xml` AOT files without running `d365fo index refresh` after** — stale index returns pre-edit data.
 9. **Never rewrite an existing AOT XML file wholesale.** Preserve all unrelated
@@ -161,8 +161,8 @@ Copilot: "Since I cannot access the codebase, I'll provide generic guidance…"
 12. **Form writes are pattern-gated.** `d365fo generate form` validates the
    generated XML against the pattern catalog (FP001–FP010) and **rejects
    structural violations** while `D365FO_FORM_PATTERN_ENFORCE=true` (default).
-   Consult `d365fo get form-pattern <Pattern>` for the required tree, and run
-   `d365fo validate form-pattern <file>` after any manual form-XML edit.
+   Consult `d365fo form-pattern spec <Pattern>` for the required tree, and run
+   `d365fo form-pattern validate <file>` after any manual form-XML edit.
 
 ---
 

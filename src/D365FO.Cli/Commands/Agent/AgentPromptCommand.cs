@@ -107,15 +107,15 @@ not invent a name.
 | Class methods | `d365fo get class <Name> --output json` |
 | Table fields/indexes/relations | `d365fo get table <Name> --output json` |
 | Several objects in one call (max 10) | `d365fo get batch table:CustTable class:CustTableType --output json` |
-| Form pattern spec (required structure) | `d365fo get form-pattern <Pattern> --output json` |
-| Validate form XML vs its pattern | `d365fo validate form-pattern <F> --output json` |
+| Form pattern spec (required structure) | `d365fo form-pattern spec <Pattern> --output json` |
+| Validate form XML vs its pattern | `d365fo form-pattern validate <F> --output json` |
 | Method body | `d365fo read class <Name> --method <M>` |
 | Existing CoC wrappers | `d365fo find coc <Class>::<method> --output json` |
-| Event handlers | `d365fo find handlers <Target> --output json` |
+| Event handlers | `d365fo find event-handlers <Target> --output json` |
 | Relations | `d365fo find relations <Table> --output json` |
 | Existing object extensions | `d365fo find extensions <Target> --output json` |
-| Resolve label | `d365fo resolve label @SYS12345 --lang en-us,cs` |
-| Security trace | `d365fo get security <Object> --type <Kind>` |
+| Resolve label | `d365fo labels resolve @SYS12345 --lang en-us,cs` |
+| Security trace | `d365fo security coverage <Object> --type <Kind>` |
 
 ## 🧱 Scaffolding commands
 
@@ -137,9 +137,10 @@ Form patterns: `SimpleList`, `SimpleListDetails`, `DetailsMaster`,
 
 Form writes are pattern-gated: `generate form` validates the result against
 the pattern catalog (FP001–FP010) and rejects structural violations while
-`D365FO_FORM_PATTERN_ENFORCE=true` (default). `d365fo get form-pattern <P>`
-shows the required tree; `d365fo validate form-pattern <file>` re-checks any
-hand-edited form XML (exit 2 = structural errors).
+`D365FO_FORM_PATTERN_ENFORCE=true` (default). `d365fo form-pattern spec <P>`
+shows the required tree; `d365fo form-pattern validate <file>` re-checks any
+hand-edited form XML (exit 2 = structural errors). (These map to the MCP
+`form_pattern` tool — `action=spec` / `action=validate`.)
 
 ────────────────────────────────────────────────────────────────────────────
 ## ⚡ Token discipline
@@ -361,7 +362,7 @@ d365fo validate xpp --file <f> --output json          # exit 2 = BP errors
 
 ### Subscribe to data event
 ```sh
-d365fo find handlers <Table> --output json
+d365fo find event-handlers <Table> --output json
 d365fo generate event-handler --source-kind Table \
     --source <Table> --event Inserted --install-to <Model>
 ```
@@ -376,8 +377,8 @@ d365fo generate form <Name> --pattern <P> --table <T> \
 
 ### Trace security
 ```sh
-d365fo get security <Role>   --type Role
-d365fo get security <Object> --type Menuitem
+d365fo security role <Role>
+d365fo security coverage <Object> --type Menuitem
 ```
 
 ────────────────────────────────────────────────────────────────────────────

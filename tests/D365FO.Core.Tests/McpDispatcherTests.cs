@@ -53,8 +53,8 @@ public class McpDispatcherTests : IDisposable
         var tools = doc.RootElement.GetProperty("result").GetProperty("tools");
         Assert.True(tools.GetArrayLength() >= 10);
         var names = tools.EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToHashSet();
-        Assert.Contains("search_classes", names);
-        Assert.Contains("get_enum_details", names);
+        Assert.Contains("search", names);
+        Assert.Contains("get_object_info", names);
         Assert.Contains("index_status", names);
     }
 
@@ -87,27 +87,33 @@ public class McpDispatcherTests : IDisposable
     }
 
     [Fact]
-    public async Task ToolsList_exposes_parity_tools()
+    public async Task ToolsList_exposes_unified_tools()
     {
         var resp = await Roundtrip("""{"jsonrpc":"2.0","id":10,"method":"tools/list"}""");
         var doc = Assert.Single(resp);
         var names = doc.RootElement.GetProperty("result").GetProperty("tools")
             .EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToHashSet();
-        // A selection of the new parity tools added in the SDK migration.
-        Assert.Contains("search_queries", names);
-        Assert.Contains("get_data_entity", names);
-        Assert.Contains("search_data_entities", names);
-        Assert.Contains("list_models", names);
-        Assert.Contains("get_security_role", names);
+        // The consolidated, discriminator-based tool surface.
+        Assert.Contains("search", names);
+        Assert.Contains("get_object_info", names);
+        Assert.Contains("get_method", names);
+        Assert.Contains("labels", names);
+        Assert.Contains("security_info", names);
         Assert.Contains("find_extensions", names);
-        Assert.Contains("resolve_label", names);
-        Assert.Contains("get_table_methods", names);
+        Assert.Contains("form_pattern", names);
+        Assert.Contains("generate", names);
+        Assert.Contains("models", names);
+        Assert.Contains("analyze", names);
+        // The old per-type tools must be gone.
+        Assert.DoesNotContain("search_classes", names);
+        Assert.DoesNotContain("get_data_entity", names);
+        Assert.DoesNotContain("list_models", names);
     }
 
     [Fact]
-    public async Task ListModels_returns_empty_collection_for_fresh_db()
+    public async Task Models_list_returns_empty_collection_for_fresh_db()
     {
-        var resp = await Roundtrip("""{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"list_models","arguments":{}}}""");
+        var resp = await Roundtrip("""{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"models","arguments":{"action":"list"}}}""");
         var doc = Assert.Single(resp);
         var payload = JsonDocument.Parse(doc.RootElement.GetProperty("result")
             .GetProperty("content")[0].GetProperty("text").GetString()!);
@@ -116,13 +122,32 @@ public class McpDispatcherTests : IDisposable
     }
 
     [Fact]
-    public async Task UnknownGet_returns_structured_notFound_error()
+    public async Task GetObjectInfo_unknown_service_returns_structured_notFound_error()
     {
-        var resp = await Roundtrip("""{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"get_service","arguments":{"name":"DoesNotExist"}}}""");
+        var resp = await Roundtrip("""{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"get_object_info","arguments":{"objectType":"service","name":"DoesNotExist"}}}""");
         var doc = Assert.Single(resp);
         var payload = JsonDocument.Parse(doc.RootElement.GetProperty("result")
             .GetProperty("content")[0].GetProperty("text").GetString()!);
         Assert.False(payload.RootElement.GetProperty("ok").GetBoolean());
         Assert.Equal("SERVICE_NOT_FOUND", payload.RootElement.GetProperty("error").GetProperty("code").GetString());
+    }
+
+    [Theory]
+    [InlineData("class")]
+    [InlineData("table")]
+    [InlineData("enum")]
+    [InlineData("form")]
+    public async Task GetObjectInfo_dispatches_per_objectType(string objectType)
+    {
+        var req = "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"tools/call\",\"params\":{\"name\":\"get_object_info\",\"arguments\":{\"objectType\":\""
+                  + objectType + "\",\"name\":\"Nope\"}}}";
+        var resp = await Roundtrip(req);
+        var doc = Assert.Single(resp);
+        var payload = JsonDocument.Parse(doc.RootElement.GetProperty("result")
+            .GetProperty("content")[0].GetProperty("text").GetString()!);
+        // Each objectType routes to its reader; an absent object yields a typed not-found.
+        Assert.False(payload.RootElement.GetProperty("ok").GetBoolean());
+        var code = payload.RootElement.GetProperty("error").GetProperty("code").GetString();
+        Assert.EndsWith("_NOT_FOUND", code);
     }
 }

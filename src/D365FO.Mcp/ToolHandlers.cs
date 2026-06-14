@@ -1,4 +1,5 @@
 using D365FO.Core;
+using D365FO.Core.Extract;
 using D365FO.Core.Index;
 using System.IO;
 
@@ -1011,7 +1012,7 @@ public sealed class ToolHandlers
             return ToolResult<object>.Fail("FORM_PATTERN_VIOLATION",
                 $"Generated form violates pattern {report.Pattern} (D365FO_FORM_PATTERN_ENFORCE=true):\n" +
                 string.Join("\n", errors),
-                "Fix the structure (see get_form_pattern_spec), or set D365FO_FORM_PATTERN_ENFORCE=false to bypass the gate.");
+                "Fix the structure (see form_pattern action=spec), or set D365FO_FORM_PATTERN_ENFORCE=false to bypass the gate.");
         }
 
         return WriteScaffoldString(xml, name, "AxForm", "AxForm", installTo, outPath, overwrite,
@@ -1109,6 +1110,66 @@ public sealed class ToolHandlers
         return ToolResult<object>.Fail("PATTERN_NOT_FOUND",
             $"Unknown form pattern or sub-pattern '{name}'.",
             $"Known patterns: {string.Join(", ", D365FO.Core.FormPatterns.FormPatternCatalog.KnownPatternNames())}.");
+    }
+
+    /// <summary>
+    /// Read X++ source from the index for a class/table/form. Backs the unified
+    /// <c>get_method</c> MCP tool (mirrors the CLI <c>read</c> commands). Omit
+    /// <paramref name="method"/> to list every method's signature;
+    /// <paramref name="include"/> selects signature / source / both for a single method.
+    /// </summary>
+    public ToolResult<object> ReadMethod(string objectType, string name, string? method = null, string include = "both")
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return ToolResult<object>.Fail("BAD_INPUT", "name is required.");
+
+        var (path, kind, notFound) = (objectType ?? "class").ToLowerInvariant() switch
+        {
+            "table" => (_repo.GetTableDetails(name)?.Table?.SourcePath, "table", "TABLE_NOT_FOUND"),
+            "form"  => (_repo.GetForm(name)?.Form?.SourcePath,          "form",  "FORM_NOT_FOUND"),
+            _       => (_repo.GetClassDetails(name)?.Class?.SourcePath, "class", "CLASS_NOT_FOUND"),
+        };
+
+        if (string.IsNullOrEmpty(path))
+            return ToolResult<object>.Fail(notFound, $"{kind} '{name}' has no source in the index.");
+
+        var src = XppSourceReader.Read(path!);
+        if (src is null)
+            return ToolResult<object>.Fail("SOURCE_UNREADABLE", $"Could not read X++ source at {path}.");
+
+        // No method → list signatures of every method on the object (cheap context).
+        if (string.IsNullOrWhiteSpace(method))
+        {
+            return ToolResult<object>.Success(new
+            {
+                kind, name, path = src.Path,
+                declaration = src.Declaration,
+                methodCount = src.Methods.Count,
+                methods = src.Methods.Select(m => new { name = m.Name, signature = MethodSignature(m.Body) }),
+            });
+        }
+
+        var hit = XppSourceReader.FindMethod(src, method!);
+        if (hit is null)
+            return ToolResult<object>.Fail("METHOD_NOT_FOUND",
+                $"Method '{method}' not found on {kind} '{name}'.",
+                $"Available methods: {string.Join(", ", src.Methods.Select(x => x.Name).Take(20))}");
+
+        return (include ?? "both").ToLowerInvariant() switch
+        {
+            "signature" => ToolResult<object>.Success(new { kind, name, path = src.Path, method = hit.Name, signature = MethodSignature(hit.Body) }),
+            "source"    => ToolResult<object>.Success(new { kind, name, path = src.Path, method = hit.Name, source = hit.Body }),
+            _           => ToolResult<object>.Success(new { kind, name, path = src.Path, method = hit.Name, signature = MethodSignature(hit.Body), source = hit.Body }),
+        };
+    }
+
+    /// <summary>The method header (everything up to the opening brace), collapsed to one line.</summary>
+    private static string MethodSignature(string body)
+    {
+        if (string.IsNullOrEmpty(body)) return "";
+        var brace = body.IndexOf('{');
+        var head = brace > 0 ? body[..brace] : body;
+        return string.Join(' ', head.Split(['\r', '\n', '\t', ' '], StringSplitOptions.RemoveEmptyEntries));
     }
 
     public ToolResult<object> ValidateFormPattern(string xml)

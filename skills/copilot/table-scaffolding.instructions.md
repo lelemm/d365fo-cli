@@ -29,7 +29,7 @@ Fallback (prepare unavailable):
 ```sh
 d365fo search table <namePart> --output json     # name collision check
 d365fo get edt <Edt>           --output json     # confirm any EDT you intend to use
-d365fo search label "<text>"   --output json     # reuse label first; only create on miss
+d365fo labels search "<text>"   --output json     # reuse label first; only create on miss
 ```
 
 ## Pattern-driven scaffolding (P1)

@@ -29,7 +29,7 @@ conversation with long metadata dumps.
 
 3. **Label lookups** (never hardcode display strings):
    ```sh
-   d365fo search label "<free text>" --lang en-us,cs --output json
+   d365fo labels search "<free text>" --lang en-us,cs --output json
    ```
    Use the returned `key` (e.g. `@SYS4724`) in your X++ code.
 
