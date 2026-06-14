@@ -95,7 +95,12 @@ public class ScaffoldingSnapshotTests
         var doc = XppScaffolder.Enum("MyEnum", vals, isExtensible: true);
         var root = doc.Root!;
         Assert.Equal("AxEnum", root.Name.LocalName);
-        Assert.Equal("Yes", root.Element("IsExtensible")!.Value);
+        // IsExtensible is a CLR bool → DataContractSerializer expects true/false, not Yes/No.
+        Assert.Equal("true", root.Element("IsExtensible")!.Value);
+        // VS emits the XMLSchema-instance namespace on every AxEnum root.
+        Assert.Equal(
+            "http://www.w3.org/2001/XMLSchema-instance",
+            root.GetNamespaceOfPrefix("i")!.NamespaceName);
         var items = root.Element("EnumValues")!.Elements().ToList();
         Assert.Equal(3, items.Count);
         Assert.Equal("0", items[0].Element("Value")!.Value);

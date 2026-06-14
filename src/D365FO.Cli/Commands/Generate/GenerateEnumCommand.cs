@@ -18,7 +18,7 @@ public sealed class GenerateEnumCommand : Command<GenerateEnumCommand.Settings>
         public string[] Values { get; init; } = Array.Empty<string>();
 
         [CommandOption("--non-extensible")]
-        [System.ComponentModel.Description("Emit IsExtensible=No (default is Yes, the recommended D365FO setting).")]
+        [System.ComponentModel.Description("Emit IsExtensible=false (default is true, the recommended D365FO setting).")]
         public bool NonExtensible { get; init; }
 
         [CommandOption("--label <TEXT>")]
