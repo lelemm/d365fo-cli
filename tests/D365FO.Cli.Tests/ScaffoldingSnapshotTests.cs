@@ -67,6 +67,27 @@ public class ScaffoldingSnapshotTests
     }
 
     [Fact]
+    public void Edt_root_has_XMLSchema_instance_namespace()
+    {
+        // VS emits the XMLSchema-instance namespace on every AxEdt* root; without it the
+        // metadata reader refuses the file. (issue #70)
+        var doc = XppScaffolder.Edt("MyEdt", "Name", null, 10, "My label");
+        Assert.Equal(
+            "http://www.w3.org/2001/XMLSchema-instance",
+            doc.Root!.GetNamespaceOfPrefix("i")!.NamespaceName);
+    }
+
+    [Fact]
+    public void Edt_emits_base_members_before_derived_StringSize()
+    {
+        // DataContractSerializer serializes base-class members (AxEdt: Name/Extends/Label)
+        // before derived members (AxEdtString.StringSize): Label must precede StringSize.
+        var doc = XppScaffolder.Edt("MyEdt", "Name", null, 10, "My label");
+        var names = doc.Root!.Elements().Select(e => e.Name.LocalName).ToList();
+        Assert.Equal(new[] { "Name", "Extends", "Label", "StringSize" }, names);
+    }
+
+    [Fact]
     public void ScaffoldFileWriter_rejects_abstract_AxEdt_root()
     {
         var doc = new XDocument(new XElement("AxEdt", new XElement("Name", "Bad")));

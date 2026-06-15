@@ -680,12 +680,20 @@ public static class XppScaffolder
             }
             : InferConcreteTypeSuffixFromExtends(effectiveExtends);
 
+        // D365FO's metadata reader requires the XMLSchema-instance namespace declaration on
+        // the root element (Visual Studio emits it on every AxEdt* file). Without it VS refuses
+        // to read the metadata — the same defect previously fixed for AxEnum.
+        // Element order also matters: the DataContractSerializer serializes base-class members
+        // (AxEdt: Name/Extends/Label) before derived-class members (AxEdtString.StringSize), so
+        // StringSize must come *after* Label, not before it.
+        XNamespace xsi = "http://www.w3.org/2001/XMLSchema-instance";
         return new XDocument(
             new XElement($"AxEdt{concreteTypeSuffix}",
+                new XAttribute(XNamespace.Xmlns + "i", xsi.NamespaceName),
                 new XElement("Name", name),
                 string.IsNullOrEmpty(effectiveExtends) ? null : new XElement("Extends", effectiveExtends),
-                stringSize.HasValue ? new XElement("StringSize", stringSize.Value.ToString()) : null,
-                string.IsNullOrEmpty(label) ? null : new XElement("Label", label)));
+                string.IsNullOrEmpty(label) ? null : new XElement("Label", label),
+                stringSize.HasValue ? new XElement("StringSize", stringSize.Value.ToString()) : null));
     }
 
     /// <summary>
