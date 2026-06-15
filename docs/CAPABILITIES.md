@@ -65,7 +65,7 @@ security coverage <Object>     — Role → Duty → Privilege routes that reach
 
 ### `form-pattern`
 
-Form-pattern advisor, spec catalog, and structural validator (mirrors the MCP `form_pattern` tool).
+Form-pattern advisor, spec catalog, and structural validator (mirrors the MCP `object_patterns` tool, `domain=form`).
 
 ```
 form-pattern analyze [--pattern P|--table T|--similar-to Form]  — pattern histogram / advisor
@@ -306,7 +306,7 @@ Returns `UNSUPPORTED_PLATFORM` on non-Windows.
 
 ## MCP server
 
-Exposes the same index and scaffolding surface as the CLI over the `ModelContextProtocol` C# SDK via stdio. The tool surface is **consolidated** into ~23 discriminator-based tools (`search`, `get_object_info`, `get_method`, `labels`, `security_info`, `form_pattern`, `generate`, `generate_xml`, `analyze`, `models`, …) instead of one tool per object type — mirroring the upstream `d365fo-mcp-server`. See [MIGRATION_FROM_MCP.md](MIGRATION_FROM_MCP.md) for the full old→new mapping.
+Exposes the same index and scaffolding surface as the CLI over the `ModelContextProtocol` C# SDK via stdio. The tool surface is **consolidated** into **20 discriminator-based tools** (`search`, `get_object_info`, `get_method`, `labels`, `security_info`, `extension_info`, `object_patterns`, `generate_object`, `analyze`, `models`, …) instead of one tool per object type — mirroring the upstream `d365fo-mcp-server` (which sits at 26). A single tool dispatches on a `type` / `objectType` / `mode` / `action` / `domain` / `include` field. See [MIGRATION_FROM_MCP.md](MIGRATION_FROM_MCP.md) for the full old→new mapping.
 
 ```jsonc
 {

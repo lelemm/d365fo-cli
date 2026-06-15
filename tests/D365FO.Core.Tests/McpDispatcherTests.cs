@@ -99,9 +99,9 @@ public class McpDispatcherTests : IDisposable
         Assert.Contains("get_method", names);
         Assert.Contains("labels", names);
         Assert.Contains("security_info", names);
-        Assert.Contains("find_extensions", names);
-        Assert.Contains("form_pattern", names);
-        Assert.Contains("generate", names);
+        Assert.Contains("extension_info", names);
+        Assert.Contains("object_patterns", names);
+        Assert.Contains("generate_object", names);
         Assert.Contains("models", names);
         Assert.Contains("analyze", names);
         Assert.Contains("prepare", names);
@@ -110,6 +110,46 @@ public class McpDispatcherTests : IDisposable
         Assert.DoesNotContain("search_classes", names);
         Assert.DoesNotContain("get_data_entity", names);
         Assert.DoesNotContain("list_models", names);
+        // The extension/handler + generate tools folded into the unified surface.
+        Assert.DoesNotContain("find_coc_extensions", names);
+        Assert.DoesNotContain("find_event_handlers", names);
+        Assert.DoesNotContain("find_extensions", names);
+        Assert.DoesNotContain("get_table_extension_info", names);
+        Assert.DoesNotContain("analyze_extension_points", names);
+        Assert.DoesNotContain("form_pattern", names);
+        Assert.DoesNotContain("generate", names);
+        Assert.DoesNotContain("generate_xml", names);
+    }
+
+    [Fact]
+    public async Task ExtensionInfo_coc_returns_ok_on_fresh_db()
+    {
+        var resp = await Roundtrip("""{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"extension_info","arguments":{"mode":"coc","target":"CustTable"}}}""");
+        var doc = Assert.Single(resp);
+        var payload = JsonDocument.Parse(doc.RootElement.GetProperty("result")
+            .GetProperty("content")[0].GetProperty("text").GetString()!);
+        Assert.True(payload.RootElement.GetProperty("ok").GetBoolean());
+    }
+
+    [Fact]
+    public async Task ExtensionInfo_unknown_mode_returns_badInput()
+    {
+        var resp = await Roundtrip("""{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"extension_info","arguments":{"mode":"bogus","target":"CustTable"}}}""");
+        var doc = Assert.Single(resp);
+        var payload = JsonDocument.Parse(doc.RootElement.GetProperty("result")
+            .GetProperty("content")[0].GetProperty("text").GetString()!);
+        Assert.False(payload.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal("BAD_INPUT", payload.RootElement.GetProperty("error").GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task GenerateObject_xml_objectType_returns_xml_without_writing()
+    {
+        var resp = await Roundtrip("""{"jsonrpc":"2.0","id":23,"method":"tools/call","params":{"name":"generate_object","arguments":{"objectType":"enum","name":"FmColor","values":["Red","Green"]}}}""");
+        var doc = Assert.Single(resp);
+        var payload = JsonDocument.Parse(doc.RootElement.GetProperty("result")
+            .GetProperty("content")[0].GetProperty("text").GetString()!);
+        Assert.True(payload.RootElement.GetProperty("ok").GetBoolean());
     }
 
     [Fact]

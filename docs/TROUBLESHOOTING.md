@@ -227,7 +227,7 @@ and report it so the catalog's version list can be updated.
 
 ### How many tools are exposed
 
-The MCP adapter (`d365fo-mcp`) exposes approximately 70 tools covering all CLI search, get, find, generate, and analyze commands. Each tool definition is included in the model context on every turn.
+The MCP adapter (`d365fo-mcp`) exposes **20 consolidated, discriminator-based tools** covering the CLI search, get, find, generate, and analyze surface (a single tool dispatches on a `type` / `objectType` / `mode` / `action` / `domain` / `include` field). Each tool definition is included in the model context on every turn.
 
 ### Reducing token usage
 
@@ -235,7 +235,7 @@ The primary way to reduce token cost is to use the CLI directly instead of the M
 
 | Approach | Cost per turn |
 |---|---|
-| MCP adapter (~70 tools) | ~3,500 tokens injected into every turn |
+| MCP adapter (20 consolidated tools) | ~1,800 tokens injected into every turn |
 | CLI + lazy-loaded Skills | ~100 tokens — one shell tool definition |
 
 See [TOKEN_ECONOMICS.md](TOKEN_ECONOMICS.md) for the full analysis.

@@ -12,7 +12,7 @@ appliesWhen: User intent mentions creating a table, choosing TableGroup / TableT
 # Creating & modifying AxTable definitions
 
 > The CLI's `d365fo generate table` mirrors `d365fo-mcp-server`'s
-> `generate_smart_table`. Pattern presets pre-populate the table with the
+> `generate_object` (`objectType=table`). Pattern presets pre-populate the table with the
 > canonical `TableGroup`, a sensible default field skeleton, and an
 > alternate-key index — so the scaffold passes BP `BPCheckAlternateKeyAbsent`
 > out of the box.

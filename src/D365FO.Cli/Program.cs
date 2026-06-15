@@ -88,7 +88,7 @@ app.Configure(cfg =>
         b.AddCommand<FindFormPatternsCommand>("form-patterns").WithDescription("Analyse indexed forms by Microsoft pattern / primary table / similarity to a reference form.");
         b.AddCommand<FindRelatedCommand>("related").WithDescription("Generic relation lookup by relation/name for agent workflows.");
         b.AddCommand<FindBatchJobsCommand>("batch-jobs").WithDescription("Find all RunBaseBatch / SysOperationServiceController subclasses.");
-        // Parity aliases matching the unified MCP tool names (find_event_handlers / find_references).
+        // Parity aliases matching the unified MCP surface (extension_info mode=events / find_references).
         b.AddCommand<FindHandlersCommand>("event-handlers").WithDescription("Alias of `find handlers` — event handlers subscribed to a form/table/delegate.");
         b.AddCommand<FindRefsCommand>("references").WithDescription("Alias of `find refs` — reverse references to a symbol in indexed X++ source.");
     });
@@ -104,11 +104,11 @@ app.Configure(cfg =>
         b.AddCommand<GetSecurityCommand>("coverage").WithDescription("Role→Duty→Privilege routes that grant access to an object.");
     });
 
-    // Unified `form-pattern` branch — mirrors the MCP `form_pattern` tool
-    // (action=analyze|spec|validate).
+    // Unified `form-pattern` branch — mirrors the MCP `object_patterns` tool
+    // (domain=form, action=analyze|spec|validate).
     cfg.AddBranch("form-pattern", b =>
     {
-        b.SetDescription("Form-pattern advisor, spec catalog, and structural validator. Mirrors the MCP `form_pattern` tool.");
+        b.SetDescription("Form-pattern advisor, spec catalog, and structural validator. Mirrors the MCP `object_patterns` tool (domain=form).");
         b.AddCommand<FindFormPatternsCommand>("analyze").WithDescription("Analyse indexed forms by Microsoft pattern / primary table / similarity to a reference form.");
         b.AddCommand<GetFormPatternCommand>("spec").WithDescription("Form pattern spec catalog: structure tree, versions, when-to-use, reference forms. Omit NAME to list all.");
         b.AddCommand<ValidateFormPatternCommand>("validate").WithDescription("Structural form-pattern validator (FP001-FP010) over AxForm XML.");

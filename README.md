@@ -20,7 +20,7 @@
 
 AI assistants excel at C#, Python, and JavaScript. X++ is different: your D365FO codebase is private, deeply customized, and invisible to every model — so AI confidently generates code that doesn't compile.
 
-This CLI pre-indexes your entire D365FO installation (hundreds of thousands of symbols across standard, ISV, and custom models) into a local SQLite index and exposes it as one `d365fo` binary. Every signature, every CoC wrapper, every label, every form pattern — verified against your real metadata **before** the AI writes a single line. And because it is a shell command instead of an MCP tool list, it costs ~100 tokens per turn instead of ~3,500.
+This CLI pre-indexes your entire D365FO installation (hundreds of thousands of symbols across standard, ISV, and custom models) into a local SQLite index and exposes it as one `d365fo` binary. Every signature, every CoC wrapper, every label, every form pattern — verified against your real metadata **before** the AI writes a single line. And because it is a shell command instead of an MCP tool list, it costs ~100 tokens per turn instead of ~1,800.
 
 ![Solution Architecture](docs/img/solution-architecture-diagram.svg)
 
@@ -32,7 +32,7 @@ This CLI pre-indexes your entire D365FO installation (hundreds of thousands of s
 | Labels | Hardcoded strings | Right `@SYS`/`@MODULE` key found instantly |
 | Security chains | Hours of manual tracing | Role → Duty → Privilege → Entry Point in one call |
 | Generated code | Hallucinated fields and types | Every reference proven against the index, gated before write |
-| Agent context cost | ~70 MCP tool schemas every turn | 1 shell tool + lazy-loaded Skills (~90 % fewer tokens) |
+| Agent context cost | 20–26 MCP tool schemas every turn | 1 shell tool + lazy-loaded Skills (~85 % fewer tokens) |
 
 ---
 
@@ -168,7 +168,7 @@ Reference the `SKILL.md` files from `skills/anthropic/` in your session prompt o
 
 ### MCP (Claude Desktop, Continue, VS Code MCP)
 
-The bundled `d365fo-mcp` adapter speaks JSON-RPC 2.0 over the same index. Its tool surface is **consolidated** into discriminator-based tools (e.g. `search`, `get_object_info`, `get_method`, `labels`, `security_info`, `form_pattern`, `generate`, `analyze`, `models`) — see [docs/MIGRATION_FROM_MCP.md](docs/MIGRATION_FROM_MCP.md):
+The bundled `d365fo-mcp` adapter speaks JSON-RPC 2.0 over the same index. Its tool surface is **consolidated** into 20 discriminator-based tools (e.g. `search`, `get_object_info`, `get_method`, `labels`, `security_info`, `extension_info`, `object_patterns`, `generate_object`, `analyze`, `models`) — see [docs/MIGRATION_FROM_MCP.md](docs/MIGRATION_FROM_MCP.md):
 
 ```json
 {
@@ -196,15 +196,15 @@ A `d365fo search` shell call returning results from your codebase = you're conne
 
 ## Why CLI instead of MCP?
 
-MCP servers inject every tool definition into the model's context on every single turn — for this project's sibling MCP server that is ~61 tools ≈ 3,500 tokens per turn.
+MCP servers inject every tool definition into the model's context on every single turn. Tool consolidation trimmed that surface — the upstream MCP server went from ~61 per-type tools (≈3,500 tok/turn) to 26 discriminator-based tools, and this repo's adapter to 20 — but it is still ~1,800 tokens per turn versus one shell tool.
 
 | | MCP server | CLI + Skills |
 |---|---|---|
-| Tool definitions per turn | ~61 tools (~3,500 tokens) | 1 shell tool (~100 tokens) |
+| Tool definitions per turn | 20–26 tools (~1,800 tokens) | 1 shell tool (~100 tokens) |
 | Discovery round-trips | 2–3 per task | often 1 (`d365fo prepare change`) |
 | Scriptable (shell, CI/CD) | No | Yes |
 | Works in any AI harness | No — MCP hosts only | Yes — Copilot, Claude, Codex, Gemini, … |
-| Token cost over 15-turn workflow | baseline | **~90 % reduction** |
+| Token cost over 15-turn workflow | baseline | **~85 % reduction** |
 
 See [docs/TOKEN_ECONOMICS.md](docs/TOKEN_ECONOMICS.md) for the full analysis and the cases where MCP still wins. Migrating from `d365fo-mcp-server`? Start with **[docs/MIGRATION_FROM_MCP.md](docs/MIGRATION_FROM_MCP.md)**.
 
@@ -220,8 +220,8 @@ See [docs/TOKEN_ECONOMICS.md](docs/TOKEN_ECONOMICS.md) for the full analysis and
 | **Discover** | `search any`, `search batch`, `search class\|table\|edt\|enum\|form\|query\|view\|entity\|report\|service\|workflow\|label\|business-event\|security-policy\|configuration-key\|tile\|workspace` |
 | **Get** | `get object`, `get batch` (up to 10 objects per call), `get table\|class\|edt\|enum\|form\|menu-item\|query\|view\|entity\|report\|service\|business-event` |
 | **Security** | `security role\|duty\|privilege` (artifacts), `security coverage` (Role → Duty → Privilege reach) — mirrors the MCP `security_info` tool |
-| **Form patterns** | `form-pattern analyze` (advisor), `form-pattern spec` (catalog), `form-pattern validate` (FP001–FP010) — mirrors the MCP `form_pattern` tool |
-| **Find** | `find related`, `find coc`, `find relations`, `find usages`, `find extensions`, `find event-handlers`, `find references`, `find form-patterns`, `find batch-jobs` |
+| **Form patterns** | `form-pattern analyze` (advisor), `form-pattern spec` (catalog), `form-pattern validate` (FP001–FP010) — mirrors the MCP `object_patterns` tool (`domain=form`) |
+| **Find** | `find related`, `find coc`, `find relations`, `find usages`, `find extensions`, `find event-handlers`, `find references`, `find form-patterns`, `find batch-jobs` (the extensibility ones mirror the MCP `extension_info` tool) |
 | **Read** | `read class`, `read table`, `read form` (= MCP `get_method`) |
 | **Generate** | `generate table\|class\|coc\|form\|entity\|extension\|event-handler\|privilege\|duty\|role\|report\|sysoperation\|number-sequence\|workflow\|menu-item\|edt\|enum\|query\|business-event\|custom-service\|migration-script\|runbase\|security-policy` |
 | **Labels** | `labels search\|resolve\|info\|create\|rename\|delete` — search/resolve plus in-place `*.label.txt` edits, multi-language via `--lang` (mirrors the MCP `labels` tool) |

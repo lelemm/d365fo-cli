@@ -140,7 +140,7 @@ the pattern catalog (FP001–FP010) and rejects structural violations while
 `D365FO_FORM_PATTERN_ENFORCE=true` (default). `d365fo form-pattern spec <P>`
 shows the required tree; `d365fo form-pattern validate <file>` re-checks any
 hand-edited form XML (exit 2 = structural errors). (These map to the MCP
-`form_pattern` tool — `action=spec` / `action=validate`.)
+`object_patterns` tool — `domain=form action=spec` / `action=validate`.)
 
 ────────────────────────────────────────────────────────────────────────────
 ## ⚡ Token discipline
