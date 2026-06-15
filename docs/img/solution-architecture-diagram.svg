@@ -65,7 +65,7 @@
 
   <rect x="630" y="162" width="270" height="84" rx="8" fill="#ffffff" stroke="#7c3aed"/>
   <text x="642" y="184" font-size="12.5" font-weight="600" fill="#6d28d9">D365FO.Mcp</text>
-  <text x="642" y="204" font-size="11" fill="#475569">~55 tools · MCP C# SDK · stdio</text>
+  <text x="642" y="204" font-size="11" fill="#475569">20 unified tools · MCP C# SDK · stdio</text>
   <text x="642" y="222" font-size="11" fill="#475569">same core primitives as the CLI</text>
   <text x="642" y="238" font-size="11" fill="#475569">d365fo-mcp executable</text>
 

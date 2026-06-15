@@ -1,6 +1,6 @@
 # Token Economics
 
-> **TL;DR** — CLI + Skills costs **~100 tokens per turn**. The equivalent MCP server costs **~3,500 tokens per turn**. Over a real 15-turn task that's ~90 % off the agent's context bill, before any savings from collapsing multi-step discovery flows.
+> **TL;DR** — CLI + Skills costs **~100 tokens per turn**. The equivalent MCP server costs **~1,800 tokens per turn** (down from ~3,500 before the upstream tool consolidation — see below). Over a real 15-turn task that's still ~85 % off the agent's context bill, before any savings from collapsing multi-step discovery flows.
 
 ---
 
@@ -8,9 +8,9 @@
 
 ```mermaid
 flowchart LR
-    subgraph MCP["MCP server (~3,500 tok / turn)"]
+    subgraph MCP["MCP server (~1,800 tok / turn)"]
         direction TB
-        M1["~61 tool schemas<br/>injected every turn<br/>~2,900 tok"]
+        M1["20–26 tool schemas<br/>injected every turn<br/>~1,400–1,800 tok"]
         M2["Multi-step discovery<br/>find_type → get_metadata → call<br/>extra round-trips"]
     end
     subgraph CLI["d365fo + Skills (~100 tok / turn)"]
@@ -24,18 +24,26 @@ flowchart LR
 
 Every MCP request loads all tool schemas into the model context — there is no "load on demand". The CLI exposes one shell tool; the agent discovers commands via `d365fo schema` only when it needs them. Skills add ~30–60 tokens of frontmatter per `.instructions.md` file; the full skill body is only paged in when the agent decides it is relevant.
 
+> **Tool consolidation cut the MCP baseline too.** The upstream `d365fo-mcp-server`
+> collapsed its old per-type surface (~61 tools, ~2,900 tok of schemas) into 26
+> discriminator-based tools; this repo's `d365fo-mcp` adapter exposes **20**. The
+> schemas are individually richer (enum discriminators, longer descriptions), so
+> the per-turn overhead landed around **~1,800 tok** rather than scaling linearly
+> down. The CLI's one-shell-tool cost (~100 tok) is unchanged — so the relative
+> advantage holds even against the leaner MCP surface.
+
 ---
 
 ## Expected savings
 
 | Turns | MCP overhead | CLI + Skills overhead | Saving |
 |---:|---:|---:|---:|
-|  5 | ~14,500 |  ~2,800 | **~81 %** |
-| 10 | ~29,000 |  ~3,500 | **~88 %** |
-| 15 | ~44,000 |  ~4,000 | **~91 %** |
-| 20 | ~58,000 |  ~4,500 | **~92 %** |
+|  5 |  ~9,000 |  ~2,800 | **~69 %** |
+| 10 | ~18,000 |  ~3,500 | **~81 %** |
+| 15 | ~27,000 |  ~4,000 | **~85 %** |
+| 20 | ~36,000 |  ~4,500 | **~88 %** |
 
-Real workflows save more — MCP also pays for discovery round-trips (often 5–15 kT per workflow) that the CLI eliminates with single-call aggregators like `d365fo prepare change`, `d365fo get batch table:CustTable class:CustTableType edt:CustAccount`, or `d365fo search batch <q1> <q2> <q3>`.
+Figures use the post-consolidation MCP baseline (~1,800 tok/turn). Real workflows save more — MCP also pays for discovery round-trips (often 5–15 kT per workflow) that the CLI eliminates with single-call aggregators like `d365fo prepare change`, `d365fo get batch table:CustTable class:CustTableType edt:CustAccount`, or `d365fo search batch <q1> <q2> <q3>`.
 
 ---
 

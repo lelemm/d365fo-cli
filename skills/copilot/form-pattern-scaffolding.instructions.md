@@ -7,7 +7,7 @@ applyTo: '**/AxForm/**,**/*Form.xml,**/AxMenuItemDisplay/**,**/AxMenuItemAction/
 # Authoring AxForm XML — pattern-correct
 
 > The CLI's `d365fo generate form` mirrors `d365fo-mcp-server`'s
-> `generate_smart_form`. The nine D365FO patterns are validated against real
+> `generate_object` (`objectType=form`). The nine D365FO patterns are validated against real
 > AOT forms (`CustGroup`, `PaymTerm`, `CustTable`, `SalesTable`, …). Hand-rolled
 > XML loses ActionPane, QuickFilter, FastTabs, the right `PatternVersion`,
 > and the design-time hooks Visual Studio expects — **never hand-roll**.

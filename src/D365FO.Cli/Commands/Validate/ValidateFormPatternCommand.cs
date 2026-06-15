@@ -7,7 +7,7 @@ namespace D365FO.Cli.Commands.Validate;
 
 /// <summary>
 /// Structural form-pattern validator over AxForm XML — the unified MCP
-/// <c>form_pattern</c> tool's <c>action=validate</c>. Checks the Design tree against the
+/// <c>object_patterns</c> tool's <c>domain=form, action=validate</c>. Checks the Design tree against the
 /// curated pattern catalog (FP001-FP010); requires no index and no VM.
 /// Exit codes: 0 = clean (or warnings only), 1 = command failure, 2 = errors found.
 /// </summary>

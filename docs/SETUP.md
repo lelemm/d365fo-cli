@@ -195,7 +195,7 @@ Reference the `skills/anthropic/*/SKILL.md` files from your session prompt or `A
 }
 ```
 
-`d365fo-mcp` is the bundled JSON-RPC 2.0 adapter that exposes ~55 tools backed by the same SQLite index and bridge. Useful for hosts without a shell tool — see [ARCHITECTURE.md#mcp-coexistence](ARCHITECTURE.md#mcp-coexistence).
+`d365fo-mcp` is the bundled JSON-RPC 2.0 adapter that exposes 20 consolidated, discriminator-based tools backed by the same SQLite index and bridge. Useful for hosts without a shell tool — see [ARCHITECTURE.md#mcp-coexistence](ARCHITECTURE.md#mcp-coexistence).
 
 ### Verify
 

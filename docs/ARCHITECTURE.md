@@ -194,9 +194,9 @@ Provides: authoritative per-object reads (`get` commands), file create/update/de
 
 ## MCP coexistence
 
-`D365FO.Mcp` forwards to the same `D365FO.Core` primitives as the CLI. It speaks the `ModelContextProtocol` C# SDK over stdio and exposes ~55 tools. Index, bridge, and guardrails are shared — both adapters see identical data.
+`D365FO.Mcp` forwards to the same `D365FO.Core` primitives as the CLI. It speaks the `ModelContextProtocol` C# SDK over stdio and exposes **20 consolidated, discriminator-based tools** (a single tool dispatches on a `type` / `objectType` / `mode` / `action` / `domain` / `include` field — mirroring the upstream `d365fo-mcp-server`). Index, bridge, and guardrails are shared — both adapters see identical data.
 
-Adding a new tool: one entry in `ToolCatalog` + one method on `ToolHandlers`. The CLI picks it up once a command wraps the same `MetadataRepository` call.
+Adding or consolidating a tool: edit `ToolCatalog` (the discriminator binder) + the backing methods on `ToolHandlers`. The CLI picks it up once a command wraps the same `MetadataRepository` call; keep each command's `mcpTool` label in `SchemaCommand` pointing at the unified tool.
 
 **Daemon mode** (`d365fo daemon start`) keeps the SQLite handle and read caches hot. Also starts a `FileSystemWatcher` that auto-triggers incremental `index refresh` when `*.xml` files change (debounce 3 s; disable with `--no-watch`).
 

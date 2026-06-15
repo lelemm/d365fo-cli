@@ -685,7 +685,7 @@ Standalone JSON-RPC 2.0 server (protocol `2024-11-05`) that shares the CLI's ind
 }
 ```
 
-After `dotnet publish src/D365FO.Mcp -c Release -r osx-arm64` you get a standalone `d365fo-mcp` binary you can drop on `$PATH`. The adapter exposes **55 tools** covering CLI parity (search / get / find / read / index_status), security & labels, heuristics, and aggregation — same index, same guardrails.
+After `dotnet publish src/D365FO.Mcp -c Release -r osx-arm64` you get a standalone `d365fo-mcp` binary you can drop on `$PATH`. The adapter exposes **20 consolidated, discriminator-based tools** (`search`, `get_object_info`, `get_method`, `extension_info`, `object_patterns`, `generate_object`, `security_info`, `labels`, `analyze`, `models`, …) covering CLI parity, security & labels, heuristics, and aggregation — same index, same guardrails. See [MIGRATION_FROM_MCP.md](MIGRATION_FROM_MCP.md) for the full tool list.
 
 ---
 

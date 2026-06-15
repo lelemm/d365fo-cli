@@ -30,10 +30,12 @@ public static class ToolCatalog
     /// </summary>
     public static readonly HashSet<string> WriteTools = new(StringComparer.Ordinal)
     {
-        // Unified write tools. `generate` writes AOT XML to disk; `labels` mixes
-        // read actions (search/info) with write actions (create/rename/delete) —
-        // it is flagged here so clients confirm before the write actions run.
-        "generate", "labels",
+        // Unified write tools. `generate_object` writes AOT XML to disk for the
+        // table/class/coc/form objectTypes (the edt/enum/query/… objectTypes are
+        // XML-only, but the whole tool is flagged write so clients confirm before
+        // any write objectType runs). `labels` mixes read actions (search/info)
+        // with write actions (create/rename/delete) — flagged here too.
+        "generate_object", "labels",
     };
 
     /// <summary>
@@ -206,20 +208,27 @@ public static class ToolCatalog
 
         // ---- Extensions & handlers ----
 
-        new Descriptor("find_coc_extensions",
-            "Find Chain-of-Command extensions for a target class (optionally scoped to method).",
-            Schema(("target", "string", true), ("method", "string", false)),
-            (h, p) => h.FindCoc(Str(p, "target"), StrOrNull(p, "method"))),
-
-        new Descriptor("find_event_handlers",
-            "Find DataEventHandler / SubscribesTo handlers bound to a source object.",
-            Schema(("source", "string", true), ("sourceKind", "string", false)),
-            (h, p) => h.FindEventSubscribers(Str(p, "source"), StrOrNull(p, "sourceKind"))),
-
-        new Descriptor("find_extensions",
-            "Find Table/Form/Enum/EDT _Extension objects targeting a given name.",
-            Schema(("target", "string", true), ("kind", "string", false)),
-            (h, p) => h.FindExtensions(Str(p, "target"), StrOrNull(p, "kind"))),
+        new Descriptor("extension_info",
+            "D365FO extensibility analyzer. Pick a `mode`: " +
+            "coc (Chain-of-Command extensions for `target` class, optionally scoped to `method`) · " +
+            "events (DataEventHandler / SubscribesTo handlers bound to `target`; set `objectType` to its kind) · " +
+            "table-merge (all TableExtensions targeting `target` table + effective merged schema) · " +
+            "points (Table/Form/Enum/EDT _Extension objects targeting `target`; filter with `kind`) · " +
+            "strategy (enumerate existing extensions/handlers/CoC on `target` and recommend the least-invasive change). " +
+            "Use before writing any extension to check for conflicts and pick the right mechanism.",
+            Schema(("mode", "string", true), ("target", "string", true),
+                   ("method", "string", false), ("objectType", "string", false), ("kind", "string", false)),
+            (h, p) => StrOr(p, "mode", "").ToLowerInvariant() switch
+            {
+                "coc"         => h.FindCoc(Str(p, "target"), StrOrNull(p, "method")),
+                "events"      => h.FindEventSubscribers(Str(p, "target"), StrOrNull(p, "objectType")),
+                "table-merge" => h.GetTableExtensionInfo(Str(p, "target")),
+                "points"      => h.FindExtensions(Str(p, "target"), StrOrNull(p, "kind")),
+                "strategy"    => h.AnalyzeExtensionPoints(Str(p, "target")),
+                _ => D365FO.Core.ToolResult<object>.Fail("BAD_INPUT",
+                        $"Unknown mode '{Str(p, "mode")}' for extension_info.",
+                        "Use one of: coc, events, table-merge, points, strategy."),
+            }),
 
         new Descriptor("find_references",
             "Reverse references: regex scan of indexed X++ source for where a symbol is used. " +
@@ -227,16 +236,6 @@ public static class ToolCatalog
             "Returns the method + up to 3 sample lines per hit.",
             Schema(("name", "string", true), ("kind", "string", false), ("model", "string", false), ("limit", "integer", false)),
             (h, p) => h.FindReferences(Str(p, "name"), StrOrNull(p, "kind"), StrOrNull(p, "model"), Int(p, "limit", 200))),
-
-        new Descriptor("get_table_extension_info",
-            "Return all TableExtensions targeting a given table.",
-            Schema(("table", "string", true)),
-            (h, p) => h.GetTableExtensionInfo(Str(p, "table"))),
-
-        new Descriptor("analyze_extension_points",
-            "Enumerate existing extensions / event handlers / CoC targeting an object and suggest the least-invasive strategy for a new change.",
-            Schema(("target", "string", true)),
-            (h, p) => h.AnalyzeExtensionPoints(Str(p, "target"))),
 
         new Descriptor("validate_object_naming",
             "Static naming-rule check (PascalCase, length, character set, extension suffix, optional publisher prefix). No index access required.",
@@ -248,35 +247,55 @@ public static class ToolCatalog
             Schema(),
             (h, _) => h.GetWorkspaceInfo()),
 
-        // ---- Forms ----
+        // ---- Object patterns ----
 
-        new Descriptor("form_pattern",
-            "Form-pattern helper via `action`: spec (catalog spec for a pattern/sub-pattern — versions, when-to-use, " +
-            "reference forms, lifecycle; omit `name` to list all) · validate (structural validator FP001-FP010 over " +
-            "complete AxForm `xml` — the same gate `generate(objectType=form)` enforces before writing).",
-            Schema(("action", "string", true), ("name", "string", false), ("xml", "string", false)),
-            (h, p) => StrOr(p, "action", "spec").ToLowerInvariant() switch
+        new Descriptor("object_patterns",
+            "Pattern catalog + structural validator, selected by `domain` (default form). " +
+            "`domain=form`: spec (catalog spec for a pattern/sub-pattern — versions, when-to-use, reference forms, " +
+            "lifecycle; omit `name` to list all) · validate (structural validator FP001-FP010 over complete AxForm " +
+            "`xml` — the same gate `generate_object(objectType=form)` enforces before writing). " +
+            "`domain=table` is not backed by the C# index here — use `analyze(mode=integration)` or the CLI " +
+            "`d365fo find form-patterns` for table/form mining.",
+            Schema(("domain", "string", false), ("action", "string", true), ("name", "string", false), ("xml", "string", false)),
+            (h, p) => StrOr(p, "domain", "form").ToLowerInvariant() switch
             {
-                "validate" => h.ValidateFormPattern(Str(p, "xml")),
-                _          => h.GetFormPatternSpec(StrOrNull(p, "name")),
+                "form" => StrOr(p, "action", "spec").ToLowerInvariant() switch
+                {
+                    "validate" => h.ValidateFormPattern(Str(p, "xml")),
+                    _          => h.GetFormPatternSpec(StrOrNull(p, "name")),
+                },
+                _ => D365FO.Core.ToolResult<object>.Fail("BAD_INPUT",
+                        $"Unsupported domain '{Str(p, "domain")}' for object_patterns.",
+                        "Only domain=form is index-backed here. Use analyze(mode=integration) or CLI 'd365fo find form-patterns' for table patterns."),
             }),
 
         // ---- Generation ----
 
-        new Descriptor("generate",
-            "Scaffold an AOT object and WRITE it into the model on disk (requires `installTo` model name — resolves the " +
-            "path from the configured packages paths — or `out` explicit path). `objectType`: " +
-            "table (pattern-aware, `fields` \"<name>:<edt>[:mandatory]\", `pattern` main|transaction|parameter|group|reference|miscellaneous) · " +
-            "class (`extends`, `nonFinal`) · coc (`target` + `methods`, writes <target>_Extension) · " +
-            "form (`table`, `pattern` SimpleList|SimpleListDetails|DetailsMaster|DetailsTransaction|Dialog|TableOfContents|Lookup|ListPage|Workspace, `caption`, `fields`, `linesTable`).",
+        new Descriptor("generate_object",
+            "Scaffold an AOT object from `objectType`. Two families share this one tool:\n" +
+            "• WRITE to disk (requires `installTo` model name — resolves the path from the configured packages " +
+            "paths — or `out` explicit path): table (pattern-aware, `fields` \"<name>:<edt>[:mandatory]\", " +
+            "`pattern` main|transaction|parameter|group|reference|miscellaneous) · class (`extends`, `nonFinal`) · " +
+            "coc (`target` + `methods`, writes <target>_Extension) · form (`table`, `pattern` SimpleList|" +
+            "SimpleListDetails|DetailsMaster|DetailsTransaction|Dialog|TableOfContents|Lookup|ListPage|Workspace, " +
+            "`caption`, `fields`, `linesTable`).\n" +
+            "• XML-only, no file written (cloud/Linux friendly): edt (`extends`, `label`, `size`) · enum (`label`, " +
+            "`values`) · query (`rootTable`, `label`) · sysoperation (`executionMode`; Contract+Service+Controller) · " +
+            "business-event (`contractName`, `category`) · runbase (`batch`) · security-policy (`constrainedTable`, " +
+            "`policyQuery`).",
             Schema(("objectType", "string", true), ("name", "string", false), ("label", "string", false),
                    ("fields", "array", false), ("pattern", "string", false),
                    ("extends", "string", false), ("nonFinal", "boolean", false),
                    ("target", "string", false), ("methods", "array", false),
                    ("table", "string", false), ("caption", "string", false), ("linesTable", "string", false),
+                   ("size", "integer", false), ("values", "array", false),
+                   ("rootTable", "string", false), ("executionMode", "string", false),
+                   ("contractName", "string", false), ("category", "string", false), ("batch", "boolean", false),
+                   ("constrainedTable", "string", false), ("policyQuery", "string", false),
                    ("installTo", "string", false), ("out", "string", false), ("overwrite", "boolean", false)),
             (h, p) => StrOr(p, "objectType", "").ToLowerInvariant() switch
             {
+                // Write-to-disk objectTypes.
                 "class" => h.GenerateClass(Str(p, "name"), StrOrNull(p, "extends"), Bool(p, "nonFinal"),
                             StrOrNull(p, "installTo"), StrOrNull(p, "out"), Bool(p, "overwrite")),
                 "coc"   => h.GenerateCoc(Str(p, "target"), StrArray(p, "methods") ?? Array.Empty<string>(),
@@ -286,24 +305,7 @@ public static class ToolCatalog
                             StrOrNull(p, "installTo"), StrOrNull(p, "out"), Bool(p, "overwrite")),
                 "table" => h.GenerateTable(Str(p, "name"), StrOrNull(p, "label"), StrArray(p, "fields"),
                             StrOrNull(p, "pattern"), StrOrNull(p, "installTo"), StrOrNull(p, "out"), Bool(p, "overwrite")),
-                _ => D365FO.Core.ToolResult<object>.Fail("BAD_INPUT",
-                        $"Unknown objectType '{Str(p, "objectType")}' for generate.",
-                        "Use one of: table, class, coc, form. For XML-only previews use generate_xml."),
-            }),
-
-        new Descriptor("generate_xml",
-            "Produce AOT XML as text only (no file written — cloud/Linux friendly). `objectType`: " +
-            "edt (`extends`, `label`, `size`) · enum (`label`, `values`) · query (`rootTable`, `label`) · " +
-            "sysoperation (`executionMode`; returns Contract+Service+Controller) · " +
-            "business-event (`contractName`, `category`; returns event+contract) · " +
-            "runbase (`batch`) · security-policy (`constrainedTable`, `policyQuery`).",
-            Schema(("objectType", "string", true), ("name", "string", false), ("extends", "string", false),
-                   ("label", "string", false), ("size", "integer", false), ("values", "array", false),
-                   ("rootTable", "string", false), ("executionMode", "string", false),
-                   ("contractName", "string", false), ("category", "string", false), ("batch", "boolean", false),
-                   ("constrainedTable", "string", false), ("policyQuery", "string", false)),
-            (h, p) => StrOr(p, "objectType", "").ToLowerInvariant() switch
-            {
+                // XML-only objectTypes.
                 "edt"             => h.GenerateEdt(Str(p, "name"), StrOrNull(p, "extends"), StrOrNull(p, "label"), Int(p, "size", 0)),
                 "enum"            => h.GenerateEnum(Str(p, "name"), StrOrNull(p, "label"), StrArray(p, "values")),
                 "query"           => h.GenerateQuery(Str(p, "name"), Str(p, "rootTable"), StrOrNull(p, "label")),
@@ -312,8 +314,8 @@ public static class ToolCatalog
                 "runbase"         => h.GenerateRunBase(Str(p, "name"), Bool(p, "batch")),
                 "security-policy" => h.GenerateSecurityPolicy(Str(p, "name"), Str(p, "constrainedTable"), StrOrNull(p, "policyQuery")),
                 _ => D365FO.Core.ToolResult<object>.Fail("BAD_INPUT",
-                        $"Unknown objectType '{Str(p, "objectType")}' for generate_xml.",
-                        "Use one of: edt, enum, query, sysoperation, business-event, runbase, security-policy."),
+                        $"Unknown objectType '{Str(p, "objectType")}' for generate_object.",
+                        "Write: table, class, coc, form. XML-only: edt, enum, query, sysoperation, business-event, runbase, security-policy."),
             }),
 
         new Descriptor("suggest_edt",

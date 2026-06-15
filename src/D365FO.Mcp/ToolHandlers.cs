@@ -1013,7 +1013,7 @@ public sealed class ToolHandlers
             return ToolResult<object>.Fail("FORM_PATTERN_VIOLATION",
                 $"Generated form violates pattern {report.Pattern} (D365FO_FORM_PATTERN_ENFORCE=true):\n" +
                 string.Join("\n", errors),
-                "Fix the structure (see form_pattern action=spec), or set D365FO_FORM_PATTERN_ENFORCE=false to bypass the gate.");
+                "Fix the structure (see object_patterns domain=form action=spec), or set D365FO_FORM_PATTERN_ENFORCE=false to bypass the gate.");
         }
 
         return WriteScaffoldString(xml, name, "AxForm", "AxForm", installTo, outPath, overwrite,
@@ -1412,13 +1412,13 @@ public sealed class ToolHandlers
         "table" => new[]
         {
             "Table extension (AxTableExtension) — add fields, indexes, relations, field groups: generate extension table <Target> <Suffix>",
-            "Table extension class [ExtensionOf(tableStr(...))] — CoC on table methods: generate (objectType=coc)",
+            "Table extension class [ExtensionOf(tableStr(...))] — CoC on table methods: generate_object (objectType=coc)",
             "Event handler [DataEventHandler(tableStr(X), DataEventType::...)] — subscribe to data events: generate event-handler",
             "New standalone class — if no suitable extension point exists",
         },
         "class" => new[]
         {
-            "Class extension [ExtensionOf(classStr(...))] — CoC on class methods: generate (objectType=coc)",
+            "Class extension [ExtensionOf(classStr(...))] — CoC on class methods: generate_object (objectType=coc)",
             "Event handler [SubscribesTo(...)] — subscribe to delegate events: generate event-handler",
             "New standalone class — if no suitable extension point exists",
         },
