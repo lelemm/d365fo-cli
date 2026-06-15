@@ -23,6 +23,7 @@ namespace D365FO.Bridge
         private static bool _resolverInstalled;
         private static string _binPath;
         private static string _packagesPath;
+        private static string[] _customPackagesPaths = new string[0];
 
         // Cached reflection artefacts per logical provider instance.
         private static object _provider; // IMetadataProvider
@@ -48,6 +49,7 @@ namespace D365FO.Bridge
                 _lastError = null;
 
                 _binPath = ResolveBinPath(out _packagesPath);
+                _customPackagesPaths = ResolveCustomPackagesPaths();
                 if (string.IsNullOrEmpty(_binPath) || !Directory.Exists(_binPath))
                 {
                     _lastError = "D365FO_BIN_PATH (or D365FO_PACKAGES_PATH\\bin) is not set or does not exist.";
@@ -98,6 +100,7 @@ namespace D365FO.Bridge
                 ["loaded"] = _provider != null,
                 ["binPath"] = _binPath ?? string.Empty,
                 ["packagesPath"] = _packagesPath ?? string.Empty,
+                ["customPackagesPaths"] = string.Join(";", _customPackagesPaths),
                 ["error"] = _lastError ?? string.Empty,
             };
         }
@@ -111,6 +114,48 @@ namespace D365FO.Bridge
                 bin = Path.Combine(packagesPath, "bin");
             }
             return bin;
+        }
+
+        /// <summary>
+        /// Additional custom-model roots forwarded by the CLI through
+        /// <c>D365FO_CUSTOM_PACKAGES_PATH</c> (comma/semicolon separated). On a
+        /// UDE these hold the user's custom models, which live outside the
+        /// platform PackagesLocalDirectory — without adding them to the provider
+        /// the model would be invisible to <c>--install-to</c>.
+        /// </summary>
+        private static string[] ResolveCustomPackagesPaths()
+        {
+            var raw = Environment.GetEnvironmentVariable("D365FO_CUSTOM_PACKAGES_PATH");
+            if (string.IsNullOrWhiteSpace(raw)) return new string[0];
+            var parts = raw.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries);
+            var list = new System.Collections.Generic.List<string>(parts.Length);
+            foreach (var p in parts)
+            {
+                var trimmed = p.Trim();
+                if (trimmed.Length > 0) list.Add(trimmed);
+            }
+            return list.ToArray();
+        }
+
+        /// <summary>
+        /// All metadata roots to register with the provider, in priority order:
+        /// the primary <c>D365FO_PACKAGES_PATH</c> first, then each custom root.
+        /// Empty entries and case-insensitive duplicates are skipped.
+        /// </summary>
+        private static System.Collections.Generic.IEnumerable<string> EnumerateMetadataRoots()
+        {
+            var seen = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (!string.IsNullOrEmpty(_packagesPath) && seen.Add(_packagesPath))
+            {
+                yield return _packagesPath;
+            }
+            foreach (var custom in _customPackagesPaths)
+            {
+                if (!string.IsNullOrEmpty(custom) && seen.Add(custom))
+                {
+                    yield return custom;
+                }
+            }
         }
 
         private static Assembly OnAssemblyResolve(object sender, ResolveEventArgs args)
@@ -153,24 +198,28 @@ namespace D365FO.Bridge
 
             var config = CreateConfig(configType);
 
-            // Add package roots. Prefer AddMetadataPath (returns void), fall
-            // back to MetadataPaths collection Add.
-            if (!string.IsNullOrEmpty(_packagesPath))
+            // Add every package root: the primary PackagesLocalDirectory plus
+            // any custom-model roots (UDE dual-folder setups). All of them must
+            // be registered with the provider, otherwise models that live only
+            // under a custom root cannot be resolved by `--install-to`.
+            var addMethod = configType.GetMethod("AddMetadataPath", new[] { typeof(string) });
+            object metadataPathsList = null;
+            if (addMethod == null)
             {
-                var add = configType.GetMethod("AddMetadataPath", new[] { typeof(string) });
-                if (add != null)
+                var prop = configType.GetProperty("MetadataPaths");
+                metadataPathsList = prop != null ? prop.GetValue(config) : null;
+            }
+
+            foreach (var root in EnumerateMetadataRoots())
+            {
+                if (addMethod != null)
                 {
-                    add.Invoke(config, new object[] { _packagesPath });
+                    addMethod.Invoke(config, new object[] { root });
                 }
-                else
+                else if (metadataPathsList != null)
                 {
-                    var prop = configType.GetProperty("MetadataPaths");
-                    var list = prop != null ? prop.GetValue(config) : null;
-                    if (list != null)
-                    {
-                        var addItem = list.GetType().GetMethod("Add", new[] { typeof(string) });
-                        if (addItem != null) addItem.Invoke(list, new object[] { _packagesPath });
-                    }
+                    var addItem = metadataPathsList.GetType().GetMethod("Add", new[] { typeof(string) });
+                    if (addItem != null) addItem.Invoke(metadataPathsList, new object[] { root });
                 }
             }
 

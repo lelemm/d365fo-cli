@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using D365FO.Core.Bridge;
@@ -66,6 +67,35 @@ public sealed class BridgeClientTests
         var ex = await Assert.ThrowsAsync<BridgeException>(
             async () => await harness.Client.SendAsync("ping", new JsonObject()));
         Assert.Contains("closed", ex.Message);
+    }
+
+    [Fact]
+    public void BuildProcessEnvironment_forwards_custom_packages_paths_joined()
+    {
+        var options = new BridgeOptions
+        {
+            MetadataBinPath = @"C:\bin",
+            PackagesPath = @"C:\Packages",
+            CustomPackagesPaths = new[] { @"C:\D365FO_Metadata", @"D:\More" },
+        };
+
+        var env = BridgeClient.BuildProcessEnvironment(options)
+            .ToDictionary(kv => kv.Key, kv => kv.Value);
+
+        Assert.Equal(@"C:\bin", env["D365FO_BIN_PATH"]);
+        Assert.Equal(@"C:\Packages", env["D365FO_PACKAGES_PATH"]);
+        Assert.Equal(@"C:\D365FO_Metadata;D:\More", env["D365FO_CUSTOM_PACKAGES_PATH"]);
+    }
+
+    [Fact]
+    public void BuildProcessEnvironment_omits_custom_packages_when_none()
+    {
+        var options = new BridgeOptions { PackagesPath = @"C:\Packages" };
+
+        var env = BridgeClient.BuildProcessEnvironment(options)
+            .ToDictionary(kv => kv.Key, kv => kv.Value);
+
+        Assert.False(env.ContainsKey("D365FO_CUSTOM_PACKAGES_PATH"));
     }
 
     /// <summary>
