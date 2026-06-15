@@ -41,6 +41,14 @@ public sealed record BridgeOptions
     public string? PackagesPath { get; init; }
 
     /// <summary>
+    /// Additional custom-model roots (e.g. a git repo of custom models on a
+    /// UDE setup). Forwarded to the bridge via <c>D365FO_CUSTOM_PACKAGES_PATH</c>
+    /// so the metadata provider indexes them too — without this, models that
+    /// live only under a custom root are invisible to <c>--install-to</c>.
+    /// </summary>
+    public IReadOnlyList<string> CustomPackagesPaths { get; init; } = Array.Empty<string>();
+
+    /// <summary>
     /// DYNAMICSXREFDB connection string. Forwarded to the bridge via
     /// <c>D365FO_XREF_CONNECTIONSTRING</c> when set.
     /// </summary>
@@ -231,6 +239,27 @@ public sealed class BridgeClient : IDisposable
         return response["result"] as JsonObject;
     }
 
+    /// <summary>
+    /// Build the set of environment variables forwarded to the bridge child
+    /// process from <paramref name="options"/>. Only non-empty values are
+    /// emitted; <c>CustomPackagesPaths</c> is joined with <c>;</c> so the bridge
+    /// can re-split it. Exposed internally so tests can assert the contract
+    /// without spawning a real process.
+    /// </summary>
+    internal static IReadOnlyList<KeyValuePair<string, string>> BuildProcessEnvironment(BridgeOptions options)
+    {
+        var env = new List<KeyValuePair<string, string>>();
+        if (!string.IsNullOrWhiteSpace(options.MetadataBinPath))
+            env.Add(new("D365FO_BIN_PATH", options.MetadataBinPath!));
+        if (!string.IsNullOrWhiteSpace(options.PackagesPath))
+            env.Add(new("D365FO_PACKAGES_PATH", options.PackagesPath!));
+        if (options.CustomPackagesPaths.Count > 0)
+            env.Add(new("D365FO_CUSTOM_PACKAGES_PATH", string.Join(";", options.CustomPackagesPaths)));
+        if (!string.IsNullOrWhiteSpace(options.XrefConnectionString))
+            env.Add(new("D365FO_XREF_CONNECTIONSTRING", options.XrefConnectionString!));
+        return env;
+    }
+
     private void EnsureStarted()
     {
         if (disposed)
@@ -275,17 +304,9 @@ public sealed class BridgeClient : IDisposable
                 StandardInputEncoding = new UTF8Encoding(false),
                 StandardOutputEncoding = new UTF8Encoding(false),
             };
-            if (!string.IsNullOrWhiteSpace(options.MetadataBinPath))
+            foreach (var (key, value) in BuildProcessEnvironment(options))
             {
-                psi.Environment["D365FO_BIN_PATH"] = options.MetadataBinPath;
-            }
-            if (!string.IsNullOrWhiteSpace(options.PackagesPath))
-            {
-                psi.Environment["D365FO_PACKAGES_PATH"] = options.PackagesPath;
-            }
-            if (!string.IsNullOrWhiteSpace(options.XrefConnectionString))
-            {
-                psi.Environment["D365FO_XREF_CONNECTIONSTRING"] = options.XrefConnectionString;
+                psi.Environment[key] = value;
             }
 
             process = Process.Start(psi);

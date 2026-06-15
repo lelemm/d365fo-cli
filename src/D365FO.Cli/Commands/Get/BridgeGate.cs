@@ -23,6 +23,7 @@ internal static class BridgeGate
     {
         MetadataBinPath = D365FoSettings.Resolve("D365FO_BIN_PATH"),
         PackagesPath = D365FoSettings.Resolve("D365FO_PACKAGES_PATH"),
+        CustomPackagesPaths = D365FoSettings.FromEnvironment().CustomPackagesPaths,
         XrefConnectionString = D365FoSettings.Resolve("D365FO_XREF_CONNECTIONSTRING"),
     };
 

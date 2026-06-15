@@ -43,7 +43,7 @@ internal static class GenerateInstaller
         {
             failure = RenderHelpers.Render(kind, ToolResult<object>.Fail(
                 "INSTALL_FAILED",
-                $"Could not resolve folder for model '{model}'. Set D365FO_BRIDGE_ENABLED=1 and D365FO_PACKAGES_PATH on a D365FO VM, and make sure the model exists."));
+                $"Could not resolve folder for model '{model}'. Ensure the bridge can see the model: set D365FO_BRIDGE_ENABLED=1 and point D365FO_PACKAGES_PATH (and D365FO_CUSTOM_PACKAGES_PATH for custom-model roots) at the directories that contain the model, on a D365FO VM."));
             return null;
         }
         return System.IO.Path.Combine(folder!, axSubfolder, name + ".xml");
