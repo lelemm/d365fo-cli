@@ -639,34 +639,30 @@ public static class XppScaffolder
     /// clause, which is valid for root EDTs. When <paramref name="baseType"/> is
     /// supplied without <paramref name="extends"/>, a sensible standard parent is
     /// inferred (e.g. <c>String → Name</c>, <c>Int → Integer</c>).
+    /// For Enum-type EDTs, supply <paramref name="enumType"/> with the backing X++ enum
+    /// name (e.g. <c>NoYes</c>). When omitted, the value is inferred from
+    /// <paramref name="extends"/> (e.g. <c>NoYesId -> NoYes</c>). If neither
+    /// <paramref name="enumType"/> nor <paramref name="extends"/> is supplied,
+    /// no <c>EnumType</c> element is emitted.
     /// </summary>
     public static XDocument Edt(
         string name,
         string? extends = null,
         string? baseType = null,
         int? stringSize = null,
-        string? label = null)
+        string? label = null,
+        string? enumType = null)
     {
         var effectiveExtends = extends;
         if (string.IsNullOrEmpty(effectiveExtends) && !string.IsNullOrEmpty(baseType))
         {
-            effectiveExtends = baseType.ToLowerInvariant() switch
-            {
-                "int" or "integer"          => "Integer",
-                "int64"                     => "Int64",
-                "real"                      => "Amount",
-                "date"                      => "Date",
-                "utcdatetime" or "datetime" => "TransDate",
-                "boolean" or "bool"         => "NoYesId",
-                _                           => "Name",
-            };
+            effectiveExtends = null; // Root EDTs stay root-level unless --extends is explicit.
         }
 
-        // D365FO's DataContractSerializer requires the root element to be the concrete
-        // subtype name (e.g. AxEdtString) — not the abstract base AxEdt.  Without the
-        // concrete root element the metadata parser throws "Cannot create an abstract class".
-        // Derive the concrete type suffix from --base-type; when only --extends is given,
-        // apply a heuristic over well-known system EDTs so common cases work without flags.
+        // D365FO's DataContractSerializer uses the i:type attribute to indicate the concrete
+        // type (e.g. AxEdtString). Derive the concrete type suffix from --base-type; when only
+        // --extends is given, apply a heuristic over well-known system EDTs so common cases
+        // work without flags.
         var concreteTypeSuffix = !string.IsNullOrEmpty(baseType)
             ? baseType.ToLowerInvariant() switch
             {
@@ -674,32 +670,68 @@ public static class XppScaffolder
                 "int64"                     => "Int64",
                 "real"                      => "Real",
                 "date"                      => "Date",
-                "utcdatetime" or "datetime" => "DateTime",
-                "boolean" or "bool"         => "Boolean",
+                "utcdatetime" or "datetime" => "UtcDateTime",
+                "boolean" or "bool"         => "Enum",
+                "time"                      => "Time",
+                "guid"                      => "Guid",
+                "container"                 => "Container",
+                "enum"                      => "Enum",
                 _                           => "String",
             }
             : InferConcreteTypeSuffixFromExtends(effectiveExtends);
 
         // D365FO's metadata reader requires the XMLSchema-instance namespace declaration on
         // the root element (Visual Studio emits it on every AxEdt* file). Without it VS refuses
-        // to read the metadata — the same defect previously fixed for AxEnum.
+        // to read the metadata. The i:type attribute specifies the concrete type (e.g. AxEdtString).
         // Element order also matters: the DataContractSerializer serializes base-class members
         // (AxEdt: Name/Extends/Label) before derived-class members (AxEdtString.StringSize), so
         // StringSize must come *after* Label, not before it.
+        // For Enum-type EDTs the backing X++ enum name is required (<EnumType> element).
+        // Resolve in this order:
+        //   1) explicit --enum-type
+        //   2) infer from --extends (NoYesId -> NoYes, otherwise use extends as enum name)
+        //   3) no value when neither is supplied
+        var effectiveEnumType = concreteTypeSuffix == "Enum"
+            ? (!string.IsNullOrEmpty(enumType)
+                ? enumType
+                : (string.IsNullOrEmpty(effectiveExtends)
+                    ? null
+                    : InferEnumTypeFromExtends(effectiveExtends)))
+            : null;
+
         XNamespace xsi = "http://www.w3.org/2001/XMLSchema-instance";
-        return new XDocument(
-            new XElement($"AxEdt{concreteTypeSuffix}",
-                new XAttribute(XNamespace.Xmlns + "i", xsi.NamespaceName),
-                new XElement("Name", name),
-                string.IsNullOrEmpty(effectiveExtends) ? null : new XElement("Extends", effectiveExtends),
-                string.IsNullOrEmpty(label) ? null : new XElement("Label", label),
-                stringSize.HasValue ? new XElement("StringSize", stringSize.Value.ToString()) : null));
+        var root = new XElement("AxEdt",
+            new XAttribute(XNamespace.Xmlns + "i", xsi.NamespaceName),
+            new XAttribute(XName.Get("type", xsi.NamespaceName), $"AxEdt{concreteTypeSuffix}"),
+            new XElement("Name", name),
+            string.IsNullOrEmpty(effectiveExtends) ? null : new XElement("Extends", effectiveExtends),
+            string.IsNullOrEmpty(label) ? null : new XElement("Label", label),
+            stringSize.HasValue ? new XElement("StringSize", stringSize.Value.ToString()) : null,
+            new XElement("ArrayElements"),
+            new XElement("Relations"),
+            new XElement("TableReferences"),
+            string.IsNullOrEmpty(effectiveEnumType) ? null : new XElement("EnumType", effectiveEnumType));
+        // Set the default namespace (empty xmlns) as per VS-emitted metadata format
+        root.SetAttributeValue(XName.Get("xmlns"), "");
+        return new XDocument(root);
     }
 
     /// <summary>
     /// Infers the concrete <c>AxEdt*</c> type suffix from a well-known system EDT name.
     /// Returns <c>"String"</c> as the safe default for unknown or custom parent EDTs.
     /// </summary>
+    /// <summary>
+    /// Infers the backing X++ enum name from a well-known system EDT name used as Extends.
+    /// For unknown names, returns the extends value as-is.
+    /// </summary>
+    private static string InferEnumTypeFromExtends(string? extends) =>
+        extends?.ToLowerInvariant() switch
+        {
+            "noyesid" or "noyes"   => "NoYes",
+            "boolean"              => "NoYes",
+            _                      => extends!,
+        } ?? string.Empty;
+
     private static string InferConcreteTypeSuffixFromExtends(string? extends) =>
         extends?.ToLowerInvariant() switch
         {
@@ -707,8 +739,11 @@ public static class XppScaffolder
             "int64" or "recid"                                      => "Int64",
             "amount" or "amountmst" or "qty" or "weight" or "real"  => "Real",
             "date" or "transdate"                                   => "Date",
-            "utcdatetime"                                           => "DateTime",
-            "noyes" or "noyesid" or "boolean"                      => "Boolean",
+            "utcdatetime" or "transdatetime"                        => "UtcDateTime",
+            "noyes" or "noyesid" or "boolean"                      => "Enum",
+            "timeofday" or "time"                                   => "Time",
+            "guid"                                                   => "Guid",
+            "container"                                              => "Container",
             _                                                       => "String",
         } ?? "String";
 
@@ -844,9 +879,10 @@ public static class ScaffoldFileWriter
     // Writing one of these as the document root makes VS metadata reader throw
     // "Cannot create an abstract class" when the file is opened — callers must use the
     // concrete subtype (AxEdtString, AxEdtInt, AxEdtStringExtension, …).
+    // Note: AxEdt is no longer in this list as the scaffolder now emits AxEdt with an i:type
+    // attribute specifying the concrete type (e.g. i:type="AxEdtString"), which is not abstract.
     private static readonly HashSet<string> _abstractAxRoots = new(StringComparer.Ordinal)
     {
-        "AxEdt",
         "AxEdtExtension",
     };
 
@@ -854,6 +890,7 @@ public static class ScaffoldFileWriter
     {
         ArgumentNullException.ThrowIfNull(doc);
         EnsureConcreteAxRoot(doc.Root?.Name.LocalName);
+        EnsureValidEdtRoot(doc.Root);
         return WriteCore(doc.ToString(SaveOptions.None), path, overwrite, declarationOnSaveFromXDoc: true, doc);
     }
 
@@ -865,7 +902,9 @@ public static class ScaffoldFileWriter
     public static WriteResult Write(string xml, string path, bool overwrite = false)
     {
         ArgumentException.ThrowIfNullOrEmpty(xml);
-        EnsureConcreteAxRoot(SniffRootLocalName(xml));
+        var root = ParseRootElement(xml);
+        EnsureConcreteAxRoot(root?.Name.LocalName);
+        EnsureValidEdtRoot(root);
         return WriteCore(xml, path, overwrite, declarationOnSaveFromXDoc: false, null);
     }
 
@@ -875,18 +914,34 @@ public static class ScaffoldFileWriter
             throw new InvalidOperationException(
                 $"Refusing to write AOT XML with abstract root element <{rootLocalName}>. " +
                 "Use the concrete subtype (e.g. AxEdtString, AxEdtInt, AxEdtReal, AxEdtDate, " +
-                "AxEdtDateTime, AxEdtBoolean). Visual Studio's metadata reader throws " +
+                "AxEdtUtcDateTime, AxEdtTime, AxEdtGuid, AxEdtContainer, AxEdtEnum). Visual Studio's metadata reader throws " +
                 "\"Cannot create an abstract class\" on this root.");
     }
 
-    private static string? SniffRootLocalName(string xml)
+    private static void EnsureValidEdtRoot(XElement? root)
+    {
+        if (root?.Name.LocalName != "AxEdt")
+            return;
+
+        XNamespace xsi = "http://www.w3.org/2001/XMLSchema-instance";
+        var typeValue = root.Attribute(XName.Get("type", xsi.NamespaceName))?.Value;
+        if (string.IsNullOrWhiteSpace(typeValue) ||
+            string.Equals(typeValue, "AxEdt", StringComparison.Ordinal) ||
+            !typeValue.StartsWith("AxEdt", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Refusing to write <AxEdt> without a concrete XMLSchema-instance type. " +
+                "Set i:type to a concrete subtype (e.g. AxEdtString, AxEdtInt, AxEdtReal, " +
+                "AxEdtDate, AxEdtUtcDateTime, AxEdtTime, AxEdtGuid, AxEdtContainer, AxEdtEnum). Visual Studio's metadata reader " +
+                "throws \"Cannot create an abstract class\" when type metadata is missing.");
+        }
+    }
+
+    private static XElement? ParseRootElement(string xml)
     {
         try
         {
-            using var sr = new StringReader(xml);
-            using var xr = System.Xml.XmlReader.Create(sr, new System.Xml.XmlReaderSettings { DtdProcessing = System.Xml.DtdProcessing.Prohibit });
-            xr.MoveToContent();
-            return xr.NodeType == System.Xml.XmlNodeType.Element ? xr.LocalName : null;
+            return XDocument.Parse(xml, LoadOptions.PreserveWhitespace).Root;
         }
         catch
         {

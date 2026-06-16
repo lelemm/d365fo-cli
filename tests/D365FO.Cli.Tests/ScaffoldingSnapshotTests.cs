@@ -53,9 +53,177 @@ public class ScaffoldingSnapshotTests
     {
         var doc = XppScaffolder.Edt("MyEdt", "Name");
         var root = doc.Root!;
-        Assert.Equal("AxEdtString", root.Name.LocalName);
+        Assert.Equal("AxEdt", root.Name.LocalName);
+        Assert.Equal("AxEdtString", root.Attribute(XName.Get("type", "http://www.w3.org/2001/XMLSchema-instance"))!.Value);
         Assert.Equal("MyEdt", root.Element("Name")!.Value);
         Assert.Equal("Name", root.Element("Extends")!.Value);
+    }
+
+    [Theory]
+    [InlineData("String", "AxEdtString")]
+    [InlineData("Int", "AxEdtInt")]
+    [InlineData("Int64", "AxEdtInt64")]
+    [InlineData("Real", "AxEdtReal")]
+    [InlineData("Date", "AxEdtDate")]
+    [InlineData("UtcDateTime", "AxEdtUtcDateTime")]
+    [InlineData("Boolean", "AxEdtEnum")]
+    [InlineData("Time", "AxEdtTime")]
+    [InlineData("Guid", "AxEdtGuid")]
+    [InlineData("Container", "AxEdtContainer")]
+    [InlineData("Enum", "AxEdtEnum")]
+    public void Edt_base_type_emits_matching_concrete_i_type(string baseType, string expectedType)
+    {
+        var doc = XppScaffolder.Edt("MyEdt", null, baseType);
+        Assert.Equal(
+            expectedType,
+            doc.Root!.Attribute(XName.Get("type", "http://www.w3.org/2001/XMLSchema-instance"))!.Value);
+    }
+
+    [Fact]
+    public void Edt_enum_type_emits_EnumType_element_after_TableReferences()
+    {
+        // Enum-type EDTs require <EnumType> (the backing X++ enum name) after <TableReferences>.
+        // Without it VS metadata reader cannot bind the EDT to the enum. (issue #70)
+        var doc = XppScaffolder.Edt("MyEnumEdt", "NoYesId", "Enum", null, null, "NoYes");
+        var names = doc.Root!.Elements().Select(e => e.Name.LocalName).ToList();
+        Assert.Contains("EnumType", names);
+        Assert.True(names.IndexOf("EnumType") > names.IndexOf("TableReferences"),
+            "<EnumType> must appear after <TableReferences>");
+        Assert.Equal("NoYes", doc.Root.Element("EnumType")!.Value);
+    }
+
+    [Fact]
+    public void Edt_enum_type_defaults_to_NoYes_when_extends_NoYesId()
+    {
+        // When --enum-type is omitted and extends is NoYesId, NoYes is inferred.
+        var doc = XppScaffolder.Edt("MyEnumEdt", "NoYesId", "Enum");
+        Assert.Equal("NoYes", doc.Root!.Element("EnumType")!.Value);
+    }
+
+    [Fact]
+    public void Edt_enum_type_without_extends_and_without_enum_type_does_not_emit_EnumType()
+    {
+        var doc = XppScaffolder.Edt("MyEnumEdt", null, "Enum");
+        Assert.Null(doc.Root!.Element("EnumType"));
+    }
+
+    [Fact]
+    public void Edt_enum_type_infers_EnumType_from_custom_extends()
+    {
+        var doc = XppScaffolder.Edt("MyEnumEdt", "ABCModelType", "Enum");
+        Assert.Equal("ABCModelType", doc.Root!.Element("EnumType")!.Value);
+    }
+
+    [Fact]
+    public void Edt_non_enum_type_does_not_emit_EnumType_element()
+    {
+        // Non-enum EDTs must not get a spurious <EnumType> element.
+        var doc = XppScaffolder.Edt("MyStringEdt", null, "String");
+        Assert.Null(doc.Root!.Element("EnumType"));
+    }
+
+    [Fact]
+    public void Edt_base_type_Date_has_no_default_extends()
+    {
+        var doc = XppScaffolder.Edt("MyDateEdt", null, "Date");
+        Assert.Null(doc.Root!.Element("Extends"));
+    }
+
+    [Fact]
+    public void Edt_base_type_Int64_has_no_default_extends()
+    {
+        var doc = XppScaffolder.Edt("MyInt64Edt", null, "Int64");
+        Assert.Null(doc.Root!.Element("Extends"));
+    }
+
+    [Fact]
+    public void Edt_base_type_String_has_no_default_extends()
+    {
+        var doc = XppScaffolder.Edt("MyStringEdt", null, "String");
+        Assert.Null(doc.Root!.Element("Extends"));
+    }
+
+    [Fact]
+    public void Edt_base_type_Int_has_no_default_extends()
+    {
+        var doc = XppScaffolder.Edt("MyIntEdt", null, "Int");
+        Assert.Null(doc.Root!.Element("Extends"));
+    }
+
+    [Fact]
+    public void Edt_base_type_Real_has_no_default_extends()
+    {
+        var doc = XppScaffolder.Edt("MyRealEdt", null, "Real");
+        Assert.Null(doc.Root!.Element("Extends"));
+    }
+
+    [Fact]
+    public void Edt_base_type_Time_has_no_default_extends()
+    {
+        var doc = XppScaffolder.Edt("MyTimeEdt", null, "Time");
+        Assert.Null(doc.Root!.Element("Extends"));
+    }
+
+    [Fact]
+    public void Edt_base_type_UtcDateTime_has_no_default_extends()
+    {
+        var doc = XppScaffolder.Edt("MyDateTimeEdt", null, "UtcDateTime");
+        Assert.Null(doc.Root!.Element("Extends"));
+    }
+
+    [Fact]
+    public void Edt_base_type_Boolean_has_no_default_extends()
+    {
+        var doc = XppScaffolder.Edt("MyBoolEdt", null, "Boolean");
+        Assert.Null(doc.Root!.Element("Extends"));
+    }
+
+    [Fact]
+    public void Edt_base_type_Boolean_without_extends_does_not_emit_EnumType()
+    {
+        var doc = XppScaffolder.Edt("MyBoolEdt", null, "Boolean");
+        Assert.Null(doc.Root!.Element("EnumType"));
+    }
+
+    [Fact]
+    public void Edt_base_type_Enum_has_no_default_extends()
+    {
+        var doc = XppScaffolder.Edt("MyEnumEdt", null, "Enum");
+        Assert.Null(doc.Root!.Element("Extends"));
+    }
+
+    [Fact]
+    public void Edt_base_type_Guid_has_no_default_extends()
+    {
+        var doc = XppScaffolder.Edt("MyGuidEdt", null, "Guid");
+        Assert.Null(doc.Root!.Element("Extends"));
+    }
+
+    [Fact]
+    public void Edt_base_type_Container_has_no_default_extends()
+    {
+        var doc = XppScaffolder.Edt("MyContainerEdt", null, "Container");
+        Assert.Null(doc.Root!.Element("Extends"));
+    }
+
+    [Theory]
+    [InlineData("Integer", "AxEdtInt")]
+    [InlineData("Int64", "AxEdtInt64")]
+    [InlineData("Amount", "AxEdtReal")]
+    [InlineData("Date", "AxEdtDate")]
+    [InlineData("TransDate", "AxEdtDate")]
+    [InlineData("UtcDateTime", "AxEdtUtcDateTime")]
+    [InlineData("TransDateTime", "AxEdtUtcDateTime")]
+    [InlineData("NoYesId", "AxEdtEnum")]
+    [InlineData("TimeOfDay", "AxEdtTime")]
+    [InlineData("Guid", "AxEdtGuid")]
+    [InlineData("Container", "AxEdtContainer")]
+    public void Edt_extends_infers_non_string_i_type(string extends, string expectedType)
+    {
+        var doc = XppScaffolder.Edt("MyEdt", extends);
+        Assert.Equal(
+            expectedType,
+            doc.Root!.Attribute(XName.Get("type", "http://www.w3.org/2001/XMLSchema-instance"))!.Value);
     }
 
     [Fact]
@@ -84,7 +252,7 @@ public class ScaffoldingSnapshotTests
         // before derived members (AxEdtString.StringSize): Label must precede StringSize.
         var doc = XppScaffolder.Edt("MyEdt", "Name", null, 10, "My label");
         var names = doc.Root!.Elements().Select(e => e.Name.LocalName).ToList();
-        Assert.Equal(new[] { "Name", "Extends", "Label", "StringSize" }, names);
+        Assert.Equal(new[] { "Name", "Extends", "Label", "StringSize", "ArrayElements", "Relations", "TableReferences" }, names);
     }
 
     [Fact]
@@ -92,6 +260,7 @@ public class ScaffoldingSnapshotTests
     {
         var doc = new XDocument(new XElement("AxEdt", new XElement("Name", "Bad")));
         var tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "d365fo-cli-test-abstract-edt.xml");
+        if (System.IO.File.Exists(tmp)) System.IO.File.Delete(tmp);
         var ex = Assert.Throws<System.InvalidOperationException>(() => ScaffoldFileWriter.Write(doc, tmp, overwrite: true));
         Assert.Contains("AxEdt", ex.Message);
         Assert.False(System.IO.File.Exists(tmp));
@@ -102,6 +271,7 @@ public class ScaffoldingSnapshotTests
     {
         var raw = "<?xml version=\"1.0\" encoding=\"utf-8\"?><AxEdtExtension><Name>Bad.Extension</Name></AxEdtExtension>";
         var tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "d365fo-cli-test-abstract-edt-ext.xml");
+        if (System.IO.File.Exists(tmp)) System.IO.File.Delete(tmp);
         var ex = Assert.Throws<System.InvalidOperationException>(() => ScaffoldFileWriter.Write(raw, tmp, overwrite: true));
         Assert.Contains("AxEdtExtension", ex.Message);
         Assert.False(System.IO.File.Exists(tmp));
