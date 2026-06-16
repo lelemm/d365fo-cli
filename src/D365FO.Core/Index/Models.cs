@@ -112,6 +112,15 @@ public sealed record EnumDetails(EnumInfo Enum, IReadOnlyList<EnumValueInfo> Val
 
 public sealed record LabelMatch(string File, string Language, string Key, string? Value);
 
+/// <summary>A method-body full-text hit from the opt-in <c>MethodSourceFts</c> index.</summary>
+public sealed record MethodSourceMatch(
+    string Kind,
+    string ObjectName,
+    string MethodName,
+    string Model,
+    string? SourcePath,
+    string? Snippet);
+
 public sealed record MenuItemInfo(
     string Name,
     string Kind,

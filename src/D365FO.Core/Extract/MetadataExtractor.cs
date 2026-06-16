@@ -26,6 +26,15 @@ public sealed class MetadataExtractor
 
     public MetadataExtractor(ILogger? log = null) => _log = log ?? NullLogger.Instance;
 
+    /// <summary>
+    /// v15 opt-in: when true, each extracted method keeps its raw X++ body in
+    /// <see cref="ExtractedMethod.Body"/> so <c>ApplyExtract</c> can feed the
+    /// <c>MethodSourceFts</c> full-text index. Off by default — bodies are
+    /// discarded after deriving lint flags, keeping batches lean. Set once
+    /// before extraction; read concurrently by the per-model parse tasks.
+    /// </summary>
+    public bool CaptureMethodSource { get; init; }
+
     public IEnumerable<ExtractBatch> ExtractAll(
         string packagesRoot,
         IReadOnlyCollection<string>? labelLanguages = null,
@@ -358,7 +367,7 @@ public sealed class MetadataExtractor
         return withoutStrings;
     }
 
-    private static ExtractedTable? ParseTable(XDocument doc, string file)
+    private ExtractedTable? ParseTable(XDocument doc, string file)
     {
         var root = doc.Root;
         if (root is null) return null;
@@ -464,7 +473,7 @@ public sealed class MetadataExtractor
         @"^\s*public\s+\w[\w\s]*\s+\w+\s*;",
         System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.Compiled);
 
-    private static ExtractedClass? ParseClass(XDocument doc, string file)
+    private ExtractedClass? ParseClass(XDocument doc, string file)
     {
         var root = doc.Root;
         if (root is null) return null;
@@ -515,7 +524,7 @@ public sealed class MetadataExtractor
         };
     }
 
-    private static IReadOnlyList<ExtractedMethod> ExtractMethods(XElement root)
+    private IReadOnlyList<ExtractedMethod> ExtractMethods(XElement root)
     {
         var (methods, sources) = ExtractMethodsWithSources(root);
         // For table methods, apply the IsEmptyOverride flag based on body contents.
@@ -528,7 +537,7 @@ public sealed class MetadataExtractor
         return result;
     }
 
-    private static (IReadOnlyList<ExtractedMethod> Methods, List<(string Name, string Source)> Sources) ExtractMethodsWithSources(XElement root)
+    private (IReadOnlyList<ExtractedMethod> Methods, List<(string Name, string Source)> Sources) ExtractMethodsWithSources(XElement root)
     {
         var methods = new List<ExtractedMethod>();
         var sources = new List<(string, string)>();
@@ -573,7 +582,11 @@ public sealed class MetadataExtractor
                 hasDocComment, hasTodayCall, hasDoInsertUpdate,
                 hasInsertInLoop, hasNestedSelect, hasForceLiterals,
                 hasForUpdateWithoutUpdate, hasTryCatchInTts, hasEmptyLoop,
-                IsEmptyOverride: false));
+                IsEmptyOverride: false)
+            {
+                // v15: keep the body only when source indexing is requested.
+                Body = CaptureMethodSource ? source : null,
+            });
             sources.Add((mname!, source));
         }
         return (methods, sources);

@@ -33,6 +33,13 @@ d365fo find coc CustTable::validateWrite
 
 Also available: `find relations|usages|extensions|handlers`. `find refs --xref` queries `DYNAMICSXREFDB` for path/line/column/kind.
 
+`find refs <needle>` searches inside X++ method bodies. By default it scans the source on disk on demand; if you extracted with `--index-source` it answers from the `MethodSourceFts` full-text index instead (much faster, and the result carries `via: "fts"`):
+
+```sh
+d365fo index extract --index-source     # one-time: full-text index method bodies
+d365fo find refs CustPostInvoice        # now served from FTS
+```
+
 #### `find form-patterns`
 
 ```sh

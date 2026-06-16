@@ -1,5 +1,4 @@
 using D365FO.Core;
-using D365FO.Core.Extract;
 using Spectre.Console.Cli;
 using D365FO.Cli.Commands.Get;
 
@@ -350,43 +349,26 @@ public sealed class FindRelatedCommand : Command<FindRelatedCommand.Settings>
 
     private static int RenderRefs(OutputMode.Kind output, D365FO.Core.Index.MetadataRepository repo, string name, string? kind, int limit)
     {
-        var sources = repo.EnumerateSourcePaths();
-        if (!string.IsNullOrWhiteSpace(kind))
-            sources = sources.Where(s => string.Equals(s.Kind, kind, StringComparison.OrdinalIgnoreCase)).ToList();
-
-        var rx = new System.Text.RegularExpressions.Regex(
-            $@"\b{System.Text.RegularExpressions.Regex.Escape(name)}\b",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        var hits = new List<object>();
-        var scanned = 0;
-
-        foreach (var row in sources)
+        // Shared with the MCP find_references tool. Uses the MethodSourceFts index
+        // when it's populated (index extract --index-source), else scans on disk.
+        var result = D365FO.Core.Index.MethodSourceSearch.Find(repo, name, kind, model: null, limit: limit);
+        var items = result.Hits.Select(h => new
         {
-            if (hits.Count >= limit) break;
-            scanned++;
-            var src = XppSourceReader.Read(row.SourcePath);
-            if (src is null) continue;
-            foreach (var method in src.Methods)
-            {
-                if (!rx.IsMatch(method.Body)) continue;
-                hits.Add(new
-                {
-                    kind = row.Kind,
-                    name = row.Name,
-                    model = row.Model,
-                    method = method.Name,
-                    path = row.SourcePath,
-                });
-                if (hits.Count >= limit) break;
-            }
-        }
-
+            kind = h.Kind,
+            name = h.Name,
+            model = h.Model,
+            method = h.Method,
+            path = h.Path,
+            matches = h.Matches.Select(l => new { line = l.Line, text = l.Text }),
+        });
         return RenderHelpers.Render(output, ToolResult<object>.Success(new
         {
-            needle = name,
-            filesScanned = scanned,
-            count = hits.Count,
-            items = hits,
+            needle = result.Needle,
+            via = result.Via,
+            filesScanned = result.FilesScanned,
+            count = result.Hits.Count,
+            truncated = result.Truncated,
+            items,
         }));
     }
 

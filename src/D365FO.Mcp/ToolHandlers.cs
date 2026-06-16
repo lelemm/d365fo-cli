@@ -1444,8 +1444,11 @@ public sealed class ToolHandlers
     // ---- find_references (reverse references in indexed X++ source) ----
 
     /// <summary>
-    /// Regex scan of indexed X++ source for reverse references to a symbol.
-    /// Backs the unified <c>find_references</c> MCP tool. (The bridge-backed
+    /// Reverse-reference search over indexed X++ source for a symbol. Backs the
+    /// unified <c>find_references</c> MCP tool and shares its implementation
+    /// (<see cref="MethodSourceSearch"/>) with the CLI <c>find refs</c> command,
+    /// so both surfaces use the MethodSourceFts index when it's populated and
+    /// fall back to the same disk scan otherwise. (The bridge-backed
     /// DYNAMICSXREFDB path stays CLI-only via <c>find refs --xref</c>.)
     /// </summary>
     public ToolResult<object> FindReferences(string name, string? kind, string? model, int limit = 200)
@@ -1453,51 +1456,24 @@ public sealed class ToolHandlers
         if (string.IsNullOrWhiteSpace(name))
             return ToolResult<object>.Fail("BAD_INPUT", "name is required.");
 
-        var sources = _repo.EnumerateSourcePaths(model);
-        if (!string.IsNullOrWhiteSpace(kind))
-            sources = sources.Where(s => string.Equals(s.Kind, kind, StringComparison.OrdinalIgnoreCase)).ToList();
+        var result = MethodSourceSearch.Find(_repo, name, kind, model, limit);
+        var items = result.Hits.Select(h => new
+        {
+            kind = h.Kind,
+            name = h.Name,
+            model = h.Model,
+            method = h.Method,
+            matches = h.Matches.Select(l => new { line = l.Line, text = l.Text }),
+            path = h.Path,
+        }).ToList();
 
-        var rx = new System.Text.RegularExpressions.Regex(
-            $@"\b{System.Text.RegularExpressions.Regex.Escape(name)}\b",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-        var hits = new System.Collections.Concurrent.ConcurrentBag<object>();
-        int scanned = 0;
-
-        System.Threading.Tasks.Parallel.ForEach(sources,
-            new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount },
-            row =>
-            {
-                System.Threading.Interlocked.Increment(ref scanned);
-                var src = XppSourceReader.Read(row.SourcePath);
-                if (src is null) return;
-                foreach (var m in src.Methods)
-                {
-                    if (!rx.IsMatch(m.Body)) continue;
-                    var lines = m.Body.Replace("\r\n", "\n").Split('\n');
-                    var sampleLines = new List<object>();
-                    for (int i = 0; i < lines.Length && sampleLines.Count < 3; i++)
-                        if (rx.IsMatch(lines[i]))
-                            sampleLines.Add(new { line = i + 1, text = lines[i].Trim() });
-                    hits.Add(new
-                    {
-                        kind = row.Kind,
-                        name = row.Name,
-                        model = row.Model,
-                        method = m.Name,
-                        matches = sampleLines,
-                        path = row.SourcePath,
-                    });
-                }
-            });
-
-        var items = hits.Take(limit).ToList();
         return ToolResult<object>.Success(new
         {
-            needle = name,
-            filesScanned = scanned,
+            needle = result.Needle,
+            via = result.Via,
+            filesScanned = result.FilesScanned,
             count = items.Count,
-            truncated = hits.Count > limit,
+            truncated = result.Truncated,
             items,
         });
     }
