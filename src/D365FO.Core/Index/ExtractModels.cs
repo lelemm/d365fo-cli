@@ -91,7 +91,16 @@ public sealed record ExtractedMethod(string Name, string? Signature, string? Ret
     bool HasInsertInLoop = false, bool HasNestedSelect = false, bool HasForceLiterals = false,
     bool HasForUpdateWithoutUpdate = false, bool HasTryCatchInTts = false, bool HasEmptyLoop = false,
     // v12 table-method-only flag
-    bool IsEmptyOverride = false);
+    bool IsEmptyOverride = false)
+{
+    /// <summary>
+    /// v15: Raw X++ source of the method body. Transient — only populated when
+    /// the extractor runs with source capture enabled (<c>index extract
+    /// --index-source</c>) and consumed by <c>ApplyExtract</c> to feed the
+    /// <c>MethodSourceFts</c> index. Never persisted as a column; null otherwise.
+    /// </summary>
+    public string? Body { get; init; }
+}
 public sealed record ExtractedClassAttribute(string? MethodName, string AttributeName, string RawArgs);
 public sealed record ExtractedEventSubscriber(
     string SubscriberClass,

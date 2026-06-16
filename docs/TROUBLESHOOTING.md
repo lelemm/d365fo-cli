@@ -175,12 +175,19 @@ The migration is applied automatically on first connection and is always additiv
 
 - New columns are added via `ALTER TABLE … ADD COLUMN` with safe defaults (`NULL` or `0`).
 - New tables (e.g. `BusinessEvents`, `SecurityPolicies`, `ConfigurationKeys`, `Tiles`) are created empty.
+- New virtual tables (e.g. the `MethodSourceFts` method-body index) are created empty.
 - Lint flag columns (`HasInsertInLoop`, `HasNestedSelect`, etc.) default to `0` in existing rows.
 
 After migration, newly added columns are empty until you re-extract:
 
 ```sh
 d365fo index extract --force    # re-populate all models with new columns
+```
+
+The opt-in method-body index stays empty until you re-extract *with the flag* — a plain `--force` does not populate it:
+
+```sh
+d365fo index extract --force --index-source   # backfill MethodSourceFts too
 ```
 
 ### When to use `index build` vs `index extract`

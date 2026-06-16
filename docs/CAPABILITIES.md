@@ -8,6 +8,8 @@ Full reference of what the tool provides. For setup see [SETUP.md](SETUP.md), fo
 
 The SQLite index (`$D365FO_INDEX_DB`) stores AOT metadata extracted from `PackagesLocalDirectory`. It covers 22 AOT object types and is populated by `d365fo index extract`.
 
+By default the index stores object/method *metadata* only — method bodies (the X++ source) are parsed for lint flags and then discarded; the canonical source stays in the AOT XML on disk. Pass `--index-source` to additionally full-text index method bodies into `MethodSourceFts` (see below).
+
 ### Index maintenance commands
 
 | Command | What it does |
@@ -15,6 +17,7 @@ The SQLite index (`$D365FO_INDEX_DB`) stores AOT metadata extracted from `Packag
 | `index build` | Create or migrate the schema in-place |
 | `index extract` | Full extraction of all packages |
 | `index extract --model <M>` | Scoped extraction of one model (seconds) |
+| `index extract --index-source` | Also full-text index X++ method bodies (opt-in; enlarges the DB, accelerates `find refs`). Also available on `index refresh`. |
 | `index refresh` | Re-extract only models whose content fingerprint changed |
 | `index refresh --force` | Re-extract all models regardless of fingerprint |
 | `index status` | Show per-model row counts and last-extracted timestamps |
@@ -83,6 +86,7 @@ find usages <needle> [--kind k,k,…]  — All references by kind
 find extensions <target>              — All object extensions
 find handlers <object>                — Event subscribers
 find relations <table>                — FK relations
+find refs <needle>                    — References inside method bodies (FTS5 when `--index-source` was used, else on-demand source scan)
 find refs --xref                      — Path/line/kind via DYNAMICSXREFDB
 find form-patterns [--pattern P]      — Form pattern histogram / filter
 find batch-jobs [--model M]           — RunBaseBatch subclasses

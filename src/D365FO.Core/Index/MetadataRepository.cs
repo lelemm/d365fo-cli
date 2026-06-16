@@ -14,7 +14,7 @@ namespace D365FO.Core.Index;
 public sealed partial class MetadataRepository
 {
     /// <summary>Current schema version tracked in PRAGMA user_version.</summary>
-    public const int CurrentSchemaVersion = 14;
+    public const int CurrentSchemaVersion = 15;
 
     private static readonly Lazy<string> SchemaSql = new(LoadEmbeddedSchema);
 
@@ -450,6 +450,79 @@ public sealed partial class MetadataRepository
                     "FTS5 unavailable or invalid query syntax; results may be incomplete (fell back to LIKE)."));
             }
             return results;
+        }
+    }
+
+    /// <summary>
+    /// Number of method bodies currently in the opt-in <c>MethodSourceFts</c>
+    /// index, optionally restricted to one model. Returns 0 when source indexing
+    /// was never run or the host SQLite build lacks FTS5. Callers use this to
+    /// decide between the fast FTS path and the on-demand disk scan.
+    /// </summary>
+    public long CountMethodSource(string? model = null)
+    {
+        using var conn = OpenReadOnly();
+        try
+        {
+            return string.IsNullOrEmpty(model)
+                ? conn.ExecuteScalar<long>("SELECT count(*) FROM MethodSourceFts")
+                : conn.ExecuteScalar<long>("SELECT count(*) FROM MethodSourceFts WHERE Model=@m", new { m = model });
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException)
+        {
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// FTS5-backed search over X++ method bodies (the opt-in v15
+    /// <c>MethodSourceFts</c> index, populated via <c>index extract --index-source</c>).
+    /// Supports standard FTS5 query syntax. Returns an empty list when the index
+    /// is empty or the host SQLite build lacks FTS5 — callers that need a result
+    /// regardless should fall back to scanning source on disk. The
+    /// <see cref="MethodSourceMatch.Snippet"/> highlights the matched region.
+    /// </summary>
+    public IReadOnlyList<MethodSourceMatch> SearchMethodSource(string query, int limit = 100, string? model = null, string? kind = null)
+    {
+        using var conn = OpenReadOnly();
+        try
+        {
+            // FTS5 columns are typeless; Dapper infers byte[] (especially for an
+            // empty result set) and fails to bind the string record. Read with a
+            // raw reader and GetString instead, which coerces regardless of type.
+            // Model/Kind are UNINDEXED but still stored, so filtering them next to
+            // the MATCH is cheap and keeps the LIMIT semantics correct.
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT Kind, ObjectName, MethodName, Model, SourcePath,
+                       snippet(MethodSourceFts, 0, '«', '»', ' … ', 12) AS Snippet
+                FROM MethodSourceFts
+                WHERE MethodSourceFts MATCH $q
+                  AND ($model IS NULL OR Model = $model)
+                  AND ($kind  IS NULL OR Kind  = $kind)
+                ORDER BY rank
+                LIMIT $limit";
+            cmd.Parameters.AddWithValue("$q", query);
+            cmd.Parameters.AddWithValue("$limit", limit);
+            cmd.Parameters.AddWithValue("$model", (object?)model ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$kind", (object?)kind ?? DBNull.Value);
+            using var reader = cmd.ExecuteReader();
+            var results = new List<MethodSourceMatch>();
+            while (reader.Read())
+            {
+                results.Add(new MethodSourceMatch(
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    reader.GetString(3),
+                    reader.IsDBNull(4) ? null : reader.GetString(4),
+                    reader.IsDBNull(5) ? null : reader.GetString(5)));
+            }
+            return results;
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException)
+        {
+            return Array.Empty<MethodSourceMatch>();
         }
     }
 
@@ -1916,8 +1989,14 @@ public sealed partial class MetadataRepository
     /// <summary>
     /// Apply a batch of extracted records atomically, stamping the model's
     /// <c>LastExtractedUtc</c> and (when provided) <c>SourceFingerprint</c>.
+    /// When <paramref name="indexMethodSource"/> is true and the extracted
+    /// methods carry their <see cref="ExtractedMethod.Body"/> (opt-in via
+    /// <c>index extract --index-source</c>), method bodies are also written to
+    /// the <c>MethodSourceFts</c> full-text index. The model's existing FTS rows
+    /// are always cleared first, so re-extracting without the flag cleans up
+    /// stale source previously indexed for that model.
     /// </summary>
-    public void ApplyExtract(ExtractBatch batch, string? sourceFingerprint)
+    public void ApplyExtract(ExtractBatch batch, string? sourceFingerprint, bool indexMethodSource = false)
     {
         ArgumentNullException.ThrowIfNull(batch);
         using var conn = Open();
@@ -1997,6 +2076,12 @@ public sealed partial class MetadataRepository
         conn.Execute("DELETE FROM Tiles WHERE ModelId=@m", new { m = modelId }, tx);
         conn.Execute("DELETE FROM Workspaces WHERE ModelId=@m", new { m = modelId }, tx);
         conn.Execute("DELETE FROM ModelDependencies WHERE ModelId=@m", new { m = modelId }, tx);
+        // Method-body FTS (v15) is keyed by Model name. Always clear this model's
+        // rows up front so that re-extracting it — with or without --index-source —
+        // never leaves stale source behind. Guarded: a SQLite build lacking FTS5
+        // (and thus the MethodSourceFts table) degrades to a no-op.
+        try { conn.Execute("DELETE FROM MethodSourceFts WHERE Model=@n", new { n = batch.Model }, tx); }
+        catch (Microsoft.Data.Sqlite.SqliteException) { indexMethodSource = false; }
         // Labels are keyed by file+lang, not model; we delete by file instead.
         foreach (var file in batch.Labels.Select(l => l.File).Distinct(StringComparer.OrdinalIgnoreCase))
             conn.Execute("DELETE FROM Labels WHERE LabelFile=@f", new { f = file }, tx);
@@ -2051,6 +2136,39 @@ public sealed partial class MetadataRepository
         var tmIsEmptyOvr  = tableMtdCmd.Parameters.Add("$ieo", Microsoft.Data.Sqlite.SqliteType.Integer);
         tableMtdCmd.Prepare();
 
+        // v15: opt-in method-body FTS. Prepared once, reused for both table and
+        // class methods. Only created when indexing is requested so the no-flag
+        // path pays nothing.
+        Microsoft.Data.Sqlite.SqliteCommand? ftsCmd = null;
+        Microsoft.Data.Sqlite.SqliteParameter? ftsBody = null, ftsKind = null, ftsObj = null, ftsMethod = null, ftsModel = null, ftsPath = null;
+        if (indexMethodSource)
+        {
+            ftsCmd = conn.CreateCommand();
+            ftsCmd.Transaction = (Microsoft.Data.Sqlite.SqliteTransaction)tx;
+            ftsCmd.CommandText = "INSERT INTO MethodSourceFts(Body, Kind, ObjectName, MethodName, Model, SourcePath) VALUES($b, $k, $o, $mn, $md, $p)";
+            ftsBody   = ftsCmd.Parameters.Add("$b",  Microsoft.Data.Sqlite.SqliteType.Text);
+            ftsKind   = ftsCmd.Parameters.Add("$k",  Microsoft.Data.Sqlite.SqliteType.Text);
+            ftsObj    = ftsCmd.Parameters.Add("$o",  Microsoft.Data.Sqlite.SqliteType.Text);
+            ftsMethod = ftsCmd.Parameters.Add("$mn", Microsoft.Data.Sqlite.SqliteType.Text);
+            ftsModel  = ftsCmd.Parameters.Add("$md", Microsoft.Data.Sqlite.SqliteType.Text);
+            ftsPath   = ftsCmd.Parameters.Add("$p",  Microsoft.Data.Sqlite.SqliteType.Text);
+            ftsCmd.Prepare();
+        }
+
+        // Local helper: index one method body if it carries source text. No-op
+        // when indexing is off or the method has no captured body.
+        void IndexBody(string kind, string objectName, string? sourcePath, string method, string? body)
+        {
+            if (ftsCmd is null || string.IsNullOrEmpty(body)) return;
+            ftsBody!.Value   = body;
+            ftsKind!.Value   = kind;
+            ftsObj!.Value    = objectName;
+            ftsMethod!.Value = method;
+            ftsModel!.Value  = batch.Model;
+            ftsPath!.Value   = (object?)sourcePath ?? DBNull.Value;
+            ftsCmd.ExecuteNonQuery();
+        }
+
         foreach (var t in batch.Tables)
         {
             tblName.Value    = t.Name;
@@ -2090,6 +2208,7 @@ public sealed partial class MetadataRepository
                 tmHasDoInsert.Value = mtd.HasDoInsertOrUpdate ? 1 : 0;
                 tmIsEmptyOvr.Value  = mtd.IsEmptyOverride ? 1 : 0;
                 tableMtdCmd.ExecuteNonQuery();
+                IndexBody("Table", t.Name, t.SourcePath, mtd.Name, mtd.Body);
             }
             foreach (var ix in t.Indexes)
             {
@@ -2188,6 +2307,7 @@ public sealed partial class MetadataRepository
                 mtdTtsTry.Value      = mtd.HasTryCatchInTts ? 1 : 0;
                 mtdEmptyLoop.Value   = mtd.HasEmptyLoop ? 1 : 0;
                 methodCmd.ExecuteNonQuery();
+                IndexBody("Class", c.Name, c.SourcePath, mtd.Name, mtd.Body);
             }
             attrCid.Value = classId;
             foreach (var a in c.Attributes)
@@ -2445,6 +2565,8 @@ public sealed partial class MetadataRepository
         }
 
         MinePropertyStats(conn, tx, batch);
+
+        ftsCmd?.Dispose();
 
         tx.Commit();
 

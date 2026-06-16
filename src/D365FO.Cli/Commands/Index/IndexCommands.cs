@@ -139,6 +139,10 @@ public sealed class IndexExtractCommand : Command<IndexExtractCommand.Settings>
         [CommandOption("--extra-packages <PATH>")]
         [System.ComponentModel.Description("Additional PackagesLocalDirectory root(s) to include alongside --packages. Repeatable. Also reads D365FO_CUSTOM_PACKAGES_PATH (semicolon/comma-separated). Supports UDE setups with two separate metadata folders.")]
         public string[]? ExtraPackagesPaths { get; init; }
+
+        [CommandOption("--index-source")]
+        [System.ComponentModel.Description("Also full-text index X++ method bodies into MethodSourceFts (opt-in; enlarges the DB). Speeds up `find refs` and enables source search.")]
+        public bool IndexSource { get; init; }
     }
 
     public override int Execute(CommandContext ctx, Settings settings)
@@ -152,7 +156,8 @@ public sealed class IndexExtractCommand : Command<IndexExtractCommand.Settings>
             settings.OnlyModel,
             settings.Since,
             extraPackagesPaths: extraPaths,
-            parallelism: settings.Parallelism);
+            parallelism: settings.Parallelism,
+            indexSource: settings.IndexSource);
     }
 
     internal static int ExtractCore(
@@ -163,7 +168,8 @@ public sealed class IndexExtractCommand : Command<IndexExtractCommand.Settings>
         string? sinceIso,
         IReadOnlyDictionary<string, string?>? fingerprintsByModel = null,
         int? parallelism = null,
-        IReadOnlyList<string>? extraPackagesPaths = null)
+        IReadOnlyList<string>? extraPackagesPaths = null,
+        bool indexSource = false)
     {
         var cfg = D365FoSettings.FromEnvironment(databaseOverride);
         var root = packagesOverride ?? cfg.PackagesPath;
@@ -181,7 +187,7 @@ public sealed class IndexExtractCommand : Command<IndexExtractCommand.Settings>
         }
 
         var repo = RepoFactory.Create(databaseOverride);
-        var extractor = new MetadataExtractor();
+        var extractor = new MetadataExtractor { CaptureMethodSource = indexSource };
         var matcher = new ModelMatcher(cfg.CustomModels);
         int modelCount = 0;
         int customCount = 0;
@@ -310,7 +316,7 @@ public sealed class IndexExtractCommand : Command<IndexExtractCommand.Settings>
                 {
                     onStart?.Invoke(batch.Model);
                     var writeSw = System.Diagnostics.Stopwatch.StartNew();
-                    repo.ApplyExtract(batch, fp);
+                    repo.ApplyExtract(batch, fp, indexSource);
                     writeSw.Stop();
                     var elapsedMs = parseMs + writeSw.ElapsedMilliseconds;
                     repo.RecordExtractionRun(batch.Model, startedUtc, elapsedMs,
@@ -548,6 +554,10 @@ public sealed class IndexRefreshCommand : Command<IndexRefreshCommand.Settings>
         [CommandOption("--extra-packages <PATH>")]
         [System.ComponentModel.Description("Additional PackagesLocalDirectory root(s). Repeatable. Also reads D365FO_CUSTOM_PACKAGES_PATH.")]
         public string[]? ExtraPackagesPaths { get; init; }
+
+        [CommandOption("--index-source")]
+        [System.ComponentModel.Description("Also full-text index X++ method bodies into MethodSourceFts (opt-in; enlarges the DB). Speeds up `find refs` and enables source search.")]
+        public bool IndexSource { get; init; }
     }
 
     public override int Execute(CommandContext ctx, Settings settings)
@@ -588,7 +598,8 @@ public sealed class IndexRefreshCommand : Command<IndexRefreshCommand.Settings>
             since,
             fingerprints,
             parallelism: settings.Parallelism,
-            extraPackagesPaths: extraPaths);
+            extraPackagesPaths: extraPaths,
+            indexSource: settings.IndexSource);
     }
 }
 

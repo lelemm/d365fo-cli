@@ -673,3 +673,22 @@ CREATE TABLE IF NOT EXISTS PropertyStats (
 );
 CREATE INDEX IF NOT EXISTS IX_PropStats_NodeProp ON PropertyStats(NodeType, Property);
 
+-- v15: Full-text search over X++ method bodies. OPT-IN — only populated when
+-- `index extract --index-source` is passed; an empty table is the default so
+-- the DB stays lean for users who don't need code search. This is a *standalone*
+-- FTS5 table (not content-linked like LabelFts) because method bodies are not
+-- stored in any base table — the canonical source remains the XML on disk and
+-- `read`/`find refs` still read bodies from there. The Kind/ObjectName/
+-- MethodName/Model/SourcePath columns are UNINDEXED locator metadata so a MATCH
+-- on Body can point callers straight at the method without a tokenize cost.
+-- Populated/cleared per model inside ApplyExtract.
+CREATE VIRTUAL TABLE IF NOT EXISTS MethodSourceFts USING fts5(
+    Body,
+    Kind        UNINDEXED,
+    ObjectName  UNINDEXED,
+    MethodName  UNINDEXED,
+    Model       UNINDEXED,
+    SourcePath  UNINDEXED,
+    tokenize = 'unicode61'
+);
+
