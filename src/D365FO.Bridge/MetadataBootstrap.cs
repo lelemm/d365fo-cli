@@ -125,7 +125,11 @@ namespace D365FO.Bridge
         /// </summary>
         private static string[] ResolveCustomPackagesPaths()
         {
+            // D365FO_EXTRA_PACKAGES_PATH is the deprecated pre-rename name; honored
+            // as a fallback so a standalone bridge daemon still picks up custom roots.
             var raw = Environment.GetEnvironmentVariable("D365FO_CUSTOM_PACKAGES_PATH");
+            if (string.IsNullOrWhiteSpace(raw))
+                raw = Environment.GetEnvironmentVariable("D365FO_EXTRA_PACKAGES_PATH");
             if (string.IsNullOrWhiteSpace(raw)) return new string[0];
             var parts = raw.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries);
             var list = new System.Collections.Generic.List<string>(parts.Length);

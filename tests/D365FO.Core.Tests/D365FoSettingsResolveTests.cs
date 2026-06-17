@@ -168,6 +168,55 @@ public class D365FoSettingsResolveTests
         }
     }
 
+    // ---- D365FO_CUSTOM_PACKAGES_PATH / deprecated-alias fallback -------------
+
+    [Fact]
+    public void FromEnvironment_reads_custom_packages_from_new_var()
+    {
+        WithCustomPackagesEnv(custom: @"C:\Custom", extra: null, () =>
+        {
+            var cfg = D365FoSettings.FromEnvironment();
+            Assert.Equal(new[] { @"C:\Custom" }, cfg.CustomPackagesPaths);
+        });
+    }
+
+    [Fact]
+    public void FromEnvironment_falls_back_to_deprecated_extra_var()
+    {
+        WithCustomPackagesEnv(custom: null, extra: @"C:\Legacy", () =>
+        {
+            var cfg = D365FoSettings.FromEnvironment();
+            Assert.Equal(new[] { @"C:\Legacy" }, cfg.CustomPackagesPaths);
+        });
+    }
+
+    [Fact]
+    public void FromEnvironment_new_var_wins_over_deprecated_extra_var()
+    {
+        WithCustomPackagesEnv(custom: @"C:\Custom", extra: @"C:\Legacy", () =>
+        {
+            var cfg = D365FoSettings.FromEnvironment();
+            Assert.Equal(new[] { @"C:\Custom" }, cfg.CustomPackagesPaths);
+        });
+    }
+
+    private static void WithCustomPackagesEnv(string? custom, string? extra, Action body)
+    {
+        var prevCustom = Environment.GetEnvironmentVariable("D365FO_CUSTOM_PACKAGES_PATH");
+        var prevExtra = Environment.GetEnvironmentVariable("D365FO_EXTRA_PACKAGES_PATH");
+        try
+        {
+            Environment.SetEnvironmentVariable("D365FO_CUSTOM_PACKAGES_PATH", custom);
+            Environment.SetEnvironmentVariable("D365FO_EXTRA_PACKAGES_PATH", extra);
+            body();
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("D365FO_CUSTOM_PACKAGES_PATH", prevCustom);
+            Environment.SetEnvironmentVariable("D365FO_EXTRA_PACKAGES_PATH", prevExtra);
+        }
+    }
+
     [Fact]
     public void ResolveFlag_reads_flag_from_settings_json()
     {
