@@ -42,6 +42,18 @@ public sealed class DoctorCommand : Command<DoctorCommand.Settings>
                 ? "not set (optional — set D365FO_CUSTOM_PACKAGES_PATH to your git repo for `generate --install-to`)."
                 : string.Join(", ", cfg.CustomPackagesPaths));
 
+        // Surface usage of the deprecated pre-rename env var so users migrate.
+        var legacyCustom = D365FoSettings.Resolve("D365FO_EXTRA_PACKAGES_PATH");
+        var newCustom = D365FoSettings.Resolve("D365FO_CUSTOM_PACKAGES_PATH");
+        if (!string.IsNullOrWhiteSpace(legacyCustom))
+        {
+            Add("config.customPackagesPaths (deprecated env var)",
+                DoctorSeverity.Warn,
+                string.IsNullOrWhiteSpace(newCustom)
+                    ? "D365FO_EXTRA_PACKAGES_PATH is deprecated; rename it to D365FO_CUSTOM_PACKAGES_PATH (still honored as a fallback for now)."
+                    : "D365FO_EXTRA_PACKAGES_PATH is set but ignored because D365FO_CUSTOM_PACKAGES_PATH takes precedence; remove the old variable.");
+        }
+
         Add("config.workspacePath",
             DoctorSeverity.Ok,
             cfg.WorkspacePath ?? "not set (optional — only needed for `generate --out <PATH>` outside Packages).");

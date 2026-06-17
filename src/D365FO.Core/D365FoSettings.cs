@@ -100,13 +100,21 @@ public sealed record D365FoSettings(
                         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                         "d365fo-cli", DefaultDatabaseFile);
 
+        // D365FO_CUSTOM_PACKAGES_PATH was previously named D365FO_EXTRA_PACKAGES_PATH.
+        // Honor the old name as a deprecated alias so existing UDE configs keep
+        // working after the rename — without it, custom-model roots would silently
+        // drop out of the index. The new name wins when both are set.
+        var customPackages = Env("D365FO_CUSTOM_PACKAGES_PATH");
+        if (string.IsNullOrWhiteSpace(customPackages))
+            customPackages = Env("D365FO_EXTRA_PACKAGES_PATH");
+
         return new D365FoSettings(
             PackagesPath: NullIfEmpty(Env("D365FO_PACKAGES_PATH")),
             WorkspacePath: NullIfEmpty(Env("D365FO_WORKSPACE_PATH")),
             DatabasePath: db,
             CustomModels: models,
             LabelLanguages: langs,
-            CustomPackagesPaths: Split(Env("D365FO_CUSTOM_PACKAGES_PATH")));
+            CustomPackagesPaths: Split(customPackages));
     }
 
     /// <summary>
