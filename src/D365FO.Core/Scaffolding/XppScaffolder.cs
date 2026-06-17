@@ -1,4 +1,5 @@
 using System.Xml.Linq;
+using System.Xml;
 using D365FO.Core.Guardrails;
 
 namespace D365FO.Core.Scaffolding;
@@ -681,11 +682,10 @@ public static class XppScaffolder
             : InferConcreteTypeSuffixFromExtends(effectiveExtends);
 
         // D365FO's metadata reader requires the XMLSchema-instance namespace declaration on
-        // the root element (Visual Studio emits it on every AxEdt* file). Without it VS refuses
-        // to read the metadata. The i:type attribute specifies the concrete type (e.g. AxEdtString).
-        // Element order also matters: the DataContractSerializer serializes base-class members
-        // (AxEdt: Name/Extends/Label) before derived-class members (AxEdtString.StringSize), so
-        // StringSize must come *after* Label, not before it.
+        // the root element (Visual Studio emits it on every AxEdt* file). The i:type
+        // attribute specifies the concrete type (e.g. AxEdtString).
+        // Element order matters: Name/Extends/Label/StringSize first, then collection
+        // elements, then EnumType (when present) to match VS metadata shape.
         // For Enum-type EDTs the backing X++ enum name is required (<EnumType> element).
         // Resolve in this order:
         //   1) explicit --enum-type
@@ -694,9 +694,12 @@ public static class XppScaffolder
         var effectiveEnumType = concreteTypeSuffix == "Enum"
             ? (!string.IsNullOrEmpty(enumType)
                 ? enumType
-                : (string.IsNullOrEmpty(effectiveExtends)
-                    ? null
-                    : InferEnumTypeFromExtends(effectiveExtends)))
+                : (!string.IsNullOrEmpty(effectiveExtends)
+                    ? InferEnumTypeFromExtends(effectiveExtends)
+                    : (string.Equals(baseType, "Boolean", StringComparison.OrdinalIgnoreCase) ||
+                       string.Equals(baseType, "Bool", StringComparison.OrdinalIgnoreCase)
+                        ? "NoYes"
+                        : null)))
             : null;
 
         XNamespace xsi = "http://www.w3.org/2001/XMLSchema-instance";
@@ -707,30 +710,24 @@ public static class XppScaffolder
             string.IsNullOrEmpty(effectiveExtends) ? null : new XElement("Extends", effectiveExtends),
             string.IsNullOrEmpty(label) ? null : new XElement("Label", label),
             stringSize.HasValue ? new XElement("StringSize", stringSize.Value.ToString()) : null,
-            new XElement("ArrayElements"),
-            new XElement("Relations"),
-            new XElement("TableReferences"),
+            concreteTypeSuffix == "String" ? null : new XElement("ArrayElements"),
+            concreteTypeSuffix == "String" ? null : new XElement("Relations"),
+            concreteTypeSuffix == "String" ? null : new XElement("TableReferences"),
             string.IsNullOrEmpty(effectiveEnumType) ? null : new XElement("EnumType", effectiveEnumType));
-        // Set the default namespace (empty xmlns) as per VS-emitted metadata format
-        root.SetAttributeValue(XName.Get("xmlns"), "");
         return new XDocument(root);
     }
 
     /// <summary>
-    /// Infers the concrete <c>AxEdt*</c> type suffix from a well-known system EDT name.
-    /// Returns <c>"String"</c> as the safe default for unknown or custom parent EDTs.
-    /// </summary>
-    /// <summary>
     /// Infers the backing X++ enum name from a well-known system EDT name used as Extends.
-    /// For unknown names, returns the extends value as-is.
+    /// For unknown names, returns null to avoid guessing an invalid enum name.
     /// </summary>
-    private static string InferEnumTypeFromExtends(string? extends) =>
+    private static string? InferEnumTypeFromExtends(string? extends) =>
         extends?.ToLowerInvariant() switch
         {
             "noyesid" or "noyes"   => "NoYes",
             "boolean"              => "NoYes",
-            _                      => extends!,
-        } ?? string.Empty;
+            _                      => null,
+        };
 
     private static string InferConcreteTypeSuffixFromExtends(string? extends) =>
         extends?.ToLowerInvariant() switch
@@ -879,8 +876,6 @@ public static class ScaffoldFileWriter
     // Writing one of these as the document root makes VS metadata reader throw
     // "Cannot create an abstract class" when the file is opened — callers must use the
     // concrete subtype (AxEdtString, AxEdtInt, AxEdtStringExtension, …).
-    // Note: AxEdt is no longer in this list as the scaffolder now emits AxEdt with an i:type
-    // attribute specifying the concrete type (e.g. i:type="AxEdtString"), which is not abstract.
     private static readonly HashSet<string> _abstractAxRoots = new(StringComparer.Ordinal)
     {
         "AxEdtExtension",
@@ -941,7 +936,14 @@ public static class ScaffoldFileWriter
     {
         try
         {
-            return XDocument.Parse(xml, LoadOptions.PreserveWhitespace).Root;
+            var settings = new XmlReaderSettings
+            {
+                DtdProcessing = DtdProcessing.Prohibit,
+                XmlResolver = null,
+            };
+            using var sr = new StringReader(xml);
+            using var xr = XmlReader.Create(sr, settings);
+            return XDocument.Load(xr, LoadOptions.PreserveWhitespace).Root;
         }
         catch
         {

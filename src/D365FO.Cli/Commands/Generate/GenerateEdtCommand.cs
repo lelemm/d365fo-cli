@@ -87,10 +87,10 @@ public sealed class GenerateEdtCommand : Command<GenerateEdtCommand.Settings>
         }
     }
 
-    private static string ResolveEnumTypeFromExtendsChain(string extendsName)
+    private static string? ResolveEnumTypeFromExtendsChain(string extendsName)
     {
         if (string.IsNullOrWhiteSpace(extendsName))
-            return string.Empty;
+            return null;
 
         try
         {
@@ -106,8 +106,8 @@ public sealed class GenerateEdtCommand : Command<GenerateEdtCommand.Settings>
                 var edt = repo.GetEdt(current);
                 if (edt is null)
                 {
-                    // If the name is not an EDT, keep legacy fallback semantics.
-                    return extendsName;
+                    // Defer to scaffolder inference (e.g. NoYesId -> NoYes) when chain lookup is unavailable.
+                    return null;
                 }
 
                 if (!string.IsNullOrWhiteSpace(edt.EnumType))
@@ -121,6 +121,6 @@ public sealed class GenerateEdtCommand : Command<GenerateEdtCommand.Settings>
             // Best-effort inference; fallback handled below.
         }
 
-        return extendsName;
+        return null;
     }
 }

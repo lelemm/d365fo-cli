@@ -1,4 +1,5 @@
 using D365FO.Core.Scaffolding;
+using D365FO.Cli.Commands.Generate;
 using System.Xml.Linq;
 using Xunit;
 
@@ -108,10 +109,10 @@ public class ScaffoldingSnapshotTests
     }
 
     [Fact]
-    public void Edt_enum_type_infers_EnumType_from_custom_extends()
+    public void Edt_enum_type_with_custom_extends_does_not_guess_EnumType()
     {
         var doc = XppScaffolder.Edt("MyEnumEdt", "ABCModelType", "Enum");
-        Assert.Equal("ABCModelType", doc.Root!.Element("EnumType")!.Value);
+        Assert.Null(doc.Root!.Element("EnumType"));
     }
 
     [Fact]
@@ -179,10 +180,10 @@ public class ScaffoldingSnapshotTests
     }
 
     [Fact]
-    public void Edt_base_type_Boolean_without_extends_does_not_emit_EnumType()
+    public void Edt_base_type_Boolean_without_extends_defaults_EnumType_to_NoYes()
     {
         var doc = XppScaffolder.Edt("MyBoolEdt", null, "Boolean");
-        Assert.Null(doc.Root!.Element("EnumType"));
+        Assert.Equal("NoYes", doc.Root!.Element("EnumType")!.Value);
     }
 
     [Fact]
@@ -237,8 +238,6 @@ public class ScaffoldingSnapshotTests
     [Fact]
     public void Edt_root_has_XMLSchema_instance_namespace()
     {
-        // VS emits the XMLSchema-instance namespace on every AxEdt* root; without it the
-        // metadata reader refuses the file. (issue #70)
         var doc = XppScaffolder.Edt("MyEdt", "Name", null, 10, "My label");
         Assert.Equal(
             "http://www.w3.org/2001/XMLSchema-instance",
@@ -252,7 +251,7 @@ public class ScaffoldingSnapshotTests
         // before derived members (AxEdtString.StringSize): Label must precede StringSize.
         var doc = XppScaffolder.Edt("MyEdt", "Name", null, 10, "My label");
         var names = doc.Root!.Elements().Select(e => e.Name.LocalName).ToList();
-        Assert.Equal(new[] { "Name", "Extends", "Label", "StringSize", "ArrayElements", "Relations", "TableReferences" }, names);
+        Assert.Equal(new[] { "Name", "Extends", "Label", "StringSize" }, names);
     }
 
     [Fact]
@@ -275,6 +274,45 @@ public class ScaffoldingSnapshotTests
         var ex = Assert.Throws<System.InvalidOperationException>(() => ScaffoldFileWriter.Write(raw, tmp, overwrite: true));
         Assert.Contains("AxEdtExtension", ex.Message);
         Assert.False(System.IO.File.Exists(tmp));
+    }
+
+    [Fact]
+    public void GenerateEdtCommand_without_index_still_infers_NoYes_from_NoYesId()
+    {
+        var outPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"d365fo-cli-test-edt-{System.Guid.NewGuid():N}.xml");
+        if (System.IO.File.Exists(outPath)) System.IO.File.Delete(outPath);
+
+        var cmd = new GenerateEdtCommand();
+        var settings = new GenerateEdtCommand.Settings
+        {
+            Name = "MyEnumEdt",
+            Extends = "NoYesId",
+            BaseType = "Enum",
+            Out = outPath,
+            Overwrite = true,
+            EnumType = null,
+        };
+
+        var oldDb = System.Environment.GetEnvironmentVariable("D365FO_INDEX_DB");
+        var forcedMissingDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"d365fo-cli-missing-{System.Guid.NewGuid():N}.sqlite");
+        if (System.IO.File.Exists(forcedMissingDb)) System.IO.File.Delete(forcedMissingDb);
+
+        try
+        {
+            System.Environment.SetEnvironmentVariable("D365FO_INDEX_DB", forcedMissingDb);
+            var exit = cmd.Execute(null!, settings);
+            Assert.Equal(0, exit);
+
+            var doc = XDocument.Load(outPath);
+            Assert.Equal("AxEdt", doc.Root!.Name.LocalName);
+            Assert.Equal("AxEdtEnum", doc.Root!.Attribute(XName.Get("type", "http://www.w3.org/2001/XMLSchema-instance"))!.Value);
+            Assert.Equal("NoYes", doc.Root.Element("EnumType")!.Value);
+        }
+        finally
+        {
+            System.Environment.SetEnvironmentVariable("D365FO_INDEX_DB", oldDb);
+            if (System.IO.File.Exists(outPath)) System.IO.File.Delete(outPath);
+        }
     }
 
     // ---- Enum (Phase 2) ----
