@@ -121,6 +121,24 @@ public class GoldenQualityGateTests : IDisposable
         AssertNoReferenceErrors(src, "generate coc (table)");
     }
 
+    // ── #65: <Methods> must be nested inside <SourceCode>, not a sibling.
+    // A misplaced <Methods> deserializes to a class with no methods at all —
+    // the AOT loads it "empty". Source()'s Descendants() walk can't catch this,
+    // so assert the structure explicitly.
+    [Fact]
+    public void Coc_methods_are_nested_inside_sourcecode()
+    {
+        var doc = XppScaffolder.CocExtension("CustTable", "table", "validateWrite");
+        var sourceCode = doc.Root!.Element("SourceCode");
+        Assert.NotNull(sourceCode);
+
+        // The method lives under SourceCode/Methods, and nowhere else.
+        var nestedMethod = sourceCode!.Element("Methods")?.Elements("Method")
+            .FirstOrDefault(m => (string?)m.Element("Name") == "validateWrite");
+        Assert.NotNull(nestedMethod);
+        Assert.Null(doc.Root!.Element("Methods")); // not a sibling of SourceCode
+    }
+
     [Fact]
     public void Class_scaffold_passes_xpp_gate()
     {

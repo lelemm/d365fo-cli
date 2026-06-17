@@ -129,13 +129,17 @@ public static class XppScaffolder
             new XElement("Source",
                 $"public void {m}()\n{{\n    next {m}();\n    // extension logic here\n}}\n")));
 
+        // <Methods> MUST be nested inside <SourceCode> (after <Declaration>) —
+        // this is the canonical AxClass shape the metadata deserializer expects.
+        // When emitted as a sibling of <SourceCode> the AOT/Visual Studio loads
+        // the class with no methods at all (it looks "empty"). See issue #65.
         return new XDocument(
             new XElement("AxClass",
                 new XElement("Name", name),
                 new XElement("SourceCode",
                     new XElement("Declaration",
-                        $"[ExtensionOf({intrinsic}({targetClass}))]\nfinal class {name}\n{{\n}}")),
-                new XElement("Methods", methodEls)));
+                        $"[ExtensionOf({intrinsic}({targetClass}))]\nfinal class {name}\n{{\n}}"),
+                    new XElement("Methods", methodEls))));
     }
 
     /// <summary>
