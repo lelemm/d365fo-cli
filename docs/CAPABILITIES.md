@@ -349,7 +349,7 @@ Exposes the same index and scaffolding surface as the CLI over the `ModelContext
 | `xpp-statement-and-type-rules` | Type system, container, enum usage |
 | `business-events-authoring` | `BusinessEventsBase`, contract class, payload |
 | `integration-patterns` | OData, custom services, Dual-write surface |
-| `custom-service-authoring` | JSON/SOAP services, `ServiceAttribute`, `SysEntryPointAttribute` |
+| `custom-service-authoring` | JSON/SOAP services |
 
 ---
 

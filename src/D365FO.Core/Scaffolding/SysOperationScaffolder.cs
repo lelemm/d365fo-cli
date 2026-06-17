@@ -72,7 +72,6 @@ public static class SysOperationScaffolder
             : "";
 
         var methodSrc =
-            $"[SysEntryPointAttribute(true)]\n" +
             $"public void {serviceMethod}({contractName} _contract)\n" +
             "{\n" +
             contractUnpack +

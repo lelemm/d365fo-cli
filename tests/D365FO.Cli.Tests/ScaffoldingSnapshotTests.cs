@@ -32,7 +32,8 @@ public class ScaffoldingSnapshotTests
         Assert.Equal("AxClass", root.Name.LocalName);
         Assert.Equal("SysOperationServiceBase", root.Element("Extends")!.Value);
         var methods = root.Element("SourceCode")!.Element("Methods")!.Elements("Method").ToList();
-        Assert.Contains(methods, m => m.Element("Source")!.Value.Contains("[SysEntryPointAttribute"));
+        Assert.Equal(1, methods.Count);
+        Assert.Equal("process", methods[0].Element("Name")!.Value);
     }
 
     [Fact]
@@ -218,7 +219,7 @@ public class ScaffoldingSnapshotTests
     // ---- CustomService (Phase 6) ----
 
     [Fact]
-    public void CustomService_class_has_ServiceAttribute_and_SysEntryPoint()
+    public void CustomService_class_has_ServiceAttribute()
     {
         var doc = CustomServiceScaffolder.ServiceClass("VendorService",
             new[] { new OperationSpec("lookupVendor", "void") });
@@ -229,6 +230,6 @@ public class ScaffoldingSnapshotTests
         var methods = root.Element("SourceCode")!.Element("Methods")!.Elements("Method").ToList();
         Assert.Contains(methods, m => m.Element("Name")!.Value == "lookupVendor");
         var lookupSrc = methods.First(m => m.Element("Name")!.Value == "lookupVendor").Element("Source")!.Value;
-        Assert.Contains("[SysEntryPointAttribute(true)]", lookupSrc);
+        Assert.DoesNotContain("[SysEntryPointAttribute", lookupSrc);
     }
 }

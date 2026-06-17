@@ -46,7 +46,6 @@ public static class CustomServiceScaffolder
             };
 
             var src =
-                "[SysEntryPointAttribute(true)]\n" +
                 $"public {op.ReturnType} {op.Name}({contractParam})\n" +
                 "{\n" +
                 "    // TODO: implement" +
