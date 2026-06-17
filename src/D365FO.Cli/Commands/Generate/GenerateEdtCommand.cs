@@ -18,7 +18,7 @@ public sealed class GenerateEdtCommand : Command<GenerateEdtCommand.Settings>
         public string? Extends { get; init; }
 
         [CommandOption("--base-type <TYPE>")]
-        [System.ComponentModel.Description("Primitive type when no --extends is given. String (default) | Int | Int64 | Real | Date | UtcDateTime | Boolean. Infers a sensible standard parent EDT.")]
+        [System.ComponentModel.Description("Primitive type when no --extends is given. String (default) | Int | Int64 | Real | Date | UtcDateTime | Boolean | Time | Guid | Container | Enum. Infers a sensible standard parent EDT.")]
         public string? BaseType { get; init; }
 
         [CommandOption("--size <N>")]
@@ -28,6 +28,10 @@ public sealed class GenerateEdtCommand : Command<GenerateEdtCommand.Settings>
         [CommandOption("--label <TEXT>")]
         [System.ComponentModel.Description("Label text or @File:Key label reference.")]
         public string? Label { get; init; }
+
+        [CommandOption("--enum-type <XPPENUM>")]
+        [System.ComponentModel.Description("Backing X++ enum name for Enum-type EDTs (e.g. NoYes). If omitted, inferred from --extends; otherwise not emitted.")]
+        public string? EnumType { get; init; }
     }
 
     public override int Execute(CommandContext ctx, Settings settings)
@@ -49,7 +53,16 @@ public sealed class GenerateEdtCommand : Command<GenerateEdtCommand.Settings>
             if (fail.HasValue) return fail.Value;
         }
 
-        var doc = XppScaffolder.Edt(settings.Name, settings.Extends, settings.BaseType, settings.Size, settings.Label);
+        var effectiveEnumType = settings.EnumType;
+        if (string.IsNullOrWhiteSpace(effectiveEnumType) &&
+            string.Equals(settings.BaseType, "Enum", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(settings.Extends))
+        {
+            // EnumType derivation from --extends is not always identity (e.g. AccessToSensitiveData -> NoYes).
+            effectiveEnumType = ResolveEnumTypeFromExtendsChain(settings.Extends!);
+        }
+
+        var doc = XppScaffolder.Edt(settings.Name, settings.Extends, settings.BaseType, settings.Size, settings.Label, effectiveEnumType);
         try
         {
             var res = ScaffoldFileWriter.Write(doc, outPath!, settings.Overwrite);
@@ -59,6 +72,7 @@ public sealed class GenerateEdtCommand : Command<GenerateEdtCommand.Settings>
                 name       = settings.Name,
                 extends    = settings.Extends,
                 baseType   = settings.BaseType,
+                enumType   = effectiveEnumType,
                 stringSize = settings.Size,
                 label      = settings.Label,
                 path       = res.Path,
@@ -71,5 +85,42 @@ public sealed class GenerateEdtCommand : Command<GenerateEdtCommand.Settings>
         {
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.WriteFailed, ex.Message));
         }
+    }
+
+    private static string? ResolveEnumTypeFromExtendsChain(string extendsName)
+    {
+        if (string.IsNullOrWhiteSpace(extendsName))
+            return null;
+
+        try
+        {
+            var repo = RepoFactory.Create();
+            var current = extendsName;
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // Follow extends links defensively; break on cycles or unreasonable depth.
+            for (var depth = 0; depth < 16 && !string.IsNullOrWhiteSpace(current); depth++)
+            {
+                if (!visited.Add(current)) break;
+
+                var edt = repo.GetEdt(current);
+                if (edt is null)
+                {
+                    // Defer to scaffolder inference (e.g. NoYesId -> NoYes) when chain lookup is unavailable.
+                    return null;
+                }
+
+                if (!string.IsNullOrWhiteSpace(edt.EnumType))
+                    return edt.EnumType!;
+
+                current = edt.Extends;
+            }
+        }
+        catch
+        {
+            // Best-effort inference; fallback handled below.
+        }
+
+        return null;
     }
 }
