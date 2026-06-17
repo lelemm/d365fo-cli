@@ -377,7 +377,7 @@ public sealed class IndexExtractCommand : Command<IndexExtractCommand.Settings>
 
         runSw.Stop();
         var totals = repo.CountAll();
-        return RenderHelpers.Render(kind, ToolResult<object>.Success(new
+        var result = ToolResult<object>.Success(new
         {
             packagesRoot = root,
             extraPackagesRoots = validExtraRoots.Count > 0 ? validExtraRoots : null,
@@ -389,7 +389,26 @@ public sealed class IndexExtractCommand : Command<IndexExtractCommand.Settings>
             elapsedMs = runSw.ElapsedMilliseconds,
             perModel = per,
             totals,
-        }));
+        });
+
+        return RenderHelpers.Render(kind, result, _ =>
+        {
+            AnsiConsole.MarkupLine("[green]OK[/] index extract completed");
+            AnsiConsole.MarkupLine($"models processed: [bold]{modelCount}[/], skipped: [bold]{skippedCount}[/], custom: [bold]{customCount}[/]");
+            AnsiConsole.MarkupLine($"elapsed: [bold]{runSw.ElapsedMilliseconds}[/] ms");
+
+            var table = new Table().Border(TableBorder.Rounded).Title("[bold]Index Totals[/]");
+            table.AddColumn("Artifact");
+            table.AddColumn(new TableColumn("Count").RightAligned());
+            table.AddRow("Tables", totals.Tables.ToString());
+            table.AddRow("Classes", totals.Classes.ToString());
+            table.AddRow("EDTs", totals.Edts.ToString());
+            table.AddRow("Enums", totals.Enums.ToString());
+            table.AddRow("Menu Items", totals.MenuItems.ToString());
+            table.AddRow("CoC Extensions", totals.Coc.ToString());
+            table.AddRow("Labels", totals.Labels.ToString());
+            AnsiConsole.Write(table);
+        });
     }
 
     private static DateTime? NewestMtime(string dir)
