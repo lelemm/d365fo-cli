@@ -188,6 +188,42 @@ public class McpDispatcherTests : IDisposable
     }
 
     [Fact]
+    public async Task Labels_create_accepts_text_alias_for_value()
+    {
+        var file = Path.Combine(Path.GetTempPath(), $"d365fo-lbl-{Guid.NewGuid():N}.en-us.label.txt");
+        try
+        {
+            // 'text' is a guessed alias for the canonical 'value' param. The
+            // dispatcher must forward it so the written file carries the value.
+            var req = "{\"jsonrpc\":\"2.0\",\"id\":24,\"method\":\"tools/call\",\"params\":{\"name\":\"labels\","
+                    + "\"arguments\":{\"action\":\"create\",\"file\":\"" + file.Replace("\\", "\\\\") + "\","
+                    + "\"key\":\"@Con:Hello\",\"text\":\"Hello world\"}}}";
+            var resp = await Roundtrip(req);
+            var doc = Assert.Single(resp);
+            var payload = JsonDocument.Parse(doc.RootElement.GetProperty("result")
+                .GetProperty("content")[0].GetProperty("text").GetString()!);
+            Assert.True(payload.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Contains("Hello world", await File.ReadAllTextAsync(file));
+        }
+        finally
+        {
+            if (File.Exists(file)) File.Delete(file);
+        }
+    }
+
+    [Fact]
+    public async Task ExtensionInfo_points_accepts_full_extension_name()
+    {
+        // The dispatch must reach the handler and resolve the dotted extension
+        // name to its base target without erroring on a fresh db.
+        var resp = await Roundtrip("""{"jsonrpc":"2.0","id":25,"method":"tools/call","params":{"name":"extension_info","arguments":{"mode":"points","target":"CustTable.Extension"}}}""");
+        var doc = Assert.Single(resp);
+        var payload = JsonDocument.Parse(doc.RootElement.GetProperty("result")
+            .GetProperty("content")[0].GetProperty("text").GetString()!);
+        Assert.True(payload.RootElement.GetProperty("ok").GetBoolean());
+    }
+
+    [Fact]
     public async Task FindReferences_returns_empty_on_fresh_db()
     {
         var resp = await Roundtrip("""{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"find_references","arguments":{"name":"CustTable"}}}""");

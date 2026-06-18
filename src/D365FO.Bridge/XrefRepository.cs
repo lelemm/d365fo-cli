@@ -82,9 +82,9 @@ namespace D365FO.Bridge
             }
             if (limit <= 0 || limit > 1000) limit = 200;
 
-            // Path looks like /Classes/<Name>[/<Element>/<Child>]. Match the
-            // target symbol both as a standalone AOT root (e.g. /Tables/CustTable)
-            // and as a node anywhere inside a path ( .../CustTable/... ).
+            // Resolve the input into one or more candidate XREFDB target paths.
+            var (exactPaths, likePaths, memberQualified) = ResolveTargetPaths(symbol);
+
             var result = new JsonObject();
             var items = new JsonArray();
 
@@ -96,6 +96,31 @@ namespace D365FO.Bridge
                     using (var cmd = c.CreateCommand())
                     {
                         cmd.CommandTimeout = 30;
+
+                        // Build a parameterised WHERE: exact target paths via IN (...),
+                        // plus LIKE conditions for child/contains matches. A member-
+                        // qualified target points at an exact leaf, so it carries no
+                        // LIKE terms — adding "/%" children or a "%/name%" contains
+                        // would pool callers of every same-named member across types.
+                        var inParams = new List<string>();
+                        for (int i = 0; i < exactPaths.Count; i++)
+                        {
+                            var pn = "@P" + i;
+                            inParams.Add(pn);
+                            cmd.Parameters.Add(new SqlParameter(pn, exactPaths[i]));
+                        }
+                        var likeConds = new List<string>();
+                        for (int i = 0; i < likePaths.Count; i++)
+                        {
+                            var pn = "@L" + i;
+                            likeConds.Add("tgtName.Path LIKE " + pn);
+                            cmd.Parameters.Add(new SqlParameter(pn, likePaths[i]));
+                        }
+
+                        var where = "tgtName.Path IN (" + string.Join(",", inParams) + ")";
+                        if (likeConds.Count > 0)
+                            where += " OR " + string.Join(" OR ", likeConds);
+
                         var sql = @"
 SELECT TOP (@limit)
     srcName.Path  AS SourcePath,
@@ -108,17 +133,10 @@ FROM [References] r
 INNER JOIN Names srcName ON srcName.Id = r.SourceId
 INNER JOIN Names tgtName ON tgtName.Id = r.TargetId
 LEFT  JOIN Modules m     ON m.Id = srcName.ModuleId
-WHERE tgtName.Path = @exact
-   OR tgtName.Path LIKE @prefix
-   OR tgtName.Path LIKE @contains
+WHERE " + where + @"
 ORDER BY srcName.Path";
                         cmd.CommandText = sql;
                         cmd.Parameters.Add(new SqlParameter("@limit", limit));
-                        // Exact AOT root (/Tables/CustTable) — cheap and
-                        // typically returns the bulk of direct references.
-                        cmd.Parameters.Add(new SqlParameter("@exact", "/" + TrimSlash(symbol)));
-                        cmd.Parameters.Add(new SqlParameter("@prefix", "/" + TrimSlash(symbol) + "/%"));
-                        cmd.Parameters.Add(new SqlParameter("@contains", "%/" + TrimSlash(symbol) + "%"));
 
                         using (var r = cmd.ExecuteReader())
                         {
@@ -167,8 +185,68 @@ ORDER BY srcName.Path";
             result["kindFilter"] = kindFilter ?? string.Empty;
             result["count"] = items.Count;
             result["source"] = "xrefdb";
+            // When the target is member-qualified the result is scoped to the
+            // declaring type, so an empty list is an authoritative "no callers"
+            // — not a hint to fall back to a looser name-only scan.
+            result["scoped"] = memberQualified;
             result["items"] = items;
             return result;
+        }
+
+        /// <summary>
+        /// Resolve a caller-supplied symbol into candidate XREFDB target paths.
+        /// Three input shapes are recognised:
+        /// <list type="bullet">
+        /// <item>Explicit AOT path ("/Tables/SalesTable/Methods/initFromX") — used
+        /// verbatim. Method/field paths are treated as exact leaves.</item>
+        /// <item>Member-qualified ("SalesTable.initFromX") — scoped to a single
+        /// method/field on its declaring type. The owner's object kind is unknown,
+        /// so method+field variants are expanded across every container type; only
+        /// the path that actually exists matches. This is the precise where-used
+        /// Visual Studio shows, instead of pooling every same-named member.</item>
+        /// <item>Bare name ("CustTable") — matched loosely as a standalone AOT root,
+        /// its children, and as a node anywhere inside a path.</item>
+        /// </list>
+        /// Returns exact paths (matched via IN), LIKE patterns, and whether the
+        /// target is member-qualified (an exact leaf carrying no LIKE terms).
+        /// </summary>
+        internal static (List<string> exactPaths, List<string> likePaths, bool memberQualified) ResolveTargetPaths(string symbol)
+        {
+            // Container segments that can own methods/fields.
+            string[] memberContainers = { "Tables", "Classes", "Forms", "Views", "DataEntityViews", "Queries", "Maps" };
+
+            var exact = new List<string>();
+            var like = new List<string>();
+            bool memberQualified = false;
+            var trimmed = TrimSlash(symbol);
+
+            if (symbol.StartsWith("/"))
+            {
+                exact.Add("/" + trimmed);
+                memberQualified = symbol.Contains("/Methods/") || symbol.Contains("/Fields/");
+                if (!memberQualified) like.Add("/" + trimmed + "/%");
+            }
+            else if (symbol.Contains("."))
+            {
+                memberQualified = true;
+                var dot = symbol.IndexOf('.');
+                var owner = symbol.Substring(0, dot);
+                var member = symbol.Substring(dot + 1);
+                foreach (var ct in memberContainers)
+                {
+                    exact.Add("/" + ct + "/" + owner + "/Methods/" + member);
+                    exact.Add("/" + ct + "/" + owner + "/Fields/" + member);
+                }
+            }
+            else
+            {
+                // Bare name — exact AOT root plus loose child/contains matching.
+                exact.Add("/" + trimmed);
+                like.Add("/" + trimmed + "/%");
+                like.Add("%/" + trimmed + "%");
+            }
+
+            return (exact, like, memberQualified);
         }
 
         private static string TrimSlash(string s)
