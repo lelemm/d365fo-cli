@@ -25,15 +25,15 @@ public class ScaffoldingSnapshotTests
     }
 
     [Fact]
-    public void SysOperation_service_has_SysEntryPoint_and_correct_extends()
+    public void SysOperation_service_has_single_process_method_and_correct_extends()
     {
         var doc = SysOperationScaffolder.Service("MyService", "MyContract", "process");
         var root = doc.Root!;
         Assert.Equal("AxClass", root.Name.LocalName);
         Assert.Equal("SysOperationServiceBase", root.Element("Extends")!.Value);
         var methods = root.Element("SourceCode")!.Element("Methods")!.Elements("Method").ToList();
-        Assert.Equal(1, methods.Count);
-        Assert.Equal("process", methods[0].Element("Name")!.Value);
+        var method = Assert.Single(methods);
+        Assert.Equal("process", method.Element("Name")!.Value);
     }
 
     [Fact]

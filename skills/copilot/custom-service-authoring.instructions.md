@@ -20,7 +20,6 @@ A D365FO custom service requires three artifacts:
 
 ```
 1. Service class  — decorated with [ServiceAttribute]
-   - Each exposed method decorated with [SysEntryPointAttribute(true)]
    - Parameters/return types use [DataContractAttribute] classes
 
 2. AxService XML  — declares the service class + operation bindings
@@ -66,8 +65,6 @@ This produces:
 [ServiceAttribute]
 public class VendorLookupService
 {
-    // Each public method exposed via the service must carry [SysEntryPointAttribute]
-    [SysEntryPointAttribute(true)]
     public VendorLookupResponse lookupVendor(VendorLookupRequest _request)
     {
         var response = new VendorLookupResponse();
@@ -169,8 +166,8 @@ Use Azure AD OAuth2:
 
 ## Hard rules
 
-- **`[SysEntryPointAttribute(true)]` is required on every method exposed via the service.** Without it, the method is not accessible and callers receive a `Method not found` error.
 - **Request/response types must be `[DataContractAttribute]` classes.** Primitive types (`str`, `int`) are also accepted for simple services.
+- **Public methods in a `[ServiceAttribute]`-decorated class are automatically exposed** and do not require `[SysEntryPointAttribute]`.
 - **`[DataMemberAttribute]` on every parmXxx accessor** — the JSON serializer uses member names from this attribute.
 - **Service group name determines the URL** — choose a stable, module-scoped name; renaming it breaks all callers.
 - **Never include `ttsbegin/ttscommit` in service methods** unless you own the full transaction scope. If the service calls a framework method that manages its own transaction, wrap at a higher level.
