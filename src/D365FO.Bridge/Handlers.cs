@@ -135,6 +135,7 @@ namespace D365FO.Bridge
             if (!string.IsNullOrEmpty(xml))
             {
                 string rootLocalName;
+                string rootXsiType = null;
                 try
                 {
                     using (var sr = new StringReader(xml))
@@ -142,6 +143,10 @@ namespace D365FO.Bridge
                     {
                         xr.MoveToContent();
                         rootLocalName = xr.NodeType == System.Xml.XmlNodeType.Element ? xr.LocalName : null;
+                        // Some scaffolds emit the abstract base element with the concrete
+                        // subtype pinned via xsi:type (e.g. <AxEdt i:type="AxEdtString">).
+                        // Capture it so the polymorphic root can still be constructed.
+                        rootXsiType = xr.GetAttribute("type", "http://www.w3.org/2001/XMLSchema-instance");
                     }
                 }
                 catch (Exception ex)
@@ -151,15 +156,22 @@ namespace D365FO.Bridge
                 if (string.IsNullOrEmpty(rootLocalName))
                     return Fail("XML_PARSE_FAILED", "Could not read root element of input xml.");
 
-                axType = MetadataBootstrap.GetMetaModelTypeByShortName(rootLocalName)
-                         ?? MetadataBootstrap.GetMetaModelType(kind);
-                if (axType == null) return Fail("TYPE_NOT_FOUND", "Could not resolve Ax type for root element '" + rootLocalName + "'.");
-                if (axType.IsAbstract)
-                    return Fail("ABSTRACT_TYPE", "Root element '" + rootLocalName + "' maps to abstract type '" + axType.FullName + "'. Use a concrete subtype root such as AxEdtString.");
+                // The XmlSerializer must be built on the type whose XML root matches the
+                // document's root ELEMENT name. For a concrete root (AxTable, AxClass,
+                // AxEnum, AxForm) that is the type itself. For a polymorphic root emitted
+                // as the abstract base with a pinned discriminator (e.g.
+                // <AxEdt i:type="AxEdtString">), the serializer is built on the abstract
+                // base — XmlInclude metadata lets xsi:type select the concrete subtype.
+                var serializerType = MetadataBootstrap.GetMetaModelTypeByShortName(rootLocalName)
+                                     ?? MetadataBootstrap.GetMetaModelType(kind);
+                if (serializerType == null)
+                    return Fail("TYPE_NOT_FOUND", "Could not resolve Ax type for root element '" + rootLocalName + "'.");
+                if (serializerType.IsAbstract && string.IsNullOrEmpty(rootXsiType))
+                    return Fail("ABSTRACT_TYPE", "Root element '" + rootLocalName + "' maps to abstract type '" + serializerType.FullName + "'. Pin a concrete subtype via xsi:type or use a concrete root such as AxEdtString.");
 
                 try
                 {
-                    var serializer = new XmlSerializer(axType);
+                    var serializer = new XmlSerializer(serializerType);
                     using (var reader = new StringReader(xml))
                     {
                         ax = serializer.Deserialize(reader);
@@ -170,6 +182,10 @@ namespace D365FO.Bridge
                     var inner = ex.InnerException?.Message;
                     return Fail("XML_DESERIALIZE_FAILED", ex.Message + (inner != null ? " / " + inner : string.Empty));
                 }
+
+                // Use the deserialized instance's runtime (concrete) type from here on —
+                // for a polymorphic root this is the xsi:type subtype, not the base.
+                axType = ax.GetType();
             }
             else
             {

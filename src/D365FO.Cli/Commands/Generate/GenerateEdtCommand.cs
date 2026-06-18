@@ -41,18 +41,6 @@ public sealed class GenerateEdtCommand : Command<GenerateEdtCommand.Settings>
         if (string.IsNullOrWhiteSpace(settings.Name))
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "EDT name required."));
 
-        var hasInstall = !string.IsNullOrWhiteSpace(settings.InstallTo);
-        var hasOut     = !string.IsNullOrWhiteSpace(settings.Out);
-        if (!hasInstall && !hasOut)
-            return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "--out or --install-to is required."));
-
-        var outPath = settings.Out;
-        if (hasInstall && !hasOut)
-        {
-            outPath = GenerateInstaller.ResolveInstallPath(kind, "AxEdt", settings.Name, settings.InstallTo!, out var fail);
-            if (fail.HasValue) return fail.Value;
-        }
-
         var effectiveEnumType = settings.EnumType;
         if (string.IsNullOrWhiteSpace(effectiveEnumType) &&
             string.Equals(settings.BaseType, "Enum", StringComparison.OrdinalIgnoreCase) &&
@@ -63,10 +51,10 @@ public sealed class GenerateEdtCommand : Command<GenerateEdtCommand.Settings>
         }
 
         var doc = XppScaffolder.Edt(settings.Name, settings.Extends, settings.BaseType, settings.Size, settings.Label, effectiveEnumType);
-        try
-        {
-            var res = ScaffoldFileWriter.Write(doc, outPath!, settings.Overwrite);
-            return RenderHelpers.Render(kind, ToolResult<object>.Success(new
+        return GenerateInstaller.Emit(
+            kind, "edt", "AxEdt", settings.Name,
+            settings.InstallTo, settings.Out, settings.Overwrite, doc,
+            r => new
             {
                 kind       = "AxEdt",
                 name       = settings.Name,
@@ -75,16 +63,12 @@ public sealed class GenerateEdtCommand : Command<GenerateEdtCommand.Settings>
                 enumType   = effectiveEnumType,
                 stringSize = settings.Size,
                 label      = settings.Label,
-                path       = res.Path,
-                bytes      = res.Bytes,
-                backup     = res.BackupPath,
+                source     = r.Source,
+                path       = r.Path,
+                bytes      = r.Bytes,
+                backup     = r.Backup,
                 model      = settings.InstallTo,
-            }));
-        }
-        catch (Exception ex)
-        {
-            return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.WriteFailed, ex.Message));
-        }
+            });
     }
 
     private static string? ResolveEnumTypeFromExtendsChain(string extendsName)
