@@ -933,8 +933,17 @@ public sealed class ToolHandlers
         }
         catch { /* index may not contain the table — not fatal */ }
 
+        // Resolve each field's EDT base type from the index so the scaffold
+        // stamps the concrete i:type discriminator on every <AxTableField>
+        // (AxTableField is abstract — without it the table is invalid). See issue #91.
+        Func<string, string?> edtResolver = edt =>
+        {
+            if (string.IsNullOrWhiteSpace(edt)) return null;
+            try { return _repo.GetEdt(edt)?.BaseType; }
+            catch { return null; }
+        };
         var doc = D365FO.Core.Scaffolding.XppScaffolder.Table(name, label, fieldSpecs, pat,
-            D365FO.Core.Scaffolding.TableStorage.RegularTable, null);
+            D365FO.Core.Scaffolding.TableStorage.RegularTable, null, edtResolver);
         var extra = new { fieldCount = fieldSpecs.Count > 0 ? fieldSpecs.Count : (int?)null, pattern = pat == D365FO.Core.Scaffolding.TablePattern.None ? null : pat.ToString() };
         return WriteScaffold(doc, name, "AxTable", "AxTable", installTo, outPath, overwrite, extra);
     }

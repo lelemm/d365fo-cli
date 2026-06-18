@@ -33,25 +33,13 @@ public sealed class GenerateEnumCommand : Command<GenerateEnumCommand.Settings>
         if (string.IsNullOrWhiteSpace(settings.Name))
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "Enum name required."));
 
-        var hasInstall = !string.IsNullOrWhiteSpace(settings.InstallTo);
-        var hasOut     = !string.IsNullOrWhiteSpace(settings.Out);
-        if (!hasInstall && !hasOut)
-            return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "--out or --install-to is required."));
-
-        var outPath = settings.Out;
-        if (hasInstall && !hasOut)
-        {
-            outPath = GenerateInstaller.ResolveInstallPath(kind, "AxEnum", settings.Name, settings.InstallTo!, out var fail);
-            if (fail.HasValue) return fail.Value;
-        }
-
         var values = settings.Values.Select(ParseValue).ToList();
         var doc = XppScaffolder.Enum(settings.Name, values, !settings.NonExtensible, settings.Label);
 
-        try
-        {
-            var res = ScaffoldFileWriter.Write(doc, outPath!, settings.Overwrite);
-            return RenderHelpers.Render(kind, ToolResult<object>.Success(new
+        return GenerateInstaller.Emit(
+            kind, "enum", "AxEnum", settings.Name,
+            settings.InstallTo, settings.Out, settings.Overwrite, doc,
+            r => new
             {
                 kind         = "AxEnum",
                 name         = settings.Name,
@@ -59,16 +47,12 @@ public sealed class GenerateEnumCommand : Command<GenerateEnumCommand.Settings>
                 label        = settings.Label,
                 valueCount   = values.Count,
                 values       = values.Select(v => new { v.Name, v.IntValue, v.Label }).ToList(),
-                path         = res.Path,
-                bytes        = res.Bytes,
-                backup       = res.BackupPath,
+                source       = r.Source,
+                path         = r.Path,
+                bytes        = r.Bytes,
+                backup       = r.Backup,
                 model        = settings.InstallTo,
-            }));
-        }
-        catch (Exception ex)
-        {
-            return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.WriteFailed, ex.Message));
-        }
+            });
     }
 
     private static EnumValueSpec ParseValue(string raw)
