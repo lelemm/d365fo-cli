@@ -361,8 +361,23 @@ public sealed partial class MetadataRepository
             WHERE e.Name = @name LIMIT 1", new { name });
     }
 
+    /// <summary>
+    /// Index rows store the <em>base</em> object an extension targets (e.g.
+    /// <c>CustTable</c>), but callers and LLMs often pass the full extension
+    /// name (<c>CustTable.Extension</c>, <c>CustTable.MyModelSuffix</c>). AOT
+    /// object names never contain a dot, so a dot unambiguously marks an
+    /// extension suffix — strip it to the base before matching.
+    /// </summary>
+    private static string BaseExtensionTarget(string target)
+    {
+        if (string.IsNullOrEmpty(target)) return target;
+        var dot = target.IndexOf('.');
+        return dot > 0 ? target.Substring(0, dot) : target;
+    }
+
     public IReadOnlyList<CocExtensionInfo> FindCocExtensions(string targetClass, string? targetMethod = null)
     {
+        targetClass = BaseExtensionTarget(targetClass);
         using var conn = OpenReadOnly();
         var sql = @"
             SELECT c.TargetClass, c.TargetMethod, c.ExtensionClass, m.Name AS Model
@@ -558,6 +573,7 @@ public sealed partial class MetadataRepository
 
     public IReadOnlyList<ObjectExtensionInfo> FindExtensions(string targetName, string? kind = null)
     {
+        targetName = BaseExtensionTarget(targetName);
         using var conn = OpenReadOnly();
         return conn.Query<ObjectExtensionInfo>(@"
             SELECT e.Kind, e.TargetName, e.ExtensionName, m.Name AS Model, e.SourcePath
@@ -569,6 +585,7 @@ public sealed partial class MetadataRepository
 
     public IReadOnlyList<EventSubscriberInfo> FindEventSubscribers(string sourceObject, string? sourceKind = null)
     {
+        sourceObject = BaseExtensionTarget(sourceObject);
         using var conn = OpenReadOnly();
         return conn.Query<EventSubscriberInfo>(@"
             SELECT s.SubscriberClass, s.SubscriberMethod, s.SourceKind, s.SourceObject,
