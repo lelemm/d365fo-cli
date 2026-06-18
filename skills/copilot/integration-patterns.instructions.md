@@ -72,7 +72,6 @@ d365fo generate entity <Name> --table <T> \
 AxServiceGroup
   └── AxService (ServiceGroup reference)
         └── Service class (X++)
-              └── Operations decorated with [SysEntryPointAttribute(true)]
 ```
 
 **REST endpoint:** `https://{env}.cloudax.dynamics.com/api/services/{ServiceGroupName}/{ServiceName}/{OperationName}`
@@ -101,7 +100,6 @@ d365fo generate custom-service <Name> \
 
 **Hard rules:**
 
-- **Every exposed method must have `[SysEntryPointAttribute(true)]`** — without it the service is unreachable from external callers (security gate).
 - Use `[DataContractAttribute]` + `[DataMemberAttribute]` on parameter/return contract classes — not `pack()`/`unpack()`.
 - Service class must NOT hold state between calls (it is instantiated per request).
 

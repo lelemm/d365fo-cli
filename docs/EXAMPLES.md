@@ -506,7 +506,7 @@ d365fo generate custom-service CustCustomService \
   --out-group c:/AOT/MyModel/AxServiceGroup/CustCustomServiceGroup.xml
 ```
 
-The service class method is decorated with `[SysEntryPointAttribute(true)]` for security. Use `d365fo search service <name>` to check for existing services before naming.
+Use `d365fo search service <name>` to check for existing services before naming.
 
 ### Migration script — data-fix runnable with batching
 

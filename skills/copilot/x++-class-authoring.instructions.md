@@ -55,10 +55,9 @@ Modern replacement for `RunBaseBatch`. **Always use SysOperation for new batch c
 
 1. Structure: **DataContract** (parameters) + **Service** (logic) + **Controller** (execution mode).
 2. DataContract: decorate `parmXxx()` methods with `[DataMemberAttribute]`. Never use `pack()`/`unpack()`.
-3. Service method MUST be marked `[SysEntryPointAttribute(true)]` for security.
-4. Controller sets execution mode: `Synchronous`, `Asynchronous`, or `ScheduledBatch`.
-5. For SSRS report data providers: extend `SRSReportDataProviderBase` instead of `SysOperationServiceBase`.
-6. Custom dialog: use `SysOperationAutomaticUIBuilder`; link via `[SysOperationContractProcessingAttribute(classStr(MyUIBuilder))]` on the DataContract.
+3. Controller sets execution mode: `Synchronous`, `Asynchronous`, or `ScheduledBatch`.
+4. For SSRS report data providers: extend `SRSReportDataProviderBase` instead of `SysOperationServiceBase`.
+5. Custom dialog: use `SysOperationAutomaticUIBuilder`; link via `[SysOperationContractProcessingAttribute(classStr(MyUIBuilder))]` on the DataContract.
 
 **Scaffold with the CLI** — generates the DataContract, Service, and Controller XML in one command:
 

@@ -58,7 +58,6 @@ d365fo generate sysoperation FmInvoiceBatch \
 - The Contract class must NOT hold state between calls — it is a simple data transfer object.
 - Do NOT use `today()` anywhere in the service — use `DateTimeUtil::getToday(DateTimeUtil::getUserPreferredTimeZone())`.
 - Never call `ttsbegin` / `ttscommit` in the Contract or Controller — only in the Service's `process()`.
-- Add a `[SysEntryPointAttribute(true)]` on the Service entry method to control security access.
 
 ---
 
