@@ -3,7 +3,7 @@ name: form-pattern-scaffolding
 description: Scaffold an AxForm in D365 Finance & Operations using one of the nine canonical patterns (SimpleList, SimpleListDetails, DetailsMaster, DetailsTransaction, Dialog, TableOfContents, Lookup, ListPage, Workspace), or create a Display / Action / Output menu item. Invoke whenever the user asks to "create a form", "scaffold a list page", "make a dialog", "build a workspace", "create a menu item", "add a Display menu item", or "add an Action menu item".
 applies_when: User intent mentions creating an AxForm, choosing a form pattern, list pages, master records, dialogs, lookups, workspaces, details/transaction (header+lines) forms, or creating a Display / Action / Output menu item.
 ---
-> ⛔ **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema (`<AxClass>`, `<AxTable>`, `<AxForm>`, `<Methods>`, `<SourceCode>`) is proprietary — LLMs have not been trained on it reliably. **ALWAYS use `d365fo generate …` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
+> **Designer-first metadata rule.** Do not hand-author partial Ax* XML nodes as the first path. For AOT metadata child nodes, use `d365fo designer kinds --full`, `d365fo designer catalog`, and `d365fo designer run` so Microsoft metadata assemblies create the node. For top-level or composite artifacts, use `d365fo generate ... --backend bridge`. Only write full AOT XML content manually after the designer/generate CLI path fails or has no supported action; when doing so, record the failed command and error. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
 
 # Authoring AxForm XML — pattern-correct
 
@@ -200,3 +200,40 @@ d365fo generate menu-item FmOrdersReportMenuItem \
 - One menu item per AOT type (`AxMenuItemDisplay`, `AxMenuItemAction`, `AxMenuItemOutput`) — naming convention `<ObjectName>MenuItem` or `<ObjectName>Action`.
 - Do not create an `Action` menu item pointing to a form — use `Display`.
 - After creating a menu item, it must be added to a menu or a security privilege to be reachable.
+
+## Serializer and BP compatibility lessons
+
+Visual Studio can fail on form XML that is well-formed but contains abstract
+metadata nodes. After generating or repairing a form:
+
+```powershell
+d365fo form-pattern validate <AxForm.xml> --output table
+d365fo validate xpp <AxForm.xml> --code-type xml-any --output table
+d365fo index refresh --model <Model> --force
+d365fo get form <FormName> --output json
+```
+
+Rules learned from D365FO/VS deserialization:
+
+- Most controls under `<Controls>` need a concrete `i:type`, such as
+  `AxFormStringControl`, `AxFormGridControl`, `AxFormGroupControl`,
+  `AxFormTabControl`, or `AxFormButtonGroupControl`.
+- The QuickFilter extension control is commonly a bare `<AxFormControl>` with a
+  `FormControlExtension` named `QuickFilterControl`; do not "fix" that by
+  guessing an `i:type`.
+- Bare `<AxFormDataSource>` and `<AxFormDataSourceLink>` nodes are normal in
+  this metadata style.
+- A SimpleListDetails form may validate with an FP006 warning when a
+  `DetailsGroup` wraps a Tab. Do not add `FieldsFieldGroups` to that group if
+  it contains a Tab; the validator will then fail because Tab is not allowed
+  under that sub-pattern. Either leave the warning or restructure the details
+  panel deliberately.
+
+Menu item BP defaults:
+
+- Newly generated `AxMenuItemAction` and `AxMenuItemDisplay` entries should
+  include both `<DisabledResource>0</DisabledResource>` and
+  `<NormalResource>0</NormalResource>` unless a real supported image resource is
+  chosen.
+- Missing resource nodes can trigger `BPErrorMissingOrUnsupportedImage` during
+  model BP even though the menu item opens its target.

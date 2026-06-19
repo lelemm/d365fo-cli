@@ -21,8 +21,9 @@ namespace D365FO.Core.Bridge;
 public sealed record BridgeOptions
 {
     /// <summary>
-    /// Absolute path to <c>D365FO.Bridge.exe</c>. Resolved from
-    /// <c>D365FO_BRIDGE_PATH</c> env var when null.
+    /// Optional absolute path to <c>D365FO.Bridge.exe</c>. When null, the
+    /// client auto-discovers the bridge bundled under the CLI's
+    /// <c>bridge</c> subfolder, then falls back to <c>D365FO_BRIDGE_PATH</c>.
     /// </summary>
     public string? ExecutablePath { get; init; }
 
@@ -39,6 +40,13 @@ public sealed record BridgeOptions
     /// settings.json still reaches the child process.
     /// </summary>
     public string? PackagesPath { get; init; }
+
+    /// <summary>
+    /// Optional override for the Dynamics 365 Finance and Operations Visual
+    /// Studio extension directory. Forwarded to the bridge via
+    /// <c>D365FO_VS_EXTENSION_PATH</c>.
+    /// </summary>
+    public string? VsExtensionPath { get; init; }
 
     /// <summary>
     /// Additional custom-model roots (e.g. a git repo of custom models on a
@@ -66,14 +74,36 @@ public sealed record BridgeOptions
     public bool UseInProcessStreams { get; init; }
 
     /// <summary>
-    /// Resolve bridge executable path from env/default. Returns null if not
-    /// found — caller should fall back to the SQLite index.
+    /// Resolve bridge executable path from a bundled CLI layout or optional
+    /// override. Returns null if not found, so caller should fall back to the
+    /// SQLite index.
     /// </summary>
-    public static string? ResolveExecutable(string? explicitPath)
+    public static string? ResolveExecutable(string? explicitPath) =>
+        ResolveExecutable(explicitPath, AppContext.BaseDirectory);
+
+    internal static string? ResolveExecutable(string? explicitPath, string baseDirectory)
     {
         if (!string.IsNullOrWhiteSpace(explicitPath) && File.Exists(explicitPath))
         {
             return explicitPath;
+        }
+
+        var baseDir = string.IsNullOrWhiteSpace(baseDirectory)
+            ? AppContext.BaseDirectory
+            : baseDirectory;
+
+        foreach (var candidate in new[]
+                 {
+                     Path.Combine(baseDir, "bridge", "D365FO.Bridge.exe"),
+                     Path.Combine(baseDir, "D365FO.Bridge", "D365FO.Bridge.exe"),
+                     Path.Combine(baseDir, "D365FO.Bridge.exe"),
+                 })
+        {
+            var full = Path.GetFullPath(candidate);
+            if (File.Exists(full))
+            {
+                return full;
+            }
         }
 
         var env = D365FoSettings.Resolve("D365FO_BRIDGE_PATH");
@@ -82,11 +112,10 @@ public sealed record BridgeOptions
             return env;
         }
 
-        // Common layouts: alongside D365FO.Cli.dll or one dir up.
-        var baseDir = AppContext.BaseDirectory;
+        // Older dev layout when the bridge project has already been built
+        // separately.
         foreach (var candidate in new[]
                  {
-                     Path.Combine(baseDir, "D365FO.Bridge.exe"),
                      Path.Combine(baseDir, "..", "D365FO.Bridge", "D365FO.Bridge.exe"),
                  })
         {
@@ -253,6 +282,8 @@ public sealed class BridgeClient : IDisposable
             env.Add(new("D365FO_BIN_PATH", options.MetadataBinPath!));
         if (!string.IsNullOrWhiteSpace(options.PackagesPath))
             env.Add(new("D365FO_PACKAGES_PATH", options.PackagesPath!));
+        if (!string.IsNullOrWhiteSpace(options.VsExtensionPath))
+            env.Add(new("D365FO_VS_EXTENSION_PATH", options.VsExtensionPath!));
         if (options.CustomPackagesPaths.Count > 0)
             env.Add(new("D365FO_CUSTOM_PACKAGES_PATH", string.Join(";", options.CustomPackagesPaths)));
         if (!string.IsNullOrWhiteSpace(options.XrefConnectionString))

@@ -135,7 +135,7 @@ public sealed class GetClassCommand : Command<GetClassCommand.Settings>
     {
         var kind = OutputMode.Resolve(settings.Output);
 
-        // Bridge-primary path (opt-in via D365FO_BRIDGE_ENABLED=1).
+        // Bridge-primary path (default-on; opt out with D365FO_BRIDGE_ENABLED=0).
         // Silently falls back to the SQLite index when the bridge is missing,
         // disabled, or returns NOT_IMPLEMENTED (POC stub). Errors from a
         // running bridge are surfaced via --verbose only; the final result

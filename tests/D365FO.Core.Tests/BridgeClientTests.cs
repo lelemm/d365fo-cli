@@ -2,6 +2,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
+using D365FO.Core;
 using D365FO.Core.Bridge;
 
 namespace D365FO.Core.Tests;
@@ -76,6 +77,7 @@ public sealed class BridgeClientTests
         {
             MetadataBinPath = @"C:\bin",
             PackagesPath = @"C:\Packages",
+            VsExtensionPath = @"C:\VS\D365Extension",
             CustomPackagesPaths = new[] { @"C:\D365FO_Metadata", @"D:\More" },
         };
 
@@ -84,6 +86,7 @@ public sealed class BridgeClientTests
 
         Assert.Equal(@"C:\bin", env["D365FO_BIN_PATH"]);
         Assert.Equal(@"C:\Packages", env["D365FO_PACKAGES_PATH"]);
+        Assert.Equal(@"C:\VS\D365Extension", env["D365FO_VS_EXTENSION_PATH"]);
         Assert.Equal(@"C:\D365FO_Metadata;D:\More", env["D365FO_CUSTOM_PACKAGES_PATH"]);
     }
 
@@ -96,6 +99,36 @@ public sealed class BridgeClientTests
             .ToDictionary(kv => kv.Key, kv => kv.Value);
 
         Assert.False(env.ContainsKey("D365FO_CUSTOM_PACKAGES_PATH"));
+    }
+
+    [Fact]
+    public void ResolveExecutable_finds_bridge_bundled_under_cli_subfolder()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "d365fo-cli-bridge-test-" + System.Guid.NewGuid().ToString("N"));
+        var bridgeDir = Path.Combine(root, "bridge");
+        var bridgeExe = Path.Combine(bridgeDir, "D365FO.Bridge.exe");
+        var oldEnv = System.Environment.GetEnvironmentVariable("D365FO_BRIDGE_PATH");
+        var oldConfigOverride = D365FoSettings.ConfigPathOverrideForTests;
+
+        try
+        {
+            Directory.CreateDirectory(bridgeDir);
+            File.WriteAllText(bridgeExe, "");
+            System.Environment.SetEnvironmentVariable("D365FO_BRIDGE_PATH", null);
+            D365FoSettings.ConfigPathOverrideForTests = Path.Combine(root, "settings.json");
+            D365FoSettings.ClearCacheForTests();
+
+            var resolved = BridgeOptions.ResolveExecutable(null, root);
+
+            Assert.Equal(Path.GetFullPath(bridgeExe), resolved);
+        }
+        finally
+        {
+            System.Environment.SetEnvironmentVariable("D365FO_BRIDGE_PATH", oldEnv);
+            D365FoSettings.ConfigPathOverrideForTests = oldConfigOverride;
+            D365FoSettings.ClearCacheForTests();
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
     }
 
     /// <summary>

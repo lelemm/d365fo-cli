@@ -109,6 +109,24 @@ namespace D365FO.Bridge
                 case "createObject":
                 case "saveObject":
                     return Ok(idNode, handlers.SaveObject(paramsNode as JsonObject));
+                case "scaffoldObject":
+                    return Ok(idNode, handlers.ScaffoldObject(paramsNode as JsonObject));
+                case "runDataEntityWizard":
+                    return Ok(idNode, handlers.RunDataEntityWizard(paramsNode as JsonObject));
+                case "runWorkflowWizard":
+                    return Ok(idNode, handlers.RunWorkflowWizard(paramsNode as JsonObject));
+                case "designerCatalog":
+                    return Ok(idNode, handlers.DesignerCatalog(paramsNode as JsonObject));
+                case "designerActions":
+                    return Ok(idNode, handlers.DesignerActions(paramsNode as JsonObject));
+                case "designerRun":
+                    return Ok(idNode, handlers.DesignerRun(paramsNode as JsonObject));
+                case "designerProperties":
+                    return Ok(idNode, handlers.DesignerProperties(paramsNode as JsonObject));
+                case "designerPropertyOptions":
+                    return Ok(idNode, handlers.DesignerPropertyOptions(paramsNode as JsonObject));
+                case "lintFile":
+                    return Ok(idNode, handlers.LintFile(paramsNode as JsonObject));
                 case "updateObject":
                 case "modifyObject":
                     return Ok(idNode, handlers.UpdateObject(paramsNode as JsonObject));

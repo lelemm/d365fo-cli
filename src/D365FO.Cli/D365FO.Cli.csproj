@@ -18,6 +18,10 @@
     </AssemblyAttribute>
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\D365FO.Shared\Designer\DesignerKindCatalog.cs" Link="Shared\DesignerKindCatalog.cs" />
+  </ItemGroup>
+
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net9.0</TargetFramework>
@@ -34,5 +38,30 @@
          the whole CLI assembly to avoid CommandRuntimeException at startup. -->
     <TrimmerRootDescriptor Include="TrimmerRootDescriptor.xml" />
   </ItemGroup>
+
+  <PropertyGroup>
+    <BridgeOutputDir>$(MSBuildThisFileDirectory)..\D365FO.Bridge\bin\$(Configuration)\net48\</BridgeOutputDir>
+    <BridgeBundleSubfolder>bridge\</BridgeBundleSubfolder>
+  </PropertyGroup>
+
+  <Target Name="BuildBridgeForCliBundle" BeforeTargets="Build" Condition="'$(OS)' == 'Windows_NT'">
+    <MSBuild Projects="$(MSBuildThisFileDirectory)..\D365FO.Bridge\D365FO.Bridge.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration)" />
+  </Target>
+
+  <Target Name="CopyBridgeToCliOutput" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT' And Exists('$(BridgeOutputDir)D365FO.Bridge.exe')">
+    <ItemGroup>
+      <BridgeRuntimeFiles Include="$(BridgeOutputDir)*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(BridgeRuntimeFiles)" DestinationFolder="$(OutDir)$(BridgeBundleSubfolder)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="CopyBridgeToCliPublish" AfterTargets="Publish" Condition="'$(OS)' == 'Windows_NT' And Exists('$(BridgeOutputDir)D365FO.Bridge.exe')">
+    <ItemGroup>
+      <BridgePublishFiles Include="$(BridgeOutputDir)*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(BridgePublishFiles)" DestinationFolder="$(PublishDir)$(BridgeBundleSubfolder)" SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>

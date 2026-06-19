@@ -2,6 +2,7 @@
 using D365FO.Cli.Commands.Agent;
 using D365FO.Cli.Commands.Analyze;
 using D365FO.Cli.Commands.Daemon;
+using D365FO.Cli.Commands.Designer;
 using D365FO.Cli.Commands.Find;
 using D365FO.Cli.Commands.Generate;
 using D365FO.Cli.Commands.Get;
@@ -193,6 +194,19 @@ app.Configure(cfg =>
         b.AddCommand<ModelsCouplingCommand>("coupling").WithDescription("Coupling metrics (fan-in, fan-out, instability, cycles) over ModelDependencies.");
     });
 
+    cfg.AddBranch("designer", b =>
+    {
+        b.SetDescription(DesignerHelpText.BranchDescription);
+        b.AddCommand<DesignerKindsCommand>("kinds").WithDescription("Show the static metadata-designer kind tree and action taxonomy.");
+        b.AddCommand<DesignerCatalogCommand>("catalog").WithDescription(DesignerHelpText.CatalogDescription);
+        b.AddCommand<DesignerActionsCommand>("actions").WithDescription("List bridge-valid actions for a concrete parent object/node.");
+        b.AddCommand<DesignerRunCommand>("run").WithDescription(DesignerHelpText.RunDescription);
+        b.AddCommand<DesignerPropertiesCommand>("properties").WithDescription("List writable/readable properties for a concrete object or selected designer node.");
+        b.AddCommand<DesignerPropertyOptionsCommand>("property-options").WithDescription("List dropdown-style options for a property on a concrete object or selected designer node.");
+        b.AddCommand<DesignerSetPropertyCommand>("set-property").WithDescription("Set one property on a concrete object or selected designer node.");
+        b.AddCommand<DesignerSetPropertiesCommand>("set-properties").WithDescription("Set multiple properties on a concrete object or selected designer node.");
+    });
+
     cfg.AddBranch("generate", b =>
     {
         b.SetDescription("Scaffold AOT XML skeletons.");
@@ -210,7 +224,7 @@ app.Configure(cfg =>
         b.AddCommand<GenerateReportCommand>("report").WithDescription("Create an AxReport + SrsReportDataProviderBase skeleton (DP class).");
         b.AddCommand<GenerateSysOperationCommand>("sysoperation").WithDescription("Create a SysOperation DataContract + Service + Controller triplet.");
         b.AddCommand<GenerateNumberSequenceCommand>("number-sequence").WithDescription("Create a NumberSeq module extension, EDT, and form handler.");
-        b.AddCommand<GenerateWorkflowCommand>("workflow").WithDescription("Create an AxWorkflow type, WorkflowDocument class, and canSubmitToWorkflow stub.");
+        b.AddCommand<GenerateWorkflowCommand>("workflow").WithDescription("Create an AxWorkflowTemplate, WorkflowDocument class, submit action, and optional approval/task elements.");
         b.AddCommand<GenerateMenuItemCommand>("menu-item").WithDescription("Create an AxMenuItemDisplay, AxMenuItemAction, or AxMenuItemOutput.");
         b.AddCommand<GenerateEdtCommand>("edt").WithDescription("Create an AxEdt Extended Data Type.");
         b.AddCommand<GenerateEnumCommand>("enum").WithDescription("Create an AxEnum base enumeration.");
@@ -264,7 +278,7 @@ app.Configure(cfg =>
     cfg.AddCommand<DoctorCommand>("doctor").WithDescription("Diagnose environment.");
     cfg.AddCommand<InitCommand>("init").WithDescription("Interactive quickstart: detects PackagesLocalDirectory and prepares the index.");
     cfg.AddCommand<StatsCommand>("stats").WithDescription("Aggregate counters over the index (top tables / classes / CoC targets).");
-    cfg.AddCommand<LintCommand>("lint").WithDescription("In-process Best-Practice gate over the index.");
+    cfg.AddCommand<LintCommand>("lint").WithDescription("Lint one X++/AOT XML file, or run the index-wide Best-Practice gate when no file is supplied.");
     cfg.AddCommand<VersionCommand>("version").WithDescription("Print version information.");
     cfg.AddCommand<AgentPromptCommand>("agent-prompt").WithDescription("Emit LLM system prompt for this CLI.");
     cfg.AddCommand<SchemaCommand>("schema").WithDescription("Emit JSON command manifest.");

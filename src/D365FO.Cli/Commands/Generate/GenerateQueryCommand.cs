@@ -2,6 +2,7 @@ using System.Xml.Linq;
 using D365FO.Core;
 using D365FO.Core.Scaffolding;
 using Spectre.Console.Cli;
+using System.Text.Json.Nodes;
 
 namespace D365FO.Cli.Commands.Generate;
 
@@ -31,6 +32,9 @@ public sealed class GenerateQueryCommand : Command<GenerateQueryCommand.Settings
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "Query name required."));
         if (settings.DataSources.Length == 0)
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "At least one --ds <TABLE> required."));
+        if (!GenerateBackendResolver.TryResolve(settings.Backend, out var backend, out var backendError))
+            return GenerateBridgeScaffolding.RenderBackendError(kind, backendError!);
+        var useBridge = GenerateBackendResolver.ShouldUseBridge(backend);
 
         var hasInstall = !string.IsNullOrWhiteSpace(settings.InstallTo);
         var hasOut     = !string.IsNullOrWhiteSpace(settings.Out);
@@ -38,11 +42,21 @@ public sealed class GenerateQueryCommand : Command<GenerateQueryCommand.Settings
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "--out or --install-to is required."));
 
         var outPath = settings.Out;
-        if (hasInstall && !hasOut)
+        if (hasInstall && !hasOut && !useBridge)
         {
             outPath = GenerateInstaller.ResolveInstallPath(kind, "AxQuery", settings.Name, settings.InstallTo!, out var fail);
             if (fail.HasValue) return fail.Value;
         }
+
+        var bridgeWarnings = new List<string>
+        {
+            "Bridge backend uses the VS Add New Item query path; datasource and join scaffolding are legacy-only for now.",
+        };
+        var bridge = GenerateBridgeScaffolding.TryWrite(
+            kind, backend, settings.InstallTo, settings.Overwrite, "AxQuery", settings.Name, null, outPath,
+            bridgeWarnings,
+            new JsonObject { ["type"] = "AxQuerySimple" });
+        if (bridge.Handled) return bridge.ExitCode;
 
         // Build the data-source list: roots first (no ParentDs), then joins.
         var dsList = new List<QueryDataSourceSpec>();

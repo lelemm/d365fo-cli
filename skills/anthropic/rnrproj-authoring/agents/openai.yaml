@@ -1,0 +1,7 @@
+interface:
+  display_name: "RNRProj Authoring"
+  short_description: "Link D365FO AOT artifacts to .rnrproj files"
+  default_prompt: "Use $rnrproj-authoring to add and validate D365FO AOT project membership."
+
+policy:
+  allow_implicit_invocation: true

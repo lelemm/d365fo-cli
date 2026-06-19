@@ -1,7 +1,9 @@
 using D365FO.Core;
+using D365FO.Core.FormPatterns;
 using D365FO.Core.Scaffolding;
 using Spectre.Console.Cli;
 using D365FO.Cli.Commands.Get;
+using System.Text.Json.Nodes;
 
 namespace D365FO.Cli.Commands.Generate;
 
@@ -15,8 +17,12 @@ public abstract class GenerateSettings : D365OutputSettings
     public bool Overwrite { get; init; }
 
     [CommandOption("--install-to <MODEL>")]
-    [System.ComponentModel.Description("Install the generated artefact directly into <MODEL> via the metadata bridge. Requires D365FO_BRIDGE_ENABLED=1.")]
+    [System.ComponentModel.Description("Install the generated artefact directly into <MODEL>. Bridge backend saves through IMetadataProvider; legacy resolves the model path and writes XML.")]
     public string? InstallTo { get; init; }
+
+    [CommandOption("--backend <BACKEND>")]
+    [System.ComponentModel.Description("Scaffolding backend: auto (default), bridge, or legacy. auto uses bridge unless D365FO_BRIDGE_ENABLED=0.")]
+    public string? Backend { get; init; }
 
     [CommandOption("--grounding-token <TOKEN>")]
     [System.ComponentModel.Description("Grounding token from `d365fo prepare change`/`prepare create` proving the index was consulted. Required for extension-shaped objects when D365FO_GROUNDING_ENFORCE=true.")]
@@ -43,7 +49,7 @@ internal static class GenerateInstaller
         {
             failure = RenderHelpers.Render(kind, ToolResult<object>.Fail(
                 "INSTALL_FAILED",
-                $"Could not resolve folder for model '{model}'. Ensure the bridge can see the model: set D365FO_BRIDGE_ENABLED=1 and point D365FO_PACKAGES_PATH (and D365FO_CUSTOM_PACKAGES_PATH for custom-model roots) at the directories that contain the model, on a D365FO VM."));
+                $"Could not resolve folder for model '{model}'. Ensure the bridge can see the model: point D365FO_PACKAGES_PATH (and D365FO_CUSTOM_PACKAGES_PATH for custom-model roots) at the directories that contain the model, on a D365FO VM. Set D365FO_BRIDGE_ENABLED=0 only if you want to disable bridge-backed installs."));
             return null;
         }
         return System.IO.Path.Combine(folder!, axSubfolder, name + ".xml");
@@ -61,7 +67,7 @@ public sealed class GenerateTableCommand : Command<GenerateTableCommand.Settings
         public string? Label { get; init; }
 
         [CommandOption("--field <SPEC>")]
-        [System.ComponentModel.Description("Repeatable: <name>:<edt>[:mandatory]. Example: --field AccountNum:CustAccount:mandatory")]
+        [System.ComponentModel.Description("Repeatable: <name>:<edt>[[:mandatory]]. Example: --field AccountNum:CustAccount:mandatory")]
         public string[] Fields { get; init; } = Array.Empty<string>();
 
         [CommandOption("--pattern <PATTERN>")]
@@ -86,19 +92,54 @@ public sealed class GenerateTableCommand : Command<GenerateTableCommand.Settings
             return RenderHelpers.Render(kind, ToolResult<object>.Fail("BAD_INPUT", perr!));
         if (!TablePatternNormalizer.TryNormalizeStorage(settings.TableType, out var storage, out var serr))
             return RenderHelpers.Render(kind, ToolResult<object>.Fail("BAD_INPUT", serr!));
+        if (!GenerateBackendResolver.TryResolve(settings.Backend, out var backend, out var backendError))
+            return GenerateBridgeScaffolding.RenderBackendError(kind, backendError!);
+        var useBridge = GenerateBackendResolver.ShouldUseBridge(backend);
 
         var hasInstall = !string.IsNullOrWhiteSpace(settings.InstallTo);
         var hasOut     = !string.IsNullOrWhiteSpace(settings.Out);
         if (!hasInstall && !hasOut)
             return RenderHelpers.Render(kind, ToolResult<object>.Fail("BAD_INPUT", "--out or --install-to is required."));
         var outPath = settings.Out;
-        if (hasInstall && !hasOut)
+        if (hasInstall && !hasOut && !useBridge)
         {
             outPath = GenerateInstaller.ResolveInstallPath(kind, "AxTable", settings.Name, settings.InstallTo!, out var fail);
             if (fail.HasValue) return fail.Value;
         }
 
         var fields2 = settings.Fields.Select(ParseField).ToList();
+        var effectiveFields = EffectiveFields(fields2, pattern).ToList();
+        var pkNames = PrimaryKeyFields(effectiveFields, settings.PrimaryKey).ToList();
+        var tableProperties = new JsonObject();
+        if (!string.IsNullOrWhiteSpace(settings.Label)) tableProperties["Label"] = settings.Label;
+        if (pattern != TablePattern.None) tableProperties["TableGroup"] = pattern.ToString();
+        if (storage != TableStorage.RegularTable) tableProperties["TableType"] = storage.ToString();
+        if (pkNames.Count > 0) tableProperties["ClusteredIndex"] = "PrimaryIdx";
+        var bridgeActions = BuildTableDesignerActions(effectiveFields, pkNames);
+        var bridge = GenerateBridgeScaffolding.TryWrite(
+            kind, backend, settings.InstallTo, settings.Overwrite, "AxTable", settings.Name, null, outPath,
+            warnings: null,
+            properties: tableProperties,
+            designerActions: bridgeActions,
+            successFactory: summary => new
+            {
+                kind = "AxTable",
+                name = settings.Name,
+                path = summary.Path,
+                bytes = summary.Bytes,
+                backup = summary.BackupPath,
+                fieldCount = effectiveFields.Count,
+                pattern = pattern == TablePattern.None ? null : pattern.ToString(),
+                tableType = storage == TableStorage.RegularTable ? null : storage.ToString(),
+                usedPatternDefaults = fields2.Count == 0 && pattern != TablePattern.None,
+                model = summary.Model,
+                backend = "bridge",
+                source = summary.Source,
+                operation = summary.Operation,
+                designerActions = summary.DesignerActions,
+            });
+        if (bridge.Handled) return bridge.ExitCode;
+
         var doc = XppScaffolder.Table(settings.Name, settings.Label, fields2, pattern, storage, settings.PrimaryKey);
         try
         {
@@ -131,6 +172,84 @@ public sealed class GenerateTableCommand : Command<GenerateTableCommand.Settings
         var mandatory = parts.Length > 2 && string.Equals(parts[2], "mandatory", StringComparison.OrdinalIgnoreCase);
         return new TableFieldSpec(name, string.IsNullOrEmpty(edt) ? null : edt, null, mandatory);
     }
+
+    internal static IEnumerable<TableFieldSpec> EffectiveFields(IReadOnlyList<TableFieldSpec> supplied, TablePattern pattern) =>
+        supplied.Count > 0 ? supplied : TablePatternPresets.DefaultFieldsFor(pattern);
+
+    internal static IEnumerable<string> PrimaryKeyFields(IReadOnlyList<TableFieldSpec> effectiveFields, IEnumerable<string> requested)
+    {
+        var pkNames = requested
+            .Where(n => !string.IsNullOrWhiteSpace(n) &&
+                        effectiveFields.Any(f => string.Equals(f.Name, n, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        if (pkNames.Count == 0)
+        {
+            pkNames = effectiveFields.Where(f => f.Mandatory).Select(f => f.Name).ToList();
+        }
+        if (pkNames.Count == 0 && effectiveFields.Count > 0)
+        {
+            pkNames.Add(effectiveFields[0].Name);
+        }
+
+        return pkNames;
+    }
+
+    internal static IReadOnlyList<BridgeDesignerAction> BuildTableDesignerActions(
+        IReadOnlyList<TableFieldSpec> fields,
+        IReadOnlyList<string> primaryKeyFields)
+    {
+        var actions = new List<BridgeDesignerAction>();
+        foreach (var field in fields)
+        {
+            var props = new JsonObject
+            {
+                ["name"] = field.Name,
+                ["type"] = "string",
+                ["extendedDataType"] = field.Edt ?? "Name",
+            };
+            if (!string.IsNullOrWhiteSpace(field.Label)) props["Label"] = field.Label;
+            if (field.Mandatory) props["Mandatory"] = "Yes";
+            actions.Add(new BridgeDesignerAction("new-field", "table", null, props));
+        }
+
+        if (fields.Count > 0)
+        {
+            actions.Add(new BridgeDesignerAction(
+                "new-field-group",
+                "table",
+                null,
+                new JsonObject { ["name"] = "AutoReport" }));
+        }
+
+        if (primaryKeyFields.Count > 0)
+        {
+            actions.Add(new BridgeDesignerAction(
+                "new-index",
+                "table",
+                null,
+                new JsonObject
+                {
+                    ["name"] = "PrimaryIdx",
+                    ["AlternateKey"] = "Yes",
+                    ["AllowDuplicates"] = "No",
+                }));
+
+            foreach (var fieldName in primaryKeyFields)
+            {
+                actions.Add(new BridgeDesignerAction(
+                    "new-index-field",
+                    "table",
+                    "Indexes[PrimaryIdx]/Fields",
+                    new JsonObject
+                    {
+                        ["name"] = fieldName,
+                        ["DataField"] = fieldName,
+                    }));
+            }
+        }
+
+        return actions;
+    }
 }
 
 public sealed class GenerateClassCommand : Command<GenerateClassCommand.Settings>
@@ -152,16 +271,30 @@ public sealed class GenerateClassCommand : Command<GenerateClassCommand.Settings
         var kind = OutputMode.Resolve(settings.Output);
         if (string.IsNullOrWhiteSpace(settings.Name))
             return RenderHelpers.Render(kind, ToolResult<object>.Fail("BAD_INPUT", "Class name required."));
+        if (!GenerateBackendResolver.TryResolve(settings.Backend, out var backend, out var backendError))
+            return GenerateBridgeScaffolding.RenderBackendError(kind, backendError!);
+        var useBridge = GenerateBackendResolver.ShouldUseBridge(backend);
         var hasInstall = !string.IsNullOrWhiteSpace(settings.InstallTo);
         var hasOut     = !string.IsNullOrWhiteSpace(settings.Out);
         if (!hasInstall && !hasOut)
             return RenderHelpers.Render(kind, ToolResult<object>.Fail("BAD_INPUT", "--out or --install-to is required."));
         var outPath = settings.Out;
-        if (hasInstall && !hasOut)
+        if (hasInstall && !hasOut && !useBridge)
         {
             outPath = GenerateInstaller.ResolveInstallPath(kind, "AxClass", settings.Name, settings.InstallTo!, out var fail);
             if (fail.HasValue) return fail.Value;
         }
+
+        var bridgeWarnings = new List<string>();
+        if (!string.IsNullOrWhiteSpace(settings.Extends) || settings.NonFinal)
+        {
+            bridgeWarnings.Add("Bridge backend uses the VS Add New Item class template; --extends and --non-final are legacy-only for now.");
+        }
+        var bridge = GenerateBridgeScaffolding.TryWrite(
+            kind, backend, settings.InstallTo, settings.Overwrite, "AxClass", settings.Name, null, outPath,
+            bridgeWarnings.Count > 0 ? bridgeWarnings : null,
+            new JsonObject());
+        if (bridge.Handled) return bridge.ExitCode;
 
         var doc = XppScaffolder.Class(settings.Name, settings.Extends, !settings.NonFinal);
         try
@@ -284,7 +417,8 @@ public sealed class GenerateSimpleListCommand : Command<GenerateSimpleListComman
             linesTable:   null,
             outPath:      settings.Out,
             installTo:    settings.InstallTo,
-            overwrite:    settings.Overwrite);
+            overwrite:    settings.Overwrite,
+            backendRaw:   settings.Backend);
     }
 }
 
@@ -339,7 +473,8 @@ public sealed class GenerateFormCommand : Command<GenerateFormCommand.Settings>
             linesTable:   settings.LinesTable,
             outPath:      settings.Out,
             installTo:    settings.InstallTo,
-            overwrite:    settings.Overwrite);
+            overwrite:    settings.Overwrite,
+            backendRaw:   settings.Backend);
     }
 }
 
@@ -356,11 +491,15 @@ internal static class GenerateFormImpl
         string? linesTable,
         string? outPath,
         string? installTo,
-        bool overwrite)
+        bool overwrite,
+        string? backendRaw)
     {
         var kind = OutputMode.Resolve(output);
         if (string.IsNullOrWhiteSpace(formName))
             return RenderHelpers.Render(kind, ToolResult<object>.Fail("BAD_INPUT", "Form name required."));
+        if (!GenerateBackendResolver.TryResolve(backendRaw, out var backend, out var backendError))
+            return GenerateBridgeScaffolding.RenderBackendError(kind, backendError!);
+        var useBridge = GenerateBackendResolver.ShouldUseBridge(backend);
 
         var pattern = FormPatternNormalizer.Normalize(patternRaw);
 
@@ -374,13 +513,37 @@ internal static class GenerateFormImpl
         if (!hasInstall && !hasOut)
             return RenderHelpers.Render(kind, ToolResult<object>.Fail("BAD_INPUT", "--out or --install-to is required."));
 
-        if (hasInstall && !hasOut)
+        if (hasInstall && !hasOut && !useBridge)
         {
             outPath = GenerateInstaller.ResolveInstallPath(kind, "AxForm", formName, installTo!, out var fail);
             if (fail.HasValue) return fail.Value;
         }
 
         var sectionSpecs = ParseSections(sections);
+        var formProperties = BuildFormProperties(pattern, caption);
+        var bridgeActions = BuildFormDesignerActions(formName, table, pattern, fields, sectionSpecs, linesTable);
+        var bridge = GenerateBridgeScaffolding.TryWrite(
+            kind, backend, installTo, overwrite, "AxForm", formName, null, outPath,
+            warnings: null,
+            properties: formProperties,
+            designerActions: bridgeActions,
+            successFactory: summary => new
+            {
+                kind = "AxForm",
+                name = formName,
+                pattern = pattern.ToString(),
+                path = summary.Path,
+                bytes = summary.Bytes,
+                backup = summary.BackupPath,
+                model = summary.Model,
+                fieldCount = fields.Count,
+                sectionCount = sectionSpecs.Count,
+                backend = "bridge",
+                source = summary.Source,
+                operation = summary.Operation,
+                designerActions = summary.DesignerActions,
+            });
+        if (bridge.Handled) return bridge.ExitCode;
 
         string xml;
         try
@@ -444,6 +607,304 @@ internal static class GenerateFormImpl
         {
             return RenderHelpers.Render(kind, ToolResult<object>.Fail("WRITE_FAILED", ex.Message));
         }
+    }
+
+    internal static JsonObject BuildFormProperties(FormPattern pattern, string? caption)
+    {
+        var design = new JsonObject
+        {
+            ["Pattern"] = pattern.ToString(),
+            ["PatternVersion"] = FormPatternCatalog.ResolveExact(pattern.ToString())?.Versions.FirstOrDefault() ?? "1.0",
+        };
+
+        var spec = FormPatternCatalog.ResolveExact(pattern.ToString());
+        if (spec?.DesignProperties is not null)
+        {
+            foreach (var property in spec.DesignProperties)
+            {
+                design[property.Key] = property.Value;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(caption))
+        {
+            design["Caption"] = caption;
+        }
+
+        return new JsonObject
+        {
+            ["Design"] = design,
+        };
+    }
+
+    internal static IReadOnlyList<BridgeDesignerAction> BuildFormDesignerActions(
+        string formName,
+        string? table,
+        FormPattern pattern,
+        IReadOnlyList<string> fields,
+        IReadOnlyList<FormSectionSpec> sections,
+        string? linesTable)
+    {
+        var actions = new List<BridgeDesignerAction>();
+        var dsName = string.IsNullOrWhiteSpace(table) ? null : table;
+        if (!string.IsNullOrWhiteSpace(table))
+        {
+            actions.Add(new BridgeDesignerAction(
+                "new-data-source",
+                "form",
+                null,
+                new JsonObject
+                {
+                    ["name"] = dsName,
+                    ["table"] = table,
+                }));
+        }
+
+        switch (pattern)
+        {
+            case FormPattern.SimpleList:
+            case FormPattern.ListPage:
+                AddActionPane(actions);
+                AddFilterGroup(actions);
+                AddGrid(actions, "Grid", dsName);
+                AddFieldControls(actions, ControlChildrenPath("Grid"), "Grid", fields, dsName);
+                break;
+
+            case FormPattern.Lookup:
+                AddFilterGroup(actions);
+                AddGrid(actions, "Grid", dsName);
+                AddFieldControls(actions, ControlChildrenPath("Grid"), "Grid", fields, dsName);
+                break;
+
+            case FormPattern.SimpleListDetails:
+                AddActionPane(actions);
+                AddGroup(actions, null, "GridContainer", "SidePanel", pattern: "SidePanel", patternVersion: "1.0", style: "SidePanel");
+                AddGrid(actions, "NavigationList", dsName, ControlChildrenPath("GridContainer"), style: "List");
+                AddFieldControls(actions, ControlChildrenPath("GridContainer", "NavigationList"), "List", fields.Take(3).ToArray(), dsName);
+                AddGroup(actions, null, "DetailsGroup", "Group", pattern: "FieldsFieldGroups", patternVersion: "1.1");
+                AddFieldControls(actions, ControlChildrenPath("DetailsGroup"), "Overview", fields, dsName);
+                break;
+
+            case FormPattern.DetailsMaster:
+                AddActionPane(actions);
+                AddFilterGroup(actions);
+                AddTab(actions, "Tab", style: "FastTabs");
+                AddTabPage(actions, ControlChildrenPath("Tab"), "Overview", "Overview", pattern: "FieldsFieldGroups", patternVersion: "1.1");
+                AddFieldControls(actions, ControlChildrenPath("Tab", "Overview"), "Overview", fields, dsName);
+                break;
+
+            case FormPattern.DetailsTransaction:
+                AddActionPane(actions);
+                AddFilterGroup(actions);
+                var linesDs = string.IsNullOrWhiteSpace(linesTable) ? (string.IsNullOrWhiteSpace(dsName) ? formName + "Lines" : dsName + "Lines") : linesTable;
+                if (!string.IsNullOrWhiteSpace(linesDs))
+                {
+                    actions.Add(new BridgeDesignerAction(
+                        "new-data-source",
+                        "form",
+                        null,
+                        new JsonObject
+                        {
+                            ["name"] = linesDs,
+                            ["table"] = linesDs,
+                            ["JoinSource"] = dsName,
+                        }));
+                }
+
+                AddTab(actions, "Tab", style: "FastTabs");
+                AddTabPage(actions, ControlChildrenPath("Tab"), "Header", "Header", pattern: "FieldsFieldGroups", patternVersion: "1.1");
+                AddFieldControls(actions, ControlChildrenPath("Tab", "Header"), "Header", fields, dsName);
+                AddTabPage(actions, ControlChildrenPath("Tab"), "Lines", "Lines");
+                AddGrid(actions, "LinesGrid", linesDs, ControlChildrenPath("Tab", "Lines"));
+                break;
+
+            case FormPattern.Dialog:
+                AddGroup(actions, null, "DialogBody", "Group", pattern: "FieldsFieldGroups", patternVersion: "1.1", style: "DialogContent");
+                AddFieldControls(actions, ControlChildrenPath("DialogBody"), "Dialog", fields, dsName);
+                AddButtonGroup(actions, null, "ButtonGroup", style: "DialogCommitContainer");
+                AddCommandButton(actions, ControlChildrenPath("ButtonGroup"), "OK");
+                break;
+
+            case FormPattern.TableOfContents:
+                AddActionPane(actions);
+                AddTab(actions, "TOCTabs", style: "TOCList");
+                var tocSections = sections.Count > 0
+                    ? sections
+                    : new[] { new FormSectionSpec("TabPageGeneral", "General"), new FormSectionSpec("TabPageSetup", "Setup") };
+                foreach (var section in tocSections)
+                {
+                    AddTabPage(actions, ControlChildrenPath("TOCTabs"), section.Name, section.Caption, pattern: "FieldsFieldGroups", patternVersion: "1.1");
+                }
+                break;
+
+            case FormPattern.Workspace:
+                AddActionPane(actions);
+                AddTab(actions, "PanoramaBody", style: "Panorama");
+                var workspaceSections = sections.Count > 0
+                    ? sections
+                    : new[] { new FormSectionSpec("Overview", "Overview") };
+                foreach (var section in workspaceSections)
+                {
+                    AddTabPage(actions, ControlChildrenPath("PanoramaBody"), section.Name + "Section", section.Caption);
+                    AddGrid(actions, section.Name + "Grid", dsName, ControlChildrenPath("PanoramaBody", section.Name + "Section"));
+                }
+                break;
+        }
+
+        return actions;
+    }
+
+    private static void AddActionPane(List<BridgeDesignerAction> actions) =>
+        AddControl(actions, null, "ActionPane", "actionPane", "ActionPane");
+
+    private static void AddFilterGroup(List<BridgeDesignerAction> actions)
+    {
+        AddGroup(actions, null, "CustomFilterGroup", "Group", pattern: "CustomAndQuickFilters", patternVersion: "1.1", style: "CustomFilter");
+        AddExtensionControl(actions, ControlChildrenPath("CustomFilterGroup"), "QuickFilterControl", "QuickFilterControl");
+    }
+
+    private static void AddGrid(List<BridgeDesignerAction> actions, string name, string? dataSource, string? node = null, string? style = "Tabular")
+    {
+        var extra = new Dictionary<string, string?>
+        {
+            ["DataSource"] = dataSource,
+            ["ShowRowLabels"] = "No",
+            ["Style"] = style,
+        };
+        AddControl(actions, node, name, "grid", "Grid", extra);
+    }
+
+    private static void AddGroup(
+        List<BridgeDesignerAction> actions,
+        string? node,
+        string name,
+        string type,
+        string? pattern = null,
+        string? patternVersion = null,
+        string? style = null)
+    {
+        AddControl(actions, node, name, "group", type, new Dictionary<string, string?>
+        {
+            ["Pattern"] = pattern,
+            ["PatternVersion"] = patternVersion,
+            ["Style"] = style,
+        });
+    }
+
+    private static void AddTab(List<BridgeDesignerAction> actions, string name, string? style = null)
+    {
+        AddControl(actions, null, name, "tab", "Tab", new Dictionary<string, string?>
+        {
+            ["Style"] = style,
+        });
+    }
+
+    private static void AddTabPage(
+        List<BridgeDesignerAction> actions,
+        string node,
+        string name,
+        string? caption,
+        string? pattern = null,
+        string? patternVersion = null)
+    {
+        AddControl(actions, node, name, "tabPage", "TabPage", new Dictionary<string, string?>
+        {
+            ["Caption"] = caption,
+            ["Pattern"] = pattern,
+            ["PatternVersion"] = patternVersion,
+        });
+    }
+
+    private static void AddButtonGroup(List<BridgeDesignerAction> actions, string? node, string name, string? style = null)
+    {
+        AddControl(actions, node, name, "buttonGroup", "ButtonGroup", new Dictionary<string, string?>
+        {
+            ["Style"] = style,
+        });
+    }
+
+    private static void AddCommandButton(List<BridgeDesignerAction> actions, string? node, string name)
+    {
+        AddControl(actions, node, name, "commandButton", "CommandButton", new Dictionary<string, string?>
+        {
+            ["Command"] = name,
+            ["Text"] = name,
+        });
+    }
+
+    private static void AddFieldControls(
+        List<BridgeDesignerAction> actions,
+        string node,
+        string prefix,
+        IReadOnlyList<string> fields,
+        string? dataSource)
+    {
+        foreach (var field in fields.Where(f => !string.IsNullOrWhiteSpace(f)))
+        {
+            AddControl(actions, node, prefix + "_" + field, "string", "String", new Dictionary<string, string?>
+            {
+                ["DataField"] = field,
+                ["DataSource"] = dataSource,
+            });
+        }
+    }
+
+    private static void AddControl(
+        List<BridgeDesignerAction> actions,
+        string? node,
+        string name,
+        string controlType,
+        string type,
+        IReadOnlyDictionary<string, string?>? extra = null)
+    {
+        var props = new JsonObject
+        {
+            ["name"] = name,
+            ["controlType"] = controlType,
+        };
+
+        if (extra is not null)
+        {
+            foreach (var property in extra)
+            {
+                if (!string.IsNullOrWhiteSpace(property.Value))
+                {
+                    props[property.Key] = property.Value;
+                }
+            }
+        }
+
+        actions.Add(new BridgeDesignerAction("new-control", "form", node, props));
+    }
+
+    private static void AddExtensionControl(
+        List<BridgeDesignerAction> actions,
+        string? node,
+        string name,
+        string extensionName)
+    {
+        var props = new JsonObject
+        {
+            ["name"] = name,
+            ["controlType"] = "control",
+            ["FormControlExtension"] = new JsonObject
+            {
+                ["Name"] = extensionName,
+            },
+        };
+
+        actions.Add(new BridgeDesignerAction("new-control", "form", node, props));
+    }
+
+    private static string ControlChildrenPath(params string[] controls)
+    {
+        var path = "Design";
+        foreach (var control in controls)
+        {
+            path += "/Controls[" + control + "]";
+        }
+
+        return path + "/Controls";
     }
 
     private static IReadOnlyList<FormSectionSpec> ParseSections(IReadOnlyList<string> raw)

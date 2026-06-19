@@ -3,7 +3,7 @@ name: xpp-database-queries
 description: Authoritative rules for X++ select / while-select queries in D365 Finance & Operations. Invoke whenever the user asks to write a "select", "while select", "query", joins, aggregates, cross-company, set-based ops, or any data-access X++.
 applies_when: User intent involves X++ data access — select / while select / joins / aggregates / cross-company / validTimeState / set-based operations.
 ---
-> ⛔ **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema (`<AxClass>`, `<AxTable>`, `<AxForm>`, `<Methods>`, `<SourceCode>`) is proprietary — LLMs have not been trained on it reliably. **ALWAYS use `d365fo generate …` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
+> **Designer-first metadata rule.** Do not hand-author partial Ax* XML nodes as the first path. For AOT metadata child nodes, use `d365fo designer kinds --full`, `d365fo designer catalog`, and `d365fo designer run` so Microsoft metadata assemblies create the node. For top-level or composite artifacts, use `d365fo generate ... --backend bridge`. Only write full AOT XML content manually after the designer/generate CLI path fails or has no supported action; when doing so, record the failed command and error. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
 
 # X++ database queries — `select` / `while select`
 
@@ -139,4 +139,48 @@ while (qr.next())
 d365fo get table <Table> --output json                 # field list, indexes, relations
 d365fo find relations <Table> --output json            # FK relations to model joins
 d365fo find usages <field|method> --output json        # caller risk before refactor
+```
+
+## AOT Query XML serializer lessons
+
+When creating AxQuery XML for forms, workflow, reports, or shared metadata, do
+not stop at XML well-formedness. Visual Studio needs concrete query types and
+collection-shaped child nodes.
+
+Required shape for simple queries:
+
+- Root: `<AxQuery xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="" i:type="AxQuerySimple">`.
+- Include a `classDeclaration` source method for the `[Query]` class.
+- Root data sources should include `DataSources`, `DerivedDataSources`,
+  `Fields`, `Ranges`, `GroupBy`, `Having`, and `OrderBy` nodes, even when empty.
+- Embedded data sources should include `DataSources`, `DerivedDataSources`,
+  `Fields`, and `Ranges`.
+- Do not serialize `<Relations>Yes</Relations>`. Embedded data-source relations
+  must be a collection of `AxQuerySimpleDataSourceRelation` nodes.
+- Element order matters in local examples: `Fields`, `Ranges`, optional
+  `JoinMode`, then `Relations`.
+
+Example relation collection:
+
+```xml
+<Relations>
+  <AxQuerySimpleDataSourceRelation>
+    <Name>QueryDataSourceRelation1</Name>
+    <Field>RefRecId</Field>
+    <JoinDataSource>ParentDataSourceName</JoinDataSource>
+    <RelatedField>RecId</RelatedField>
+  </AxQuerySimpleDataSourceRelation>
+</Relations>
+```
+
+For open transaction joins such as `VendTransOpen` to `VendTrans`, compare with
+local `CustTransOpen` examples; include both `AccountNum` and `RefRecId` to
+`RecId` relations when that is the platform pattern.
+
+Post-scaffold checks:
+
+```powershell
+d365fo validate xpp <AxQuery.xml> --code-type xml-any --output table
+d365fo index refresh --model <Model> --force
+d365fo get query <QueryName> --output json
 ```

@@ -156,7 +156,7 @@ public sealed class FindRefsCommand : Command<FindRefsCommand.Settings>
         public int Limit { get; init; } = 200;
 
         [CommandOption("--xref")]
-        [System.ComponentModel.Description("Prefer the DYNAMICSXREFDB via the metadata bridge. Requires D365FO_BRIDGE_ENABLED=1 and a populated DYNAMICSXREFDB on the VM.")]
+        [System.ComponentModel.Description("Prefer the DYNAMICSXREFDB via the metadata bridge. Requires a populated DYNAMICSXREFDB on the VM; set D365FO_BRIDGE_ENABLED=0 to disable the bridge.")]
         public bool Xref { get; init; }
     }
 

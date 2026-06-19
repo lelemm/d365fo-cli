@@ -3,7 +3,7 @@ name: object-extension-authoring
 description: Create a Table / Form / Edt / Enum extension, a new EDT (Extended Data Type), or a new base enum in D365 Finance & Operations. Use when the user asks to "extend a table", "add a field to standard CustTable", "extend an EDT", "add an enum value", "extend a form via FormExtension", "create an EDT", "create a new EDT", "create an enum", "generate edt", or "generate enum".
 applies_when: User intent mentions extending a Table / Form / Edt / Enum, adding fields to a standard table, adding controls to a standard form, extending an enum or EDT, creating a new EDT (Extended Data Type), or creating a new base enum.
 ---
-> ⛔ **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema (`<AxClass>`, `<AxTable>`, `<AxForm>`, `<Methods>`, `<SourceCode>`) is proprietary — LLMs have not been trained on it reliably. **ALWAYS use `d365fo generate …` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
+> **Designer-first metadata rule.** Do not hand-author partial Ax* XML nodes as the first path. For AOT metadata child nodes, use `d365fo designer kinds --full`, `d365fo designer catalog`, and `d365fo designer run` so Microsoft metadata assemblies create the node. For top-level or composite artifacts, use `d365fo generate ... --backend bridge`. Only write full AOT XML content manually after the designer/generate CLI path fails or has no supported action; when doing so, record the failed command and error. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
 
 # Authoring object extensions (Table / Form / Edt / Enum)
 
@@ -74,18 +74,22 @@ Before scaffolding a new extension, inspect the existing result from
 ## Scaffolding
 
 ```sh
-# Add fields to standard CustTable in the FleetManagement model
-d365fo generate extension Table CustTable Fleet --install-to FleetManagement
+# Add fields to the resolved target table in the resolved target model
+d365fo generate extension Table <TableName> <Suffix> --install-to <Model>
 
-# Form extension targeting CustTableListPage
-d365fo generate extension Form CustTableListPage Fleet --install-to FleetManagement
+# Form extension targeting the resolved target form
+d365fo generate extension Form <FormName> <Suffix> --install-to <Model>
 
-# Tighten the CustAccount EDT
-d365fo generate extension Edt CustAccount Fleet --install-to FleetManagement
+# Tighten the resolved target EDT
+d365fo generate extension Edt <EdtName> <Suffix> --install-to <Model>
 
-# Add an enum member to NoYes
-d365fo generate extension Enum NoYes Fleet --install-to FleetManagement
+# Add enum members to the resolved target enum
+d365fo generate extension Enum <EnumName> <Suffix> --install-to <Model>
 ```
+
+Substitute `<Model>`, `<Suffix>`, and target object names from pre-flight
+results, existing related extensions, or explicit user input. Do not use demo
+model names, customer names, ticket names, or feature names as defaults.
 
 The scaffold emits a minimal `<AxXxxExtension>` element with the
 `<Name>Target.Suffix</Name>` shape Visual Studio expects. After scaffolding,
@@ -101,23 +105,26 @@ When you need a standalone EDT or enum (not an extension of an existing one), us
 # New string EDT — check for an existing one first
 d365fo search edt <NamePart> --output json
 
-d365fo generate edt CustCustomId \
-  --base-type String --size 20 --label "@MyModel:CustCustomId" \
-  --out c:/AOT/MyModel/AxEdt/CustCustomId.xml
+d365fo generate edt <NewEdtName> \
+  --base-type String --size <Length> --label "@<LabelFile>:<LabelKey>" \
+  --out "<ModelRoot>/AxEdt/<NewEdtName>.xml"
 
 # Derive from an existing EDT (inherits base type and format)
-d365fo generate edt CustCustomAccount \
-  --extends CustAccount \
-  --label "@MyModel:CustCustomAccount" \
-  --out c:/AOT/MyModel/AxEdt/CustCustomAccount.xml
+d365fo generate edt <NewEdtName> \
+  --extends <BaseEdtName> \
+  --label "@<LabelFile>:<LabelKey>" \
+  --out "<ModelRoot>/AxEdt/<NewEdtName>.xml"
 
 # New extensible enum — check for existing first
 d365fo search enum <NamePart> --output json
 
-d365fo generate enum CustCustomStatus \
-  --value "None:0:@SYS000" --value "Active:1:@SYS001" --value "Closed:2:@SYS002" \
-  --out c:/AOT/MyModel/AxEnum/CustCustomStatus.xml
+d365fo generate enum <NewEnumName> \
+  --value "<ValueName>:<Ordinal>:@<LabelFile>:<LabelKey>" \
+  --out "<ModelRoot>/AxEnum/<NewEnumName>.xml"
 ```
+
+Resolve `<ModelRoot>` from the actual package/model folder. Reuse the model's
+label file and label-key conventions; create labels before referencing them.
 
 `--base-type` accepts `String`, `Integer`, `Real`, `Int64`, `Date`, `UtcDateTime`, `Enum`, `Guid`. Enums are `IsExtensible=Yes` by default — pass `--no-extensible` to opt out.
 
@@ -129,19 +136,19 @@ When adding row-level security via Extensible Data Security (XDS):
 # Check for existing policies on the same table first
 d365fo search security-policy <ConstrainedTableName> --output json
 
-d365fo generate security-policy CustCustomSecurityPolicy \
-  --constrained-table CustCustomTable \
-  --policy-query CustCustomPolicyQuery \
+d365fo generate security-policy <SecurityPolicyName> \
+  --constrained-table <ConstrainedTableName> \
+  --policy-query <PolicyQueryName> \
   --operation Select \
-  --context-type RoleName --context-value CustCustomRole \
-  --out c:/AOT/MyModel/AxSecurityPolicy/CustCustomSecurityPolicy.xml
+  --context-type RoleName --context-value <SecurityRoleName> \
+  --out "<ModelRoot>/AxSecurityPolicy/<SecurityPolicyName>.xml"
 ```
 
 `--operation` accepts `All`, `Select`, `Insert`, `Update`, `Delete`. The policy query (`--policy-query`) is a separate `AxQuery` AOT object that must already exist or be scaffolded with `d365fo generate query`.
 
 After scaffolding, verify with:
 ```sh
-d365fo get security-policy CustCustomSecurityPolicy --output json
+d365fo get security-policy <SecurityPolicyName> --output json
 ```
 
 ## Hard rules
@@ -165,3 +172,43 @@ d365fo get security-policy CustCustomSecurityPolicy --output json
 - Never guess EDT base types — `d365fo get edt <Name>` first.
 - Always check for existing security policies before adding a new one — `d365fo search security-policy` first.
 - After scaffolding, run `d365fo build` only on user request.
+
+## Enum serializer compatibility lessons
+
+Visual Studio may display a generated enum but omit its value items if the
+value collection is not shaped like local model metadata. For standalone
+AxEnum XML, match nearby working enums before finalizing:
+
+```xml
+<AxEnum xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+  <Name>MyEnum</Name>
+  <Label>@MyFile:MyEnum</Label>
+  <UseEnumValue>No</UseEnumValue>
+  <EnumValues>
+    <AxEnumValue>
+      <Name>MyValue</Name>
+      <Label>@MyFile:MyValue</Label>
+      <Value>0</Value>
+    </AxEnumValue>
+  </EnumValues>
+  <IsExtensible>true</IsExtensible>
+</AxEnum>
+```
+
+Rules:
+
+- Give every `AxEnumValue` a `Label`; create or reuse labels first.
+- Keep `EnumValues` before `IsExtensible` when that is the local convention.
+- Add `UseEnumValue` consistently with nearby enums in the same model. Do not
+  assume the value from another customer/project.
+- Do not trust XML well-formedness alone. Run:
+
+```powershell
+d365fo validate xpp <AxEnum.xml> --code-type xml-any --output table
+d365fo index refresh --model <Model> --force
+d365fo get enum <EnumName> --output json
+d365fo analyze completeness <ProjectOrModelPath> --resolve-labels --output table
+```
+
+If `d365fo get enum` sees values but Visual Studio does not, compare property
+ordering and value labels against existing enums in the same model.

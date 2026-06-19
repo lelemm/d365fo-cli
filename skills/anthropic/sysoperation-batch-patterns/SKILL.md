@@ -3,7 +3,7 @@ name: sysoperation-batch-patterns
 description: Scaffold batch jobs, SysOperation triplets (DataContract + Service + Controller), RunBase/RunBaseBatch classes, or data migration scripts in D365 Finance & Operations. Invoke when the user asks to "create a batch job", "scaffold a SysOperation", "create a RunBase class", "build a batch class", "generate a migration script", "migrate data between tables", or "create a scheduled batch".
 applies_when: User intent mentions batch job, SysOperation, RunBase, RunBaseBatch, scheduled batch, data migration script, DataContract class, batch controller, or SysRunnable.
 ---
-> ⛔ **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema is proprietary. **ALWAYS use `d365fo generate …` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
+> **Designer-first metadata rule.** Do not hand-author partial Ax* XML nodes as the first path. For AOT metadata child nodes, use `d365fo designer kinds --full`, `d365fo designer catalog`, and `d365fo designer run` so Microsoft metadata assemblies create the node. For top-level or composite artifacts, use `d365fo generate ... --backend bridge`. Only write full AOT XML content manually after the designer/generate CLI path fails or has no supported action; when doing so, record the failed command and error. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
 
 # Batch and SysOperation patterns
 

@@ -124,9 +124,12 @@ read form <F> [--lines 10-40]
 
 ## Lint
 
-`d365fo lint` runs 16 in-process heuristics against the index without touching the VM.
+`d365fo lint <file>` uses the .NET Framework bridge to run Microsoft Visual Studio extension best-practice diagnostics for saved AOT XML when available, then falls back to the offline validator in `auto` mode. Bare `d365fo lint` runs 16 in-process heuristics against the index without touching the VM.
 
 ```sh
+d365fo lint AxClass/MyClass.xml                    # bridge-first file diagnostics
+d365fo lint AxClass/MyClass.xml --backend bridge   # require VS-extension diagnostics
+d365fo lint AxClass/MyClass.xml --backend legacy   # local offline validator
 d365fo lint                                         # all rules, custom models only
 d365fo lint --all-models                            # include MS/ISV content
 d365fo lint --category insert-in-loop,force-literals  # specific rules

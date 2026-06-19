@@ -21,6 +21,11 @@
 
   <ItemGroup>
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
+    <Reference Include="System.Runtime.Serialization" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\D365FO.Shared\Designer\DesignerKindCatalog.cs" Link="Shared\DesignerKindCatalog.cs" />
   </ItemGroup>
 
 </Project>

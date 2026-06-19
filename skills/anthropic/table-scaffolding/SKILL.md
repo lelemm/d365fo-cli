@@ -3,7 +3,7 @@ name: table-scaffolding
 description: Create AxTable XML in D365 Finance & Operations using business-role pattern presets (Main / Transaction / Parameter / Group / Reference / WorksheetHeader / WorksheetLine), or add fields / indexes / relations to existing tables. Use whenever the user asks to "create a table", "scaffold a master/transaction/parameter table", "add a field", or "set TableGroup / TableType".
 applies_when: User intent mentions creating a table, choosing TableGroup / TableType, adding fields / indexes / relations, or temporary (TempDB / InMemory) tables.
 ---
-> ⛔ **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema (`<AxClass>`, `<AxTable>`, `<AxForm>`, `<Methods>`, `<SourceCode>`) is proprietary — LLMs have not been trained on it reliably. **ALWAYS use `d365fo generate …` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
+> **Designer-first metadata rule.** Do not hand-author partial Ax* XML nodes as the first path. For AOT metadata child nodes, use `d365fo designer kinds --full`, `d365fo designer catalog`, and `d365fo designer run` so Microsoft metadata assemblies create the node. For top-level or composite artifacts, use `d365fo generate ... --backend bridge`. Only write full AOT XML content manually after the designer/generate CLI path fails or has no supported action; when doing so, record the failed command and error. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
 
 # Creating & modifying AxTable definitions
 
@@ -173,3 +173,29 @@ numSeq.used();   // or numSeq.abort() to roll back
 - Never ship a table without an alternate-key index (BP).
 - Never inline UI strings — labels only (BP `BPErrorLabelIsText`).
 - After scaffolding, run `d365fo build && d365fo sync` **only on user request**.
+
+## Serializer compatibility lessons
+
+Visual Studio is stricter than XML well-formedness. After scaffolding or
+repairing AxTable XML, verify the metadata can deserialize:
+
+```powershell
+d365fo validate xpp <AxTable.xml> --code-type xml-table --output table
+d365fo index refresh --model <Model> --force
+d365fo get table <TableName> --output json
+```
+
+Never leave bare `<AxTableField>` nodes in committed table XML. Each data field
+must be a concrete subtype:
+
+- string EDTs: `i:type="AxTableFieldString"`
+- dates: `i:type="AxTableFieldDate"`
+- amounts / `LineNum`: `i:type="AxTableFieldReal"`
+- integers: `i:type="AxTableFieldInt"`
+- RecIds / tableIds / dimensions: `i:type="AxTableFieldInt64"`
+- enum EDTs and `NoYesId`: `i:type="AxTableFieldEnum"`
+- UTC datetimes: `i:type="AxTableFieldUtcDateTime"`
+
+Bare `AxTableField` nodes can show in Visual Studio as corrupted metadata or
+"Cannot create an abstract class". Do not add `i:type` to field groups or index
+fields; only table data fields need concrete field subtypes.

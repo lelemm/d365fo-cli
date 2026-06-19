@@ -1,6 +1,7 @@
 using D365FO.Core;
 using D365FO.Core.Scaffolding;
 using Spectre.Console.Cli;
+using System.Text.Json.Nodes;
 
 namespace D365FO.Cli.Commands.Generate;
 
@@ -49,6 +50,9 @@ public sealed class GenerateMenuItemCommand : Command<GenerateMenuItemCommand.Se
         if (!TryParseObjectType(settings.ObjectType, out var objType))
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput,
                 $"Unknown --object-type '{settings.ObjectType}'. Expected Form | Class | Report | Query."));
+        if (!GenerateBackendResolver.TryResolve(settings.Backend, out var backend, out var backendError))
+            return GenerateBridgeScaffolding.RenderBackendError(kind, backendError!);
+        var useBridge = GenerateBackendResolver.ShouldUseBridge(backend);
 
         var hasInstall = !string.IsNullOrWhiteSpace(settings.InstallTo);
         var hasOut     = !string.IsNullOrWhiteSpace(settings.Out);
@@ -57,11 +61,23 @@ public sealed class GenerateMenuItemCommand : Command<GenerateMenuItemCommand.Se
 
         var axSubfolder = MenuItemScaffolder.AxSubfolder(menuKind);
         var outPath = settings.Out;
-        if (hasInstall && !hasOut)
+        if (hasInstall && !hasOut && !useBridge)
         {
             outPath = GenerateInstaller.ResolveInstallPath(kind, axSubfolder, settings.Name, settings.InstallTo!, out var fail);
             if (fail.HasValue) return fail.Value;
         }
+
+        var menuProperties = new JsonObject
+        {
+            ["Object"] = settings.ObjectName,
+            ["ObjectType"] = objType.ToString(),
+        };
+        if (!string.IsNullOrWhiteSpace(settings.Label)) menuProperties["Label"] = settings.Label;
+
+        var bridge = GenerateBridgeScaffolding.TryWrite(
+            kind, backend, settings.InstallTo, settings.Overwrite, axSubfolder, settings.Name, null, outPath,
+            properties: menuProperties);
+        if (bridge.Handled) return bridge.ExitCode;
 
         var doc = MenuItemScaffolder.MenuItem(menuKind, settings.Name, settings.ObjectName!, objType, settings.Label);
         try

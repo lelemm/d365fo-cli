@@ -23,6 +23,7 @@ namespace D365FO.Bridge
         private static bool _resolverInstalled;
         private static string _binPath;
         private static string _packagesPath;
+        private static string _vsExtensionPath;
         private static string[] _customPackagesPaths = new string[0];
 
         // Cached reflection artefacts per logical provider instance.
@@ -31,6 +32,7 @@ namespace D365FO.Bridge
 
         internal static string BinPath { get { return _binPath; } }
         internal static string PackagesPath { get { return _packagesPath; } }
+        internal static string VsExtensionPath { get { return _vsExtensionPath; } }
         internal static string LastError { get { return _lastError; } }
         internal static bool IsLoaded { get { return _provider != null; } }
 
@@ -48,23 +50,19 @@ namespace D365FO.Bridge
                 if (_provider != null) return true;
                 _lastError = null;
 
-                _binPath = ResolveBinPath(out _packagesPath);
-                _customPackagesPaths = ResolveCustomPackagesPaths();
-                if (string.IsNullOrEmpty(_binPath) || !Directory.Exists(_binPath))
-                {
-                    _lastError = "D365FO_BIN_PATH (or D365FO_PACKAGES_PATH\\bin) is not set or does not exist.";
+                if (!TryInitializeAssemblyResolution())
                     return false;
-                }
-
-                if (!_resolverInstalled)
-                {
-                    AppDomain.CurrentDomain.AssemblyResolve += OnAssemblyResolve;
-                    _resolverInstalled = true;
-                }
 
                 try
                 {
-                    var storage = Assembly.LoadFrom(Path.Combine(_binPath, "Microsoft.Dynamics.AX.Metadata.Storage.dll"));
+                    var storagePath = FindAssemblyPath("Microsoft.Dynamics.AX.Metadata.Storage.dll");
+                    if (string.IsNullOrEmpty(storagePath))
+                    {
+                        _lastError = "Microsoft.Dynamics.AX.Metadata.Storage.dll was not found in D365FO_BIN_PATH, D365FO_PACKAGES_PATH\\bin, or D365FO_VS_EXTENSION_PATH.";
+                        return false;
+                    }
+
+                    var storage = Assembly.LoadFrom(storagePath);
                     _provider = CreateProvider(storage);
                     if (_provider == null)
                     {
@@ -75,10 +73,44 @@ namespace D365FO.Bridge
                 }
                 catch (Exception ex)
                 {
-                    _lastError = ex.GetType().Name + ": " + ex.Message;
+                    var inner = ex is TargetInvocationException && ex.InnerException != null
+                        ? " / " + ex.InnerException.GetType().Name + ": " + ex.InnerException.Message
+                        : string.Empty;
+                    _lastError = ex.GetType().Name + ": " + ex.Message + inner;
                     _provider = null;
                     return false;
                 }
+            }
+        }
+
+        /// <summary>
+        /// Initialize only assembly probing, without constructing an
+        /// <c>IMetadataProvider</c>. Used by render-only scaffolding where the
+        /// bridge needs Microsoft's MetaModel types but not a model manifest.
+        /// </summary>
+        internal static bool TryInitializeAssemblyResolution()
+        {
+            lock (_lock)
+            {
+                _lastError = null;
+
+                _vsExtensionPath = VsExtensionBootstrap.ResolveExtensionPath();
+                _binPath = ResolveBinPath(out _packagesPath);
+                _customPackagesPaths = ResolveCustomPackagesPaths();
+                if ((string.IsNullOrEmpty(_binPath) || !Directory.Exists(_binPath)) &&
+                    (string.IsNullOrEmpty(_vsExtensionPath) || !Directory.Exists(_vsExtensionPath)))
+                {
+                    _lastError = "D365FO_BIN_PATH (or D365FO_PACKAGES_PATH\\bin) is not set, and the D365FO VS extension was not found. Set D365FO_BIN_PATH or D365FO_VS_EXTENSION_PATH.";
+                    return false;
+                }
+
+                if (!_resolverInstalled)
+                {
+                    AppDomain.CurrentDomain.AssemblyResolve += OnAssemblyResolve;
+                    _resolverInstalled = true;
+                }
+
+                return true;
             }
         }
 
@@ -100,6 +132,7 @@ namespace D365FO.Bridge
                 ["loaded"] = _provider != null,
                 ["binPath"] = _binPath ?? string.Empty,
                 ["packagesPath"] = _packagesPath ?? string.Empty,
+                ["vsExtensionPath"] = _vsExtensionPath ?? string.Empty,
                 ["customPackagesPaths"] = string.Join(";", _customPackagesPaths),
                 ["error"] = _lastError ?? string.Empty,
             };
@@ -112,6 +145,10 @@ namespace D365FO.Bridge
             if (string.IsNullOrEmpty(bin) && !string.IsNullOrEmpty(packagesPath))
             {
                 bin = Path.Combine(packagesPath, "bin");
+            }
+            if (string.IsNullOrEmpty(bin) && !string.IsNullOrEmpty(_vsExtensionPath))
+            {
+                bin = _vsExtensionPath;
             }
             return bin;
         }
@@ -164,11 +201,10 @@ namespace D365FO.Bridge
 
         private static Assembly OnAssemblyResolve(object sender, ResolveEventArgs args)
         {
-            if (string.IsNullOrEmpty(_binPath)) return null;
             try
             {
                 var name = new AssemblyName(args.Name).Name + ".dll";
-                var path = Path.Combine(_binPath, name);
+                var path = FindAssemblyPath(name);
                 if (File.Exists(path))
                 {
                     return Assembly.LoadFrom(path);
@@ -179,6 +215,36 @@ namespace D365FO.Bridge
                 // swallow — the resolver returning null lets the CLR try other handlers.
             }
             return null;
+        }
+
+        internal static string FindAssemblyPath(string fileName)
+        {
+            if (string.IsNullOrWhiteSpace(fileName)) return null;
+            foreach (var dir in EnumerateAssemblyProbePaths())
+            {
+                if (string.IsNullOrWhiteSpace(dir)) continue;
+                try
+                {
+                    var path = Path.Combine(dir, fileName);
+                    if (File.Exists(path)) return path;
+                }
+                catch
+                {
+                    // Ignore malformed paths and continue probing.
+                }
+            }
+            return null;
+        }
+
+        private static System.Collections.Generic.IEnumerable<string> EnumerateAssemblyProbePaths()
+        {
+            if (!string.IsNullOrEmpty(_binPath)) yield return _binPath;
+            if (!string.IsNullOrEmpty(_vsExtensionPath)) yield return _vsExtensionPath;
+            foreach (var probe in VsExtensionBootstrap.GetAssemblyProbePaths())
+            {
+                yield return probe;
+            }
+            yield return AppDomain.CurrentDomain.BaseDirectory;
         }
 
         /// <summary>
@@ -370,6 +436,23 @@ namespace D365FO.Bridge
                 { "edt",   "Edts"    },
                 { "enum",  "Enums"   },
                 { "form",  "Forms"   },
+                { "query", "Queries" },
+                { "dataEntityView", "DataEntityViews" },
+                { "tableExtension", "TableExtensions" },
+                { "formExtension", "FormExtensions" },
+                { "edtExtension", "EdtExtensions" },
+                { "enumExtension", "EnumExtensions" },
+                { "menuItemDisplay", "MenuItemDisplays" },
+                { "menuItemAction", "MenuItemActions" },
+                { "menuItemOutput", "MenuItemOutputs" },
+                { "securityPrivilege", "SecurityPrivileges" },
+                { "securityDuty", "SecurityDuties" },
+                { "securityRole", "SecurityRoles" },
+                { "service", "Services" },
+                { "serviceGroup", "ServiceGroups" },
+                { "workflowTemplate", "WorkflowTemplates" },
+                { "workflowApproval", "WorkflowApprovals" },
+                { "workflowTask", "WorkflowTasks" },
             };
 
         private static readonly System.Collections.Generic.Dictionary<string, string> KindToTypeName =
@@ -380,7 +463,129 @@ namespace D365FO.Bridge
                 { "edt",   "Microsoft.Dynamics.AX.Metadata.MetaModel.AxEdt"   },
                 { "enum",  "Microsoft.Dynamics.AX.Metadata.MetaModel.AxEnum"  },
                 { "form",  "Microsoft.Dynamics.AX.Metadata.MetaModel.AxForm"  },
+                { "query", "Microsoft.Dynamics.AX.Metadata.MetaModel.AxQuery" },
+                { "dataEntityView", "Microsoft.Dynamics.AX.Metadata.MetaModel.AxDataEntityView" },
+                { "tableExtension", "Microsoft.Dynamics.AX.Metadata.MetaModel.AxTableExtension" },
+                { "formExtension", "Microsoft.Dynamics.AX.Metadata.MetaModel.AxFormExtension" },
+                { "edtExtension", "Microsoft.Dynamics.AX.Metadata.MetaModel.AxEdtExtension" },
+                { "enumExtension", "Microsoft.Dynamics.AX.Metadata.MetaModel.AxEnumExtension" },
+                { "menuItemDisplay", "Microsoft.Dynamics.AX.Metadata.MetaModel.AxMenuItemDisplay" },
+                { "menuItemAction", "Microsoft.Dynamics.AX.Metadata.MetaModel.AxMenuItemAction" },
+                { "menuItemOutput", "Microsoft.Dynamics.AX.Metadata.MetaModel.AxMenuItemOutput" },
+                { "securityPrivilege", "Microsoft.Dynamics.AX.Metadata.MetaModel.AxSecurityPrivilege" },
+                { "securityDuty", "Microsoft.Dynamics.AX.Metadata.MetaModel.AxSecurityDuty" },
+                { "securityRole", "Microsoft.Dynamics.AX.Metadata.MetaModel.AxSecurityRole" },
+                { "service", "Microsoft.Dynamics.AX.Metadata.MetaModel.AxService" },
+                { "serviceGroup", "Microsoft.Dynamics.AX.Metadata.MetaModel.AxServiceGroup" },
+                { "workflowTemplate", "Microsoft.Dynamics.AX.Metadata.MetaModel.AxWorkflowTemplate" },
+                { "workflowApproval", "Microsoft.Dynamics.AX.Metadata.MetaModel.AxWorkflowApproval" },
+                { "workflowTask", "Microsoft.Dynamics.AX.Metadata.MetaModel.AxWorkflowTask" },
             };
+
+        private static readonly System.Collections.Generic.Dictionary<string, string> KindToSubfolder =
+            new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "class", "AxClass" },
+                { "table", "AxTable" },
+                { "edt", "AxEdt" },
+                { "enum", "AxEnum" },
+                { "form", "AxForm" },
+                { "query", "AxQuery" },
+                { "dataEntityView", "AxDataEntityView" },
+                { "tableExtension", "AxTableExtension" },
+                { "formExtension", "AxFormExtension" },
+                { "edtExtension", "AxEdtExtension" },
+                { "enumExtension", "AxEnumExtension" },
+                { "menuItemDisplay", "AxMenuItemDisplay" },
+                { "menuItemAction", "AxMenuItemAction" },
+                { "menuItemOutput", "AxMenuItemOutput" },
+                { "securityPrivilege", "AxSecurityPrivilege" },
+                { "securityDuty", "AxSecurityDuty" },
+                { "securityRole", "AxSecurityRole" },
+                { "service", "AxService" },
+                { "serviceGroup", "AxServiceGroup" },
+                { "workflowTemplate", "AxWorkflowTemplate" },
+                { "workflowApproval", "AxWorkflowApproval" },
+                { "workflowTask", "AxWorkflowTask" },
+            };
+
+        private static readonly System.Collections.Generic.Dictionary<string, string> KindAliases =
+            new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "AxClass", "class" },
+                { "class", "class" },
+                { "AxTable", "table" },
+                { "table", "table" },
+                { "AxEdt", "edt" },
+                { "edt", "edt" },
+                { "AxEnum", "enum" },
+                { "enum", "enum" },
+                { "AxForm", "form" },
+                { "form", "form" },
+                { "AxQuery", "query" },
+                { "query", "query" },
+                { "AxDataEntityView", "dataEntityView" },
+                { "dataEntityView", "dataEntityView" },
+                { "data-entity-view", "dataEntityView" },
+                { "entity", "dataEntityView" },
+                { "data-entity", "dataEntityView" },
+                { "AxTableExtension", "tableExtension" },
+                { "tableExtension", "tableExtension" },
+                { "table-extension", "tableExtension" },
+                { "AxFormExtension", "formExtension" },
+                { "formExtension", "formExtension" },
+                { "form-extension", "formExtension" },
+                { "AxEdtExtension", "edtExtension" },
+                { "edtExtension", "edtExtension" },
+                { "edt-extension", "edtExtension" },
+                { "AxEnumExtension", "enumExtension" },
+                { "enumExtension", "enumExtension" },
+                { "enum-extension", "enumExtension" },
+                { "AxMenuItemDisplay", "menuItemDisplay" },
+                { "menuItemDisplay", "menuItemDisplay" },
+                { "menu-item-display", "menuItemDisplay" },
+                { "AxMenuItemAction", "menuItemAction" },
+                { "menuItemAction", "menuItemAction" },
+                { "menu-item-action", "menuItemAction" },
+                { "AxMenuItemOutput", "menuItemOutput" },
+                { "menuItemOutput", "menuItemOutput" },
+                { "menu-item-output", "menuItemOutput" },
+                { "AxSecurityPrivilege", "securityPrivilege" },
+                { "securityPrivilege", "securityPrivilege" },
+                { "security-privilege", "securityPrivilege" },
+                { "AxSecurityDuty", "securityDuty" },
+                { "securityDuty", "securityDuty" },
+                { "security-duty", "securityDuty" },
+                { "AxSecurityRole", "securityRole" },
+                { "securityRole", "securityRole" },
+                { "security-role", "securityRole" },
+                { "AxService", "service" },
+                { "service", "service" },
+                { "AxServiceGroup", "serviceGroup" },
+                { "serviceGroup", "serviceGroup" },
+                { "service-group", "serviceGroup" },
+                { "AxWorkflowTemplate", "workflowTemplate" },
+                { "workflowTemplate", "workflowTemplate" },
+                { "workflow-template", "workflowTemplate" },
+                { "AxWorkflowApproval", "workflowApproval" },
+                { "workflowApproval", "workflowApproval" },
+                { "workflow-approval", "workflowApproval" },
+                { "AxWorkflowTask", "workflowTask" },
+                { "workflowTask", "workflowTask" },
+                { "workflow-task", "workflowTask" },
+            };
+
+        internal static string NormalizeKind(string kind)
+        {
+            if (string.IsNullOrWhiteSpace(kind)) return null;
+            return KindAliases.TryGetValue(kind.Trim(), out var canonical) ? canonical : kind.Trim();
+        }
+
+        internal static string GetAxSubfolder(string kind)
+        {
+            var canonical = NormalizeKind(kind);
+            return canonical != null && KindToSubfolder.TryGetValue(canonical, out var folder) ? folder : null;
+        }
 
         /// <summary>
         /// Look up the <c>AxClass</c>/<c>AxTable</c>/... Type from the loaded
@@ -389,7 +594,8 @@ namespace D365FO.Bridge
         /// </summary>
         internal static Type GetMetaModelType(string kind)
         {
-            if (!KindToTypeName.TryGetValue(kind, out var typeName)) return null;
+            var canonical = NormalizeKind(kind);
+            if (canonical == null || !KindToTypeName.TryGetValue(canonical, out var typeName)) return null;
             return ResolveMetaModelType(typeName);
         }
 
@@ -417,7 +623,9 @@ namespace D365FO.Bridge
             // Force-load if not present yet.
             try
             {
-                var meta = Assembly.LoadFrom(Path.Combine(_binPath, "Microsoft.Dynamics.AX.Metadata.dll"));
+                var metaPath = FindAssemblyPath("Microsoft.Dynamics.AX.Metadata.dll");
+                if (string.IsNullOrEmpty(metaPath)) return null;
+                var meta = Assembly.LoadFrom(metaPath);
                 return meta.GetType(typeName, false);
             }
             catch { return null; }
@@ -537,7 +745,8 @@ namespace D365FO.Bridge
         /// </summary>
         internal static (bool ok, string error) SaveArtifact(string kind, string op, object axInstance, string nameForDelete, object modelSaveInfo)
         {
-            if (!KindToCollection.TryGetValue(kind, out var collectionName))
+            var canonical = NormalizeKind(kind);
+            if (canonical == null || !KindToCollection.TryGetValue(canonical, out var collectionName))
             {
                 return (false, "Unknown kind: " + kind);
             }
@@ -550,13 +759,13 @@ namespace D365FO.Bridge
             object[] callArgs;
             if (string.Equals(op, "delete", StringComparison.OrdinalIgnoreCase))
             {
-                m = coll.GetType().GetMethod("Delete", new[] { typeof(string), modelSaveInfo.GetType() });
+                m = FindCollectionMethod(coll.GetType(), "Delete", typeof(string), modelSaveInfo.GetType());
                 callArgs = new[] { (object)nameForDelete, modelSaveInfo };
             }
             else
             {
                 var methodName = string.Equals(op, "update", StringComparison.OrdinalIgnoreCase) ? "Update" : "Create";
-                m = coll.GetType().GetMethod(methodName, new[] { axInstance.GetType(), modelSaveInfo.GetType() });
+                m = FindCollectionMethod(coll.GetType(), methodName, axInstance.GetType(), modelSaveInfo.GetType());
                 callArgs = new[] { axInstance, modelSaveInfo };
             }
             if (m == null)
@@ -577,6 +786,47 @@ namespace D365FO.Bridge
             {
                 return (false, ex.GetType().Name + ": " + ex.Message);
             }
+        }
+
+        internal static bool ArtifactExists(string kind, string name)
+        {
+            var canonical = NormalizeKind(kind);
+            if (canonical == null || !KindToCollection.TryGetValue(canonical, out var collectionName))
+            {
+                return false;
+            }
+
+            return ReadArtifact(collectionName, name) != null;
+        }
+
+        private static MethodInfo FindCollectionMethod(Type collectionType, string methodName, Type firstArg, Type secondArg)
+        {
+            if (collectionType == null || string.IsNullOrEmpty(methodName) || firstArg == null || secondArg == null)
+            {
+                return null;
+            }
+
+            foreach (var method in collectionType.GetMethods())
+            {
+                if (!string.Equals(method.Name, methodName, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var parameters = method.GetParameters();
+                if (parameters.Length != 2)
+                {
+                    continue;
+                }
+
+                if (parameters[0].ParameterType.IsAssignableFrom(firstArg) &&
+                    parameters[1].ParameterType.IsAssignableFrom(secondArg))
+                {
+                    return method;
+                }
+            }
+
+            return null;
         }
 
         /// <summary>

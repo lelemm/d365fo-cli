@@ -3,7 +3,7 @@ name: review-and-checkpoint-workflow
 description: Use Git as the review layer for AI-driven D365FO edits, and use `d365fo review diff` to get an AOT-semantic summary of XML changes. Invoke whenever the user is about to start a non-trivial change, before "accepting" AI edits, or wants a structural diff (added classes, modified table fields, new CoC wrappers).
 applies_when: User intent mentions reviewing changes, accepting / rejecting AI edits, "what changed", AOT diff, structural diff, or VS 2022's missing accept/undo UI.
 ---
-> ⛔ **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema (`<AxClass>`, `<AxTable>`, `<AxForm>`, `<Methods>`, `<SourceCode>`) is proprietary — LLMs have not been trained on it reliably. **ALWAYS use `d365fo generate …` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
+> **Designer-first metadata rule.** Do not hand-author partial Ax* XML nodes as the first path. For AOT metadata child nodes, use `d365fo designer kinds --full`, `d365fo designer catalog`, and `d365fo designer run` so Microsoft metadata assemblies create the node. For top-level or composite artifacts, use `d365fo generate ... --backend bridge`. Only write full AOT XML content manually after the designer/generate CLI path fails or has no supported action; when doing so, record the failed command and error. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
 
 # Git-checkpoint review workflow
 

@@ -126,9 +126,9 @@ d365fo-index.sqlite-shm      ← shared memory for WAL
 
 | Check | Command |
 |---|---|
-| Is the bridge enabled? | `echo $env:D365FO_BRIDGE_ENABLED` — must be `1` or `true` |
+| Is the bridge disabled? | `echo $env:D365FO_BRIDGE_ENABLED` - unset/`1`/`true` enables it; `0`/`false` disables it |
 | Is `D365FO_BIN_PATH` set? | Must point to the D365FO binaries folder (contains `Microsoft.Dynamics.Ax.Xpp.Support.dll`) |
-| Is the bridge executable present? | `Test-Path "$env:D365FO_BRIDGE_PATH"` or auto-discovered at `<CLI root>/bin/D365FO.Bridge.exe` |
+| Is the bridge executable present? | Check `<CLI root>\bridge\D365FO.Bridge.exe`; `D365FO_BRIDGE_PATH` is only an override for custom/dev layouts |
 | Is the target platform Windows? | Bridge is Windows-only; non-Windows always falls back |
 
 Bridge startup errors are written to stderr. Capture them:

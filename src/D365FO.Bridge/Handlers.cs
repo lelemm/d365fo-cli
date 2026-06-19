@@ -29,6 +29,7 @@ namespace D365FO.Bridge
                 ["framework"] = RuntimeInformation(),
                 ["binPath"] = (string)diag["binPath"],
                 ["packagesPath"] = (string)diag["packagesPath"],
+                ["vsExtensionPath"] = (string)diag["vsExtensionPath"],
                 ["metadataLoaded"] = (bool)diag["loaded"],
                 ["metadataError"] = (string)diag["error"],
             };
@@ -45,6 +46,15 @@ namespace D365FO.Bridge
         internal JsonObject SaveObject(JsonObject args) { return WriteArtifact(args, "create"); }
         internal JsonObject UpdateObject(JsonObject args) { return WriteArtifact(args, "update"); }
         internal JsonObject DeleteObject(JsonObject args) { return WriteArtifact(args, "delete"); }
+        internal JsonObject ScaffoldObject(JsonObject args) { return MetadataObjectFactory.Scaffold(args); }
+        internal JsonObject RunDataEntityWizard(JsonObject args) { return WizardScaffolder.RunDataEntityWizard(args); }
+        internal JsonObject RunWorkflowWizard(JsonObject args) { return WizardScaffolder.RunWorkflowWizard(args); }
+        internal JsonObject DesignerCatalog(JsonObject args) { return DesignerActionRunner.Catalog(args); }
+        internal JsonObject DesignerActions(JsonObject args) { return DesignerActionRunner.Actions(args); }
+        internal JsonObject DesignerRun(JsonObject args) { return DesignerActionRunner.Run(args); }
+        internal JsonObject DesignerProperties(JsonObject args) { return DesignerActionRunner.Properties(args); }
+        internal JsonObject DesignerPropertyOptions(JsonObject args) { return DesignerActionRunner.PropertyOptions(args); }
+        internal JsonObject LintFile(JsonObject args) { return VsLintRunner.LintFile(args); }
 
         // --- xref (DYNAMICSXREFDB) -------------------------------------------
 
@@ -91,6 +101,7 @@ namespace D365FO.Bridge
             string name  = args != null ? (string)args["name"]  : null;
             string model = args != null ? (string)args["model"] : null;
             string xml   = args != null ? (string)args["xml"]   : null;
+            bool overwrite = args != null && ((bool?)args["overwrite"] ?? false);
 
             if (string.IsNullOrWhiteSpace(kind))  return Fail("MISSING_ARG", "kind is required");
             if (string.IsNullOrWhiteSpace(name))  return Fail("MISSING_ARG", "name is required");
@@ -99,9 +110,28 @@ namespace D365FO.Bridge
             {
                 return Fail("MISSING_ARG", "xml is required for update");
             }
-            if (!MetadataBootstrap.KindToCollection.ContainsKey(kind))
+            kind = MetadataBootstrap.NormalizeKind(kind);
+            if (kind == null || !MetadataBootstrap.KindToCollection.ContainsKey(kind))
             {
-                return Fail("INVALID_KIND", "kind must be one of: class, table, edt, enum, form");
+                return Fail("INVALID_KIND", "kind must be one of the supported Ax metadata kinds.");
+            }
+
+            if (!string.Equals(op, "delete", StringComparison.OrdinalIgnoreCase))
+            {
+                var scaffoldArgs = new JsonObject
+                {
+                    ["kind"] = kind,
+                    ["name"] = name,
+                    ["model"] = model,
+                    ["operation"] = op,
+                    ["overwrite"] = overwrite,
+                };
+                if (!string.IsNullOrEmpty(xml))
+                {
+                    scaffoldArgs["properties"] = new JsonObject { ["xml"] = xml };
+                }
+
+                return MetadataObjectFactory.Scaffold(scaffoldArgs);
             }
 
             if (!MetadataBootstrap.TryInitialize())

@@ -107,7 +107,7 @@ Commands:
 
 ## Lint rule categories (16 rules)
 
-`d365fo lint` runs in-process heuristics against the SQLite index. Rules are evaluated without touching the VM.
+`d365fo lint <file>` uses the .NET Framework bridge to run Microsoft Visual Studio extension best-practice diagnostics for saved AOT XML when the bridge is available, then falls back to the offline X++/AOT XML validator in `auto` mode. Bare `d365fo lint` runs in-process heuristics against the SQLite index. The fallback and index paths evaluate without touching the VM; bridge file lint requires the D365FO VM/extension assemblies.
 
 | Category | What it finds | Severity |
 |----------|--------------|---------|
@@ -180,15 +180,15 @@ exit 2 on errors).
 
 ## Metadata Bridge
 
-`D365FO.Bridge` is a .NET Framework 4.8 child process that loads D365FO's own `IMetadataProvider`. The CLI spawns it on demand over stdio JSON-RPC. Activate with `D365FO_BRIDGE_ENABLED=1`.
+`D365FO.Bridge` is a .NET Framework 4.8 child process that loads D365FO's own `IMetadataProvider`. The CLI ships it under the `bridge` subfolder and spawns it on demand over stdio JSON-RPC. Bridge-capable commands use it by default; set `D365FO_BRIDGE_ENABLED=0` to opt out.
 
 | Variable | Purpose |
 |---|---|
 | `D365FO_PACKAGES_PATH` | Primary `PackagesLocalDirectory` root |
 | `D365FO_CUSTOM_PACKAGES_PATH` | Additional roots (semicolon/comma-separated). Used for UDE dual-folder setups — see [SETUP.md](SETUP.md#ude-unified-developer-experience-setup). |
 | `D365FO_BIN_PATH` | D365FO binaries directory (resolves metadata assemblies) |
-| `D365FO_BRIDGE_ENABLED` | `1`/`true` enables bridge-primary reads |
-| `D365FO_BRIDGE_PATH` | Override bridge exe location |
+| `D365FO_BRIDGE_ENABLED` | `0`/`false` disables bridge-primary reads and bridge-backed scaffolding |
+| `D365FO_BRIDGE_PATH` | Optional override for custom/dev bridge exe locations; normal CLI builds use `bridge\D365FO.Bridge.exe` |
 
 Provides: authoritative per-object reads (`get` commands), file create/update/delete (`generate --install-to`), cross-reference queries against `DYNAMICSXREFDB` (`find refs --xref`), model folder resolution. Non-Windows environments fall back to the SQLite index automatically. `get` responses carry `_source: "bridge"` / `"index"` so callers can audit which store answered.
 

@@ -3,7 +3,7 @@ name: x++-class-authoring
 description: Guidance for authoring or extending X++ classes in D365 Finance & Operations. Invoke whenever the user asks to "create a class", "extend a class", "add a method", or write any X++ that touches CoC.
 applies_when: User intent mentions X++ classes, Chain-of-Command, SysOperation, controller/service patterns, or method overrides.
 ---
-> ⛔ **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema (`<AxClass>`, `<AxTable>`, `<AxForm>`, `<Methods>`, `<SourceCode>`) is proprietary — LLMs have not been trained on it reliably. **ALWAYS use `d365fo generate …` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
+> **Designer-first metadata rule.** Do not hand-author partial Ax* XML nodes as the first path. For AOT metadata child nodes, use `d365fo designer kinds --full`, `d365fo designer catalog`, and `d365fo designer run` so Microsoft metadata assemblies create the node. For top-level or composite artifacts, use `d365fo generate ... --backend bridge`. Only write full AOT XML content manually after the designer/generate CLI path fails or has no supported action; when doing so, record the failed command and error. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
 
 # Authoring X++ classes with the d365fo index
 
@@ -130,4 +130,24 @@ Approval/Task event handlers use `WorkflowWorkItemActionManager` for complete/re
 
 ```sh
 d365fo search class WorkflowDocument --output json   # find existing patterns
+```
+
+## Class metadata compatibility lessons
+
+For every `AxClass` file, the file basename, `<AxClass><Name>`, and X++
+class declaration must match exactly. For example,
+`AxClass\Foo_Bar_Extension.xml` must contain `<Name>Foo_Bar_Extension</Name>`
+and `class Foo_Bar_Extension` or `final class Foo_Bar_Extension`.
+
+If these names drift, model compilation fails with
+`ModelElementWithNameDifferentFromFileName`. This is especially easy to miss
+on workflow helper and extension classes whose filenames include a longer
+suffix such as `WorkflowSubmit_Extension`.
+
+Before finalizing a generated or repaired class, run:
+
+```powershell
+d365fo validate xpp <AxClass.xml> --code-type xml-any --output table
+d365fo index refresh --model <Model> --force
+d365fo get class <ClassName> --output json
 ```

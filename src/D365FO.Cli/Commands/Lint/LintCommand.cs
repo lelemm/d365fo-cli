@@ -1,8 +1,11 @@
 using D365FO.Core;
 using D365FO.Core.Index;
+using D365FO.Cli.Commands.Get;
+using D365FO.Cli.Commands.Validate;
 using Spectre.Console;
 using Spectre.Console.Cli;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace D365FO.Cli.Commands.Lint;
 
@@ -16,6 +19,10 @@ public sealed class LintCommand : Command<LintCommand.Settings>
 {
     public sealed class Settings : D365OutputSettings
     {
+        [CommandArgument(0, "[FILE]")]
+        [System.ComponentModel.Description("Optional X++ or AOT XML file to lint. Omit for the existing index-wide lint gate.")]
+        public string? File { get; init; }
+
         [CommandOption("--category <NAMES>")]
         [System.ComponentModel.Description("Comma/semicolon-separated subset of: table-no-index, ext-named-not-attributed, string-without-edt, today-usage, do-insert-update, doc-comment-missing, nested-select, insert-in-loop, tts-try-catch, empty-table-method, batch-no-cango, force-literals, public-instance-field, cache-lookup-mismatch, missing-delete-action, no-alternate-key.")]
         public string? Category { get; init; }
@@ -27,6 +34,22 @@ public sealed class LintCommand : Command<LintCommand.Settings>
         [CommandOption("--format <FMT>")]
         [System.ComponentModel.Description("Output shape: default envelope (json|table|raw) or 'sarif' for SARIF 2.1.0 (CI-friendly).")]
         public string? Format { get; init; }
+
+        [CommandOption("--backend <BACKEND>")]
+        [System.ComponentModel.Description("File lint backend: auto (default), bridge, or legacy. auto tries the VS-extension bridge unless D365FO_BRIDGE_ENABLED=0.")]
+        public string? Backend { get; init; }
+
+        [CommandOption("--model <MODEL>")]
+        [System.ComponentModel.Description("File lint mode only: model containing the AOT XML file. The bridge can usually infer this from PackagesLocalDirectory paths.")]
+        public string? Model { get; init; }
+
+        [CommandOption("--code-type <TYPE>")]
+        [System.ComponentModel.Description("Legacy file lint mode only: xpp, xml-table, or xml-any. Auto-detected from file extension/content when omitted.")]
+        public string? CodeType { get; init; }
+
+        [CommandOption("--context <NAME>")]
+        [System.ComponentModel.Description("Legacy file lint mode only: owning class/table name, used in diagnostic messages.")]
+        public string? Context { get; init; }
     }
 
     private static readonly string[] All =
@@ -39,6 +62,41 @@ public sealed class LintCommand : Command<LintCommand.Settings>
     public override int Execute(CommandContext ctx, Settings settings)
     {
         var kind = OutputMode.Resolve(settings.Output);
+        if (!string.IsNullOrWhiteSpace(settings.File))
+        {
+            if (!LintBackendResolver.TryResolve(settings.Backend, out var backend, out var backendError))
+            {
+                return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, backendError!));
+            }
+
+            if (LintBackendResolver.ShouldUseBridge(backend))
+            {
+                var (ok, error, bridgeResult) = BridgeGate.TryLintFile(settings.File!, settings.Model);
+                if (ok)
+                {
+                    return RenderBridgeLintResult(kind, bridgeResult!);
+                }
+
+                if (backend == LintBackend.Bridge)
+                {
+                    return RenderHelpers.Render(kind, ToolResult<object>.Fail(
+                        "BRIDGE_LINT_FAILED",
+                        error ?? "Bridge lint failed.",
+                        "Use --backend legacy for the local offline validator."));
+                }
+
+                return XppValidationRunner.Run(
+                    kind,
+                    settings.File,
+                    settings.CodeType,
+                    settings.Context,
+                    source: "offline-validator",
+                    fallbackWarnings: new[] { "Bridge lint unavailable; fell back to the local offline validator. " + (error ?? string.Empty) });
+            }
+
+            return XppValidationRunner.Run(kind, settings.File, settings.CodeType, settings.Context);
+        }
+
         var repo = RepoFactory.Create();
         var categories = (settings.Category ?? "")
             .Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -113,6 +171,35 @@ public sealed class LintCommand : Command<LintCommand.Settings>
                 AnsiConsole.MarkupLine($"[{colour}]{count}[/] [bold]{s}[/]");
             }
         });
+    }
+
+    private static int RenderBridgeLintResult(OutputMode.Kind kind, JsonObject result)
+    {
+        var errors = (int?)result["errors"] ?? 0;
+        var rc = RenderHelpers.Render(kind, ToolResult<object>.Success(result), _ =>
+        {
+            if (result["diagnostics"] is JsonArray diagnostics)
+            {
+                foreach (var diagnostic in diagnostics.OfType<JsonObject>())
+                {
+                    var severity = (string?)diagnostic["severity"] ?? "Warning";
+                    var colour = string.Equals(severity, "Error", StringComparison.OrdinalIgnoreCase) ||
+                                 string.Equals(severity, "Fatal", StringComparison.OrdinalIgnoreCase)
+                        ? "red"
+                        : "yellow";
+                    var moniker = (string?)diagnostic["moniker"] ?? (string?)diagnostic["diagnosticType"] ?? "diagnostic";
+                    var line = (int?)diagnostic["line"];
+                    var lineText = line is { } l && l > 0 ? $" (line {l})" : "";
+                    AnsiConsole.MarkupLine($"[{colour}]{RenderHelpers.Escape(moniker)}[/]{lineText} {RenderHelpers.Escape((string?)diagnostic["message"] ?? string.Empty)}");
+                }
+            }
+
+            var warnings = (int?)result["warnings"] ?? 0;
+            AnsiConsole.MarkupLine(errors > 0
+                ? $"[red]{errors} error(s)[/], [yellow]{warnings} warning(s)[/]"
+                : $"[green]clean[/] ({warnings} warning(s))");
+        });
+        return rc != 0 ? rc : errors > 0 ? 2 : 0;
     }
 
     private static readonly Dictionary<string, (string Level, string Name, string Help)> RuleMeta = new()
@@ -217,4 +304,45 @@ public sealed class LintCommand : Command<LintCommand.Settings>
             }
         };
     }
+}
+
+internal enum LintBackend
+{
+    Auto,
+    Bridge,
+    Legacy,
+}
+
+internal static class LintBackendResolver
+{
+    internal static bool TryResolve(string? raw, out LintBackend backend, out string? error)
+    {
+        var value = string.IsNullOrWhiteSpace(raw) ? "auto" : raw.Trim();
+        switch (value.ToLowerInvariant())
+        {
+            case "auto":
+                backend = LintBackend.Auto;
+                error = null;
+                return true;
+            case "bridge":
+                backend = LintBackend.Bridge;
+                error = null;
+                return true;
+            case "legacy":
+                backend = LintBackend.Legacy;
+                error = null;
+                return true;
+            default:
+                backend = LintBackend.Auto;
+                error = $"Unsupported lint backend '{value}'. Expected auto, bridge, or legacy.";
+                return false;
+        }
+    }
+
+    internal static bool ShouldUseBridge(LintBackend backend) => backend switch
+    {
+        LintBackend.Bridge => true,
+        LintBackend.Auto => BridgeGate.ShouldTry(),
+        _ => false,
+    };
 }

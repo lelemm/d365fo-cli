@@ -33,13 +33,26 @@ public sealed class ValidateXppCommand : Command<ValidateXppCommand.Settings>
     public override int Execute(CommandContext ctx, Settings settings)
     {
         var kind = OutputMode.Resolve(settings.Output);
+        return XppValidationRunner.Run(kind, settings.File, settings.CodeType, settings.Context);
+    }
+}
 
-        var (code, error) = ValidateInput.ReadCode(settings.File);
+internal static class XppValidationRunner
+{
+    public static int Run(
+        OutputMode.Kind kind,
+        string? file,
+        string? codeTypeRaw = null,
+        string? context = null,
+        string source = "offline-validator",
+        IReadOnlyList<string>? fallbackWarnings = null)
+    {
+        var (code, error) = ValidateInput.ReadCode(file);
         if (error is not null)
             return RenderHelpers.Render(kind, ToolResult<object>.Fail("INPUT_NOT_FOUND", error,
                 "Pass a file path or pipe code via stdin: `cat MyClass.xpp | d365fo validate xpp`."));
 
-        var codeType = XppValidator.NormalizeCodeType(settings.CodeType ?? DetectCodeType(settings.File, code!));
+        var codeType = XppValidator.NormalizeCodeType(codeTypeRaw ?? DetectCodeType(file, code!));
 
         // Property rules read mined statistics when an index exists; validation
         // itself never requires one (static defaults apply otherwise).
@@ -53,15 +66,17 @@ public sealed class ValidateXppCommand : Command<ValidateXppCommand.Settings>
 
         var violations = XppValidator.Validate(code!, codeType, stats);
         var errors = violations.Count(v => v.Severity == "error");
-        var warnings = violations.Count(v => v.Severity == "warning");
+        var warningCount = violations.Count(v => v.Severity == "warning");
 
         var result = ToolResult<object>.Success(new
         {
-            context = settings.Context,
+            source,
+            context,
             codeType,
             propertyRulesDataDriven = stats is not null,
             errors,
-            warnings,
+            warnings = warningCount,
+            fallbackWarnings = fallbackWarnings ?? Array.Empty<string>(),
             violations = violations.Select(v => new
             {
                 rule = v.Rule,
@@ -72,7 +87,7 @@ public sealed class ValidateXppCommand : Command<ValidateXppCommand.Settings>
             }),
             verdict = errors > 0
                 ? "Fix all errors before writing the file."
-                : warnings > 0
+                : warningCount > 0
                     ? "Address warnings where practical, then proceed."
                     : "No violations found.",
         });
@@ -87,13 +102,13 @@ public sealed class ValidateXppCommand : Command<ValidateXppCommand.Settings>
                 AnsiConsole.MarkupLine($"  [grey]{RenderHelpers.Escape(v.Fix)}[/]");
             }
             AnsiConsole.MarkupLine(errors > 0
-                ? $"[red]{errors} error(s)[/], [yellow]{warnings} warning(s)[/]"
-                : $"[green]clean[/] ({warnings} warning(s))");
+                ? $"[red]{errors} error(s)[/], [yellow]{warningCount} warning(s)[/]"
+                : $"[green]clean[/] ({warningCount} warning(s))");
         });
         return rc != 0 ? rc : errors > 0 ? 2 : 0;
     }
 
-    private static string DetectCodeType(string? file, string code)
+    internal static string DetectCodeType(string? file, string code)
     {
         if (code.Contains("<AxTable", StringComparison.OrdinalIgnoreCase)) return XppValidator.CodeTypeXmlTable;
         var trimmed = code.TrimStart();

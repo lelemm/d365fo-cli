@@ -14,7 +14,7 @@ public sealed class CompletionCommand : Command<CompletionCommand.Settings>
     private static readonly string[] TopLevelCommands =
     [
         "search", "get", "find", "read", "resolve", "generate", "analyze",
-        "review", "lint", "models", "index", "stats", "daemon", "report-integrations",
+        "designer", "review", "lint", "models", "index", "stats", "daemon", "report-integrations",
         "agent-prompt", "schema", "build", "sync", "test", "bp", "completion",
     ];
 
@@ -49,6 +49,11 @@ public sealed class CompletionCommand : Command<CompletionCommand.Settings>
     private static readonly string[] AnalyzeSubcommands =
     [
         "completeness", "integration", "impact",
+    ];
+
+    private static readonly string[] DesignerSubcommands =
+    [
+        "kinds", "catalog", "actions", "run", "properties", "property-options", "set-property", "set-properties",
     ];
 
     public sealed class Settings : CommandSettings
@@ -91,6 +96,7 @@ _d365fo_complete() {{
     find)       COMPREPLY=($(compgen -W ""{string.Join(" ", FindSubcommands)}"" -- ""$cur"")) ;;
     generate)   COMPREPLY=($(compgen -W ""{string.Join(" ", GenerateSubcommands)}"" -- ""$cur"")) ;;
     analyze)    COMPREPLY=($(compgen -W ""{string.Join(" ", AnalyzeSubcommands)}"" -- ""$cur"")) ;;
+    designer)   COMPREPLY=($(compgen -W ""{string.Join(" ", DesignerSubcommands)}"" -- ""$cur"")) ;;
     *)          COMPREPLY=() ;;
   esac
 }}
@@ -107,6 +113,7 @@ _d365fo() {{
     find)     sub=({string.Join(" ", FindSubcommands.Select(c => $"'{c}'"))}) ;;
     generate) sub=({string.Join(" ", GenerateSubcommands.Select(c => $"'{c}'"))}) ;;
     analyze)  sub=({string.Join(" ", AnalyzeSubcommands.Select(c => $"'{c}'"))}) ;;
+    designer) sub=({string.Join(" ", DesignerSubcommands.Select(c => $"'{c}'"))}) ;;
     *)        sub=() ;;
   esac
   if (( CURRENT == 2 )); then
@@ -129,6 +136,7 @@ Register-ArgumentCompleter -Native -CommandName d365fo -ScriptBlock {{
     'find'     {{ '{string.Join("','", FindSubcommands)}' }}
     'generate' {{ '{string.Join("','", GenerateSubcommands)}' }}
     'analyze'  {{ '{string.Join("','", AnalyzeSubcommands)}' }}
+    'designer' {{ '{string.Join("','", DesignerSubcommands)}' }}
     default    {{ '{string.Join("','", TopLevelCommands)}' }}
   }}
   $subs -split ',' | Where-Object {{ $_ -like ""$wordToComplete*"" }} |

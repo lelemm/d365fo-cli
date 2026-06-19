@@ -1,6 +1,8 @@
 using D365FO.Core;
 using D365FO.Core.Scaffolding;
+using D365FO.Cli.Commands.Get;
 using Spectre.Console.Cli;
+using System.Text.Json.Nodes;
 
 namespace D365FO.Cli.Commands.Generate;
 
@@ -23,12 +25,16 @@ public sealed class GenerateEntityCommand : Command<GenerateEntityCommand.Settin
         public string? PublicCollection { get; init; }
 
         [CommandOption("--field <SPEC>")]
-        [System.ComponentModel.Description("Repeatable: <name>[:<dataField>[:mandatory]].")]
+        [System.ComponentModel.Description("Repeatable: <name>[[:<dataField>[[:mandatory]]]].")]
         public string[] Fields { get; init; } = Array.Empty<string>();
 
         [CommandOption("--all-fields")]
         [System.ComponentModel.Description("Populate <Fields /> from the source table's columns. Requires the table to be indexed.")]
         public bool AllFields { get; init; }
+
+        [CommandOption("--wizard-json <JSON_OR_PATH>")]
+        [System.ComponentModel.Description("Wizard step JSON object or path. CLI options override matching step values.")]
+        public string? WizardJson { get; init; }
     }
 
     public override int Execute(CommandContext ctx, Settings settings)
@@ -36,14 +42,22 @@ public sealed class GenerateEntityCommand : Command<GenerateEntityCommand.Settin
         var kind = OutputMode.Resolve(settings.Output);
         if (string.IsNullOrWhiteSpace(settings.EntityName))
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "Entity name required."));
-        if (string.IsNullOrWhiteSpace(settings.Table))
+        if (!GenerateBridgeScaffolding.TryLoadWizardSteps(settings.WizardJson, out var wizardSteps, out var wizardJsonError))
+            return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, wizardJsonError!));
+        if (!GenerateBackendResolver.TryResolve(settings.Backend, out var backend, out var backendError))
+            return GenerateBridgeScaffolding.RenderBackendError(kind, backendError!);
+        var useBridge = GenerateBackendResolver.ShouldUseBridge(backend);
+
+        var table = settings.Table
+            ?? ReadStepString(wizardSteps, "table", "rootTable", "rootDataSource");
+        if (string.IsNullOrWhiteSpace(table))
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "--table <TABLE> required."));
         var hasInstall = !string.IsNullOrWhiteSpace(settings.InstallTo);
         var hasOut = !string.IsNullOrWhiteSpace(settings.Out);
         if (!hasInstall && !hasOut)
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "--out or --install-to is required."));
         var outPath = settings.Out;
-        if (hasInstall && !hasOut)
+        if (hasInstall && !hasOut && !useBridge)
         {
             outPath = GenerateInstaller.ResolveInstallPath(kind, "AxDataEntityView", settings.EntityName, settings.InstallTo!, out var fail);
             if (fail.HasValue) return fail.Value;
@@ -54,17 +68,103 @@ public sealed class GenerateEntityCommand : Command<GenerateEntityCommand.Settin
         if (fields.Count == 0 && settings.AllFields)
         {
             var repo = RepoFactory.Create();
-            var tableDetails = repo.GetTableDetails(settings.Table!);
+            var tableDetails = repo.GetTableDetails(table!);
             if (tableDetails is null)
                 return RenderHelpers.Render(kind, ToolResult<object>.Fail(
                     D365FoErrorCodes.TableNotFound,
-                    $"Table '{settings.Table}' not found in the index. Extract the model first or pass explicit --field <SPEC>."));
+                    $"Table '{table}' not found in the index. Extract the model first or pass explicit --field <SPEC>."));
             foreach (var f in tableDetails.Fields)
                 fields.Add(new EntityFieldSpec(f.Name, f.Name, f.Mandatory));
             autoFromTable = true;
         }
+        if (useBridge)
+        {
+            var operation = hasInstall && !hasOut ? "create" : "render";
+            var bridgeSteps = (JsonObject)wizardSteps.DeepClone();
+            bridgeSteps["table"] = table;
+            if (!string.IsNullOrWhiteSpace(settings.PublicEntity)) bridgeSteps["publicEntityName"] = settings.PublicEntity;
+            if (!string.IsNullOrWhiteSpace(settings.PublicCollection)) bridgeSteps["publicCollectionName"] = settings.PublicCollection;
+            if (fields.Count > 0 || settings.Fields.Length > 0 || settings.AllFields)
+            {
+                bridgeSteps["fields"] = ToFieldArray(fields, table!);
+            }
+
+            var bridgeArgs = new JsonObject
+            {
+                ["name"] = settings.EntityName,
+                ["operation"] = operation,
+                ["overwrite"] = settings.Overwrite,
+                ["steps"] = bridgeSteps,
+            };
+            if (string.Equals(operation, "create", StringComparison.OrdinalIgnoreCase))
+            {
+                bridgeArgs["model"] = settings.InstallTo;
+            }
+
+            var (ok, error, result) = BridgeGate.TryRunWizard("runDataEntityWizard", bridgeArgs);
+            if (!ok)
+            {
+                return RenderHelpers.Render(kind, ToolResult<object>.Fail(
+                    "BRIDGE_WIZARD_FAILED",
+                    error ?? "Data entity wizard failed.",
+                    "Use --backend legacy only if you need the old XML scaffolder."));
+            }
+
+            var warnings = GenerateBridgeScaffolding.MergeWarnings(null, result);
+            if (operation == "render")
+            {
+                var files = GenerateBridgeScaffolding.GetWizardFiles(result);
+                var file = GenerateBridgeScaffolding.FindWizardFile(files, "dataEntityView", settings.EntityName);
+                if (file is null)
+                {
+                    return RenderHelpers.Render(kind, ToolResult<object>.Fail(
+                        "BRIDGE_WIZARD_FAILED",
+                        "Bridge data entity wizard succeeded but did not return AxDataEntityView XML."));
+                }
+
+                try
+                {
+                    var res = ScaffoldFileWriter.Write(file.Xml, outPath!, settings.Overwrite);
+                    return RenderHelpers.Render(kind, ToolResult<object>.Success(new
+                    {
+                        kind = "AxDataEntityView",
+                        name = settings.EntityName,
+                        table,
+                        path = res.Path,
+                        bytes = res.Bytes,
+                        backup = res.BackupPath,
+                        fieldCount = fields.Count > 0 ? fields.Count : ((JsonArray?)bridgeSteps["fields"])?.Count ?? 0,
+                        fieldsFromTable = autoFromTable,
+                        model = settings.InstallTo,
+                        backend = "bridge",
+                        source = (string?)result?["source"] ?? "vs-extension-wizard",
+                    }, warnings));
+                }
+                catch (Exception ex)
+                {
+                    return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.WriteFailed, ex.Message));
+                }
+            }
+
+            var createdFiles = GenerateBridgeScaffolding.GetWizardFiles(result);
+            var createdEntity = GenerateBridgeScaffolding.FindWizardFile(createdFiles, "dataEntityView", settings.EntityName);
+            return RenderHelpers.Render(kind, ToolResult<object>.Success(new
+            {
+                kind = "AxDataEntityView",
+                name = settings.EntityName,
+                table,
+                path = createdEntity?.Path,
+                model = (string?)result?["model"] ?? settings.InstallTo,
+                backend = "bridge",
+                source = (string?)result?["source"] ?? "vs-extension-wizard",
+                operation = (string?)result?["operation"] ?? operation,
+                fieldCount = fields.Count > 0 ? fields.Count : ((JsonArray?)bridgeSteps["fields"])?.Count ?? 0,
+                fieldsFromTable = autoFromTable,
+            }, warnings));
+        }
+
         var doc = XppScaffolder.DataEntity(
-            settings.EntityName, settings.Table!, settings.PublicEntity, settings.PublicCollection, fields);
+            settings.EntityName, table!, settings.PublicEntity, settings.PublicCollection, fields);
         try
         {
             var res = ScaffoldFileWriter.Write(doc, outPath!, settings.Overwrite);
@@ -72,7 +172,7 @@ public sealed class GenerateEntityCommand : Command<GenerateEntityCommand.Settin
             {
                 kind = "AxDataEntityView",
                 name = settings.EntityName,
-                table = settings.Table,
+                table,
                 path = res.Path,
                 bytes = res.Bytes,
                 backup = res.BackupPath,
@@ -94,6 +194,42 @@ public sealed class GenerateEntityCommand : Command<GenerateEntityCommand.Settin
         var data = parts.Length > 1 && parts[1].Length > 0 ? parts[1] : null;
         var mandatory = parts.Length > 2 && string.Equals(parts[2], "mandatory", StringComparison.OrdinalIgnoreCase);
         return new EntityFieldSpec(name, data, mandatory);
+    }
+
+    private static string? ReadStepString(JsonObject steps, params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            var value = (string?)steps[key];
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    private static JsonArray ToFieldArray(IEnumerable<EntityFieldSpec> fields, string table)
+    {
+        var array = new JsonArray();
+        foreach (var field in fields)
+        {
+            if (string.IsNullOrWhiteSpace(field.Name))
+            {
+                continue;
+            }
+
+            array.Add(new JsonObject
+            {
+                ["name"] = field.Name,
+                ["dataSource"] = table,
+                ["dataField"] = string.IsNullOrWhiteSpace(field.DataField) ? field.Name : field.DataField,
+                ["mandatory"] = field.IsMandatory,
+            });
+        }
+
+        return array;
     }
 }
 
@@ -125,6 +261,9 @@ public sealed class GenerateExtensionCommand : Command<GenerateExtensionCommand.
         var hasOut = !string.IsNullOrWhiteSpace(settings.Out);
         if (!hasInstall && !hasOut)
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "--out or --install-to is required."));
+        if (!GenerateBackendResolver.TryResolve(settings.Backend, out var backend, out var backendError))
+            return GenerateBridgeScaffolding.RenderBackendError(kind, backendError!);
+        var useBridge = GenerateBackendResolver.ShouldUseBridge(backend);
 
         var suffix = settings.Suffix
             ?? (hasInstall ? settings.InstallTo! : "Extension");
@@ -142,7 +281,7 @@ public sealed class GenerateExtensionCommand : Command<GenerateExtensionCommand.
 
         var fullName = $"{settings.Target}.{suffix}";
         var outPath = settings.Out;
-        if (hasInstall && !hasOut)
+        if (hasInstall && !hasOut && !useBridge)
         {
             outPath = GenerateInstaller.ResolveInstallPath(kind, axFolder, fullName, settings.InstallTo!, out var fail);
             if (fail.HasValue) return fail.Value;
@@ -155,6 +294,11 @@ public sealed class GenerateExtensionCommand : Command<GenerateExtensionCommand.
         var gate = GroundingGate.Check(settings.GroundingToken, settings.Target, doc,
             requiredSymbols: new[] { settings.Target });
         if (gate.Failure is not null) return RenderHelpers.Render(kind, gate.Failure);
+
+        var bridge = GenerateBridgeScaffolding.TryWrite(
+            kind, backend, settings.InstallTo, settings.Overwrite, axFolder, fullName, doc.ToString(), outPath,
+            gate.Warnings.Count > 0 ? gate.Warnings : null);
+        if (bridge.Handled) return bridge.ExitCode;
 
         try
         {
@@ -292,18 +436,29 @@ public sealed class GeneratePrivilegeCommand : Command<GeneratePrivilegeCommand.
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "Privilege name required."));
         if (string.IsNullOrWhiteSpace(settings.EntryPoint))
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "--entry-point required."));
+        if (!GenerateBackendResolver.TryResolve(settings.Backend, out var backend, out var backendError))
+            return GenerateBridgeScaffolding.RenderBackendError(kind, backendError!);
+        var useBridge = GenerateBackendResolver.ShouldUseBridge(backend);
+        if (useBridge && backend == GenerateBackend.Bridge && !string.IsNullOrWhiteSpace(settings.IntoRole))
+            return RenderHelpers.Render(kind, ToolResult<object>.Fail(
+                D365FoErrorCodes.BadInput,
+                "--backend bridge does not support --into-role; use --backend legacy for merge-style role edits."));
+        useBridge = useBridge && string.IsNullOrWhiteSpace(settings.IntoRole);
         var hasInstall = !string.IsNullOrWhiteSpace(settings.InstallTo);
         var hasOut = !string.IsNullOrWhiteSpace(settings.Out);
         if (!hasInstall && !hasOut)
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "--out or --install-to is required."));
         var outPath = settings.Out;
-        if (hasInstall && !hasOut)
+        if (hasInstall && !hasOut && !useBridge)
         {
             outPath = GenerateInstaller.ResolveInstallPath(kind, "AxSecurityPrivilege", settings.Name, settings.InstallTo!, out var fail);
             if (fail.HasValue) return fail.Value;
         }
 
         var doc = XppScaffolder.Privilege(settings.Name, settings.EntryPoint!, settings.EntryKind, settings.EntryObject, settings.Access, settings.Label);
+        var bridge = GenerateBridgeScaffolding.TryWrite(
+            kind, useBridge ? backend : GenerateBackend.Legacy, settings.InstallTo, settings.Overwrite, "AxSecurityPrivilege", settings.Name, doc.ToString(), outPath);
+        if (bridge.Handled) return bridge.ExitCode;
         try
         {
             var res = ScaffoldFileWriter.Write(doc, outPath!, settings.Overwrite);
@@ -367,18 +522,29 @@ public sealed class GenerateDutyCommand : Command<GenerateDutyCommand.Settings>
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "Duty name required."));
         if (settings.Privileges.Length == 0)
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "At least one --privilege required."));
+        if (!GenerateBackendResolver.TryResolve(settings.Backend, out var backend, out var backendError))
+            return GenerateBridgeScaffolding.RenderBackendError(kind, backendError!);
+        var useBridge = GenerateBackendResolver.ShouldUseBridge(backend);
+        if (useBridge && backend == GenerateBackend.Bridge && !string.IsNullOrWhiteSpace(settings.IntoRole))
+            return RenderHelpers.Render(kind, ToolResult<object>.Fail(
+                D365FoErrorCodes.BadInput,
+                "--backend bridge does not support --into-role; use --backend legacy for merge-style role edits."));
+        useBridge = useBridge && string.IsNullOrWhiteSpace(settings.IntoRole);
         var hasInstall = !string.IsNullOrWhiteSpace(settings.InstallTo);
         var hasOut = !string.IsNullOrWhiteSpace(settings.Out);
         if (!hasInstall && !hasOut)
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "--out or --install-to is required."));
         var outPath = settings.Out;
-        if (hasInstall && !hasOut)
+        if (hasInstall && !hasOut && !useBridge)
         {
             outPath = GenerateInstaller.ResolveInstallPath(kind, "AxSecurityDuty", settings.Name, settings.InstallTo!, out var fail);
             if (fail.HasValue) return fail.Value;
         }
 
         var doc = XppScaffolder.Duty(settings.Name, settings.Privileges, settings.Label);
+        var bridge = GenerateBridgeScaffolding.TryWrite(
+            kind, useBridge ? backend : GenerateBackend.Legacy, settings.InstallTo, settings.Overwrite, "AxSecurityDuty", settings.Name, doc.ToString(), outPath);
+        if (bridge.Handled) return bridge.ExitCode;
         try
         {
             var res = ScaffoldFileWriter.Write(doc, outPath!, settings.Overwrite);
@@ -457,19 +623,25 @@ public sealed class GenerateRoleCommand : Command<GenerateRoleCommand.Settings>
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(
                 D365FoErrorCodes.BadInput,
                 "At least one --duty or --privilege required."));
+        if (!GenerateBackendResolver.TryResolve(settings.Backend, out var backend, out var backendError))
+            return GenerateBridgeScaffolding.RenderBackendError(kind, backendError!);
+        var useBridge = GenerateBackendResolver.ShouldUseBridge(backend);
 
         var hasInstall = !string.IsNullOrWhiteSpace(settings.InstallTo);
         var hasOut = !string.IsNullOrWhiteSpace(settings.Out);
         if (!hasInstall && !hasOut)
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "--out or --install-to is required."));
         var outPath = settings.Out;
-        if (hasInstall && !hasOut)
+        if (hasInstall && !hasOut && !useBridge)
         {
             outPath = GenerateInstaller.ResolveInstallPath(kind, "AxSecurityRole", settings.Name, settings.InstallTo!, out var fail);
             if (fail.HasValue) return fail.Value;
         }
 
         var doc = XppScaffolder.Role(settings.Name, settings.Duties, settings.Privileges, settings.Label, settings.Description);
+        var bridge = GenerateBridgeScaffolding.TryWrite(
+            kind, backend, settings.InstallTo, settings.Overwrite, "AxSecurityRole", settings.Name, doc.ToString(), outPath);
+        if (bridge.Handled) return bridge.ExitCode;
         try
         {
             var res = ScaffoldFileWriter.Write(doc, outPath!, settings.Overwrite);

@@ -1,0 +1,6 @@
+interface:
+  display_name: "D365FO Designer Authoring"
+  short_description: "Designer-first D365FO metadata edits"
+  default_prompt: "Use $d365fo-designer-authoring to add metadata nodes through the d365fo designer CLI."
+policy:
+  allow_implicit_invocation: true

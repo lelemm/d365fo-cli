@@ -14,7 +14,7 @@ public sealed class GenerateEnumCommand : Command<GenerateEnumCommand.Settings>
         public string Name { get; init; } = "";
 
         [CommandOption("--value <SPEC>")]
-        [System.ComponentModel.Description("Repeatable: <name>:<intValue>[:<label>]. Example: --value None:0 --value Active:1:'Active record'")]
+        [System.ComponentModel.Description("Repeatable: <name>:<intValue>[[:<label>]]. Example: --value None:0 --value Active:1:'Active record'")]
         public string[] Values { get; init; } = Array.Empty<string>();
 
         [CommandOption("--non-extensible")]
@@ -32,6 +32,9 @@ public sealed class GenerateEnumCommand : Command<GenerateEnumCommand.Settings>
 
         if (string.IsNullOrWhiteSpace(settings.Name))
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "Enum name required."));
+        if (!GenerateBackendResolver.TryResolve(settings.Backend, out var backend, out var backendError))
+            return GenerateBridgeScaffolding.RenderBackendError(kind, backendError!);
+        var useBridge = GenerateBackendResolver.ShouldUseBridge(backend);
 
         var hasInstall = !string.IsNullOrWhiteSpace(settings.InstallTo);
         var hasOut     = !string.IsNullOrWhiteSpace(settings.Out);
@@ -39,7 +42,7 @@ public sealed class GenerateEnumCommand : Command<GenerateEnumCommand.Settings>
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "--out or --install-to is required."));
 
         var outPath = settings.Out;
-        if (hasInstall && !hasOut)
+        if (hasInstall && !hasOut && !useBridge)
         {
             outPath = GenerateInstaller.ResolveInstallPath(kind, "AxEnum", settings.Name, settings.InstallTo!, out var fail);
             if (fail.HasValue) return fail.Value;
@@ -47,6 +50,9 @@ public sealed class GenerateEnumCommand : Command<GenerateEnumCommand.Settings>
 
         var values = settings.Values.Select(ParseValue).ToList();
         var doc = XppScaffolder.Enum(settings.Name, values, !settings.NonExtensible, settings.Label);
+        var bridge = GenerateBridgeScaffolding.TryWrite(
+            kind, backend, settings.InstallTo, settings.Overwrite, "AxEnum", settings.Name, doc.ToString(), outPath);
+        if (bridge.Handled) return bridge.ExitCode;
 
         try
         {

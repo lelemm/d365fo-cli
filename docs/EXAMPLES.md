@@ -151,9 +151,13 @@ d365fo index history --model Contoso  # filter to one model
 
 `index refresh` compares each model's content fingerprint against the DB row and re-extracts only changed models. `--force` ignores all thresholds.
 
-### `lint` — in-process Best-Practice heuristics
+### `lint` — file or index Best-Practice heuristics
 
 ```sh
+d365fo lint AxClass/MyClass.xml
+d365fo lint AxClass/MyClass.xml --backend bridge --model MyModel
+d365fo lint AxClass/MyClass.xml --backend legacy
+d365fo lint MyClass.xpp --output json
 d365fo lint
 d365fo lint --category table-no-index,string-without-edt --all-models
 d365fo lint --category today-usage,do-insert-update,doc-comment-missing
@@ -174,7 +178,7 @@ d365fo lint --format sarif > lint.sarif
 | `doc-comment-missing` | Public/protected methods without `/// <summary>` |
 | … | (and 8 more — see ARCHITECTURE.md) |
 
-Defaults to custom models only; `--all-models` includes ISV/MS content. `--format sarif` emits SARIF 2.1.0 for CI (GitHub code-scanning, Azure DevOps).
+With a file argument, `lint` uses `--backend auto` by default: it tries the bridge-backed Microsoft Visual Studio extension best-practice framework for saved AOT XML, then falls back to the local offline validator when the bridge cannot run. Use `--backend bridge` to require Microsoft diagnostics, or `--backend legacy` for the local validator. Without a file argument, it defaults to custom models only; `--all-models` includes ISV/MS content. `--format sarif` emits SARIF 2.1.0 for CI (GitHub code-scanning, Azure DevOps).
 
 ### `validate name` — naming-rule linter
 
@@ -199,7 +203,25 @@ Auto-detects the Windows `PackagesLocalDirectory`, prepares the SQLite schema, a
 
 ## Scaffold
 
-`generate` writes atomically (`.tmp` + move) and keeps a `.bak` when `--overwrite` is used. Pass `--install-to <Model>` to drop the artefact straight into a model folder via the bridge (requires `D365FO_BRIDGE_ENABLED=1`, `D365FO_PACKAGES_PATH`, `D365FO_BIN_PATH`).
+`generate` writes atomically (`.tmp` + move) and keeps a `.bak` when `--overwrite` is used. Pass `--install-to <Model>` to drop the artefact straight into a model folder via the bridge (enabled by default; requires `D365FO_PACKAGES_PATH` and metadata assemblies from `D365FO_BIN_PATH`, `D365FO_PACKAGES_PATH\bin`, or the D365FO VS extension).
+
+### Designer properties
+
+```sh
+# List properties on a top-level object or selected child node
+d365fo designer properties --parent-kind table --parent FmVehicle --model FleetManagement
+d365fo designer properties --parent-kind table --parent FmVehicle --model FleetManagement --node "Fields[VIN]"
+
+# List dropdown-style options for enum/bool properties
+d365fo designer property-options --parent-kind table --parent FmVehicle --model FleetManagement --property TableGroup
+
+# Set one property, or several properties at once
+d365fo designer set-property --parent-kind table --parent FmVehicle --model FleetManagement --property Label --value "@Fleet:Vehicle"
+d365fo designer set-properties --parent-kind table --parent FmVehicle --model FleetManagement --set Label=@Fleet:Vehicle --set TableGroup=Main
+
+# Same operation through the generic action runner
+d365fo designer run set-property --parent-kind table --parent FmVehicle --model FleetManagement --set Label=@Fleet:Vehicle
+```
 
 ### Table
 

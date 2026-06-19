@@ -72,12 +72,12 @@ public sealed class DoctorCommand : Command<DoctorCommand.Settings>
         // Reports Warn (not Fail) when missing because read-only operations work
         // without it via the SQLite index. Resolved via the unified config chain
         // (env var → settings.json) so a value set in settings.json is honored.
-        var bridgeEnabled = D365FoSettings.ResolveFlag("D365FO_BRIDGE_ENABLED");
+        var bridgeEnabled = D365FoSettings.ResolveFlag("D365FO_BRIDGE_ENABLED", defaultValue: true);
         Add("bridge.enabled (required for `generate --install-to`)",
             bridgeEnabled ? DoctorSeverity.Ok : DoctorSeverity.Warn,
             bridgeEnabled
-                ? "D365FO_BRIDGE_ENABLED=1"
-                : "Set D365FO_BRIDGE_ENABLED=\"1\" (quoted in settings.json) to enable model installs.");
+                ? "enabled by default; set D365FO_BRIDGE_ENABLED=0 to disable"
+                : "D365FO_BRIDGE_ENABLED=0 disables bridge-backed reads and model installs.");
 
         if (bridgeEnabled)
         {
@@ -87,7 +87,7 @@ public sealed class DoctorCommand : Command<DoctorCommand.Settings>
                 bridgeExe is null
                     ? (OperatingSystem.IsWindows() ? DoctorSeverity.Fail : DoctorSeverity.Warn)
                     : DoctorSeverity.Ok,
-                bridgeExe ?? "D365FO.Bridge.exe not found next to d365fo.exe; set D365FO_BRIDGE_PATH.");
+                bridgeExe ?? "D365FO.Bridge.exe not found under the CLI bridge folder; D365FO_BRIDGE_PATH can override this for custom layouts.");
 
             // Mirror the bridge's own resolution (MetadataBootstrap.ResolveBinPath):
             // D365FO_BIN_PATH when set, otherwise <D365FO_PACKAGES_PATH>\bin.

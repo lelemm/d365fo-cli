@@ -3,7 +3,7 @@ name: label-translation
 description: Reuse, search, create, rename, or delete D365FO label entries. Invoke whenever a UI string is about to be added to X++/XML, when translating a label across languages, or when refactoring label keys.
 applies_when: User intent mentions labels, translations, `@SYS`, `@MODULE`, display strings, or any of the `d365fo labels create / rename / delete` operations.
 ---
-> ⛔ **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema (`<AxClass>`, `<AxTable>`, `<AxForm>`, `<Methods>`, `<SourceCode>`) is proprietary — LLMs have not been trained on it reliably. **ALWAYS use `d365fo generate …` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
+> **Designer-first metadata rule.** Do not hand-author partial Ax* XML nodes as the first path. For AOT metadata child nodes, use `d365fo designer kinds --full`, `d365fo designer catalog`, and `d365fo designer run` so Microsoft metadata assemblies create the node. For top-level or composite artifacts, use `d365fo generate ... --backend bridge`. Only write full AOT XML content manually after the designer/generate CLI path fails or has no supported action; when doing so, record the failed command and error. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
 
 # Label workflow — reuse, search, edit
 
@@ -78,3 +78,20 @@ d365fo labels delete @FleetManagement:DeprecatedKey --file <path>.label.txt
 When adding a field whose EDT already carries a `Label`, do **NOT** create
 a new label or pass `--label` on the field — the field inherits the EDT
 caption. Only override when the table needs a different caption deliberately.
+
+## Custom label validation caveat
+
+In some customer models, `d365fo labels resolve @File:Key` can be unreliable
+for freshly indexed custom label files even when the label exists. If resolve
+does not agree with the artifact, verify with all of the following before
+rewriting labels:
+
+```powershell
+d365fo labels search "<label text>" --output json
+d365fo index refresh --model <Model> --force
+d365fo analyze completeness <ProjectOrModelPath> --resolve-labels --output table
+```
+
+Treat `analyze completeness --resolve-labels` over the project or model as the
+final unknown-label gate when it sees the same custom label file Visual Studio
+will build.

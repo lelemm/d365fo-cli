@@ -1,6 +1,7 @@
 using D365FO.Core;
 using D365FO.Core.Scaffolding;
 using Spectre.Console.Cli;
+using System.Text.Json.Nodes;
 
 namespace D365FO.Cli.Commands.Generate;
 
@@ -40,6 +41,9 @@ public sealed class GenerateEdtCommand : Command<GenerateEdtCommand.Settings>
 
         if (string.IsNullOrWhiteSpace(settings.Name))
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "EDT name required."));
+        if (!GenerateBackendResolver.TryResolve(settings.Backend, out var backend, out var backendError))
+            return GenerateBridgeScaffolding.RenderBackendError(kind, backendError!);
+        var useBridge = GenerateBackendResolver.ShouldUseBridge(backend);
 
         var hasInstall = !string.IsNullOrWhiteSpace(settings.InstallTo);
         var hasOut     = !string.IsNullOrWhiteSpace(settings.Out);
@@ -47,7 +51,7 @@ public sealed class GenerateEdtCommand : Command<GenerateEdtCommand.Settings>
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "--out or --install-to is required."));
 
         var outPath = settings.Out;
-        if (hasInstall && !hasOut)
+        if (hasInstall && !hasOut && !useBridge)
         {
             outPath = GenerateInstaller.ResolveInstallPath(kind, "AxEdt", settings.Name, settings.InstallTo!, out var fail);
             if (fail.HasValue) return fail.Value;
@@ -61,6 +65,20 @@ public sealed class GenerateEdtCommand : Command<GenerateEdtCommand.Settings>
             // EnumType derivation from --extends is not always identity (e.g. AccessToSensitiveData -> NoYes).
             effectiveEnumType = ResolveEnumTypeFromExtendsChain(settings.Extends!);
         }
+
+        var edtProperties = new JsonObject
+        {
+            ["type"] = "AxEdt" + ResolveConcreteTypeSuffix(settings.BaseType, settings.Extends),
+        };
+        if (!string.IsNullOrWhiteSpace(settings.Extends)) edtProperties["Extends"] = settings.Extends;
+        if (!string.IsNullOrWhiteSpace(settings.Label)) edtProperties["Label"] = settings.Label;
+        if (settings.Size.HasValue) edtProperties["StringSize"] = settings.Size.Value;
+        if (!string.IsNullOrWhiteSpace(effectiveEnumType)) edtProperties["EnumType"] = effectiveEnumType;
+
+        var bridge = GenerateBridgeScaffolding.TryWrite(
+            kind, backend, settings.InstallTo, settings.Overwrite, "AxEdt", settings.Name, null, outPath,
+            properties: edtProperties);
+        if (bridge.Handled) return bridge.ExitCode;
 
         var doc = XppScaffolder.Edt(settings.Name, settings.Extends, settings.BaseType, settings.Size, settings.Label, effectiveEnumType);
         try
@@ -123,4 +141,37 @@ public sealed class GenerateEdtCommand : Command<GenerateEdtCommand.Settings>
 
         return null;
     }
+
+    private static string ResolveConcreteTypeSuffix(string? baseType, string? extends) =>
+        !string.IsNullOrEmpty(baseType)
+            ? baseType.ToLowerInvariant() switch
+            {
+                "int" or "integer" => "Int",
+                "int64" => "Int64",
+                "real" => "Real",
+                "date" => "Date",
+                "utcdatetime" or "datetime" => "UtcDateTime",
+                "boolean" or "bool" => "Enum",
+                "time" => "Time",
+                "guid" => "Guid",
+                "container" => "Container",
+                "enum" => "Enum",
+                _ => "String",
+            }
+            : InferConcreteTypeSuffixFromExtends(extends);
+
+    private static string InferConcreteTypeSuffixFromExtends(string? extends) =>
+        extends?.ToLowerInvariant() switch
+        {
+            "integer" or "int" => "Int",
+            "int64" or "recid" => "Int64",
+            "amount" or "amountmst" or "qty" or "weight" or "real" => "Real",
+            "date" or "transdate" => "Date",
+            "utcdatetime" or "transdatetime" => "UtcDateTime",
+            "noyes" or "noyesid" or "boolean" => "Enum",
+            "timeofday" or "time" => "Time",
+            "guid" => "Guid",
+            "container" => "Container",
+            _ => "String",
+        } ?? "String";
 }

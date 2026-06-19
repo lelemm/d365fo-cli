@@ -3,7 +3,7 @@ name: business-events-authoring
 description: Author or extend custom Business Events in D365 Finance & Operations. Invoke when the user asks to "create a business event", "add a business event", "build a custom business event", or wire D365FO outbound notifications to Power Automate / Service Bus / Event Grid.
 applies_when: User intent mentions business events, BusinessEventsBase, BusinessEventsContract, outbound notifications, Power Automate triggers, Service Bus events, or Event Grid from D365FO.
 ---
-> ⛔ **NEVER write X++ AOT XML files directly** via PowerShell, terminal file commands (`Set-Content`, `Out-File`, `New-Item`), editor write tools, or any raw text approach. The XML schema is proprietary. **ALWAYS use `d365fo generate …` commands** to produce correct AOT XML. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
+> **Designer-first metadata rule.** Do not hand-author partial Ax* XML nodes as the first path. For AOT metadata child nodes, use `d365fo designer kinds --full`, `d365fo designer catalog`, and `d365fo designer run` so Microsoft metadata assemblies create the node. For top-level or composite artifacts, use `d365fo generate ... --backend bridge`. Only write full AOT XML content manually after the designer/generate CLI path fails or has no supported action; when doing so, record the failed command and error. If `d365fo` is unavailable in PATH, stop and ask the user to install it.
 
 # Business Events Authoring in D365FO
 

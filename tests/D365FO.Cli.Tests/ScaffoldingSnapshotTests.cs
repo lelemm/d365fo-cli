@@ -292,6 +292,7 @@ public class ScaffoldingSnapshotTests
             Out = outPath,
             Overwrite = true,
             EnumType = null,
+            Backend = "legacy",
         };
 
         var oldDb = System.Environment.GetEnvironmentVariable("D365FO_INDEX_DB");
