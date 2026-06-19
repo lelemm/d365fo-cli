@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net9.0</TargetFramework>
     <RootNamespace>D365FO.Core</RootNamespace>
     <AssemblyName>D365FO.Core</AssemblyName>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>

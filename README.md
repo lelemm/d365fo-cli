@@ -5,7 +5,7 @@
 **One binary that knows every X++ class, table, form, and EDT in your D365FO codebase**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![.NET](https://img.shields.io/badge/.NET-10-purple.svg)](https://dotnet.microsoft.com/)
+[![.NET](https://img.shields.io/badge/.NET-9-purple.svg)](https://dotnet.microsoft.com/)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)]()
 [![Tests](https://img.shields.io/badge/tests-310%2B-brightgreen.svg)]()
 [![Successor to d365fo-mcp-server](https://img.shields.io/badge/successor%20to-d365fo--mcp--server-orange.svg)](https://github.com/dynamics365ninja/d365fo-mcp-server)
@@ -71,7 +71,7 @@ Structural violations (wrong order, missing container, disallowed control, misap
 
 ### Prerequisites
 
-- [.NET SDK 10](https://dotnet.microsoft.com/download) (pinned in `global.json`)
+- [.NET SDK 9](https://dotnet.microsoft.com/download) (pinned in `global.json`)
 - Access to a D365 F&O `PackagesLocalDirectory` (local clone, Azure Files share, or Windows VM path)
 
 ### Install

@@ -2,7 +2,7 @@
 
 Five steps from a fresh clone to a working index that any AI agent can query.
 
-> **TL;DR** — install .NET 10 · build the CLI · `d365fo init --persist-profile` · `d365fo index extract` · point your AI agent at it. Done.
+> **TL;DR** — install .NET 9 · build the CLI · `d365fo init --persist-profile` · `d365fo index extract` · point your AI agent at it. Done.
 > Day-to-day commands: [EXAMPLES.md](EXAMPLES.md) · env vars: [CONFIGURATION.md](CONFIGURATION.md) · architecture: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
@@ -31,13 +31,13 @@ flowchart TD
 
 | Component | Version | Needed for |
 |---|---|---|
-| .NET SDK | **10** (pinned in `global.json`) | building / running the CLI |
+| .NET SDK | **9** (pinned in `global.json`) | building / running the CLI |
 | `git` | any | `d365fo review diff` |
 | Visual Studio 2022 / 2026 + Dynamics 365 F&O workload | latest | scenario A — `MSBuild.exe`, `SyncEngine.exe`, `SysTestRunner.exe`, `xppbp.exe` on `PATH` |
 | GitHub Copilot extension | latest | VS agent mode (optional) |
 | .NET Framework 4.8 Developer Pack | 4.8 | bridge (`D365FO_BRIDGE_ENABLED=1`) — pre-installed on D365FO VMs |
 
-> Off-platform setups (B) only need .NET 10 + git. Everything else is gated by `UNSUPPORTED_PLATFORM` and never invoked.
+> Off-platform setups (B) only need .NET 9 + git. Everything else is gated by `UNSUPPORTED_PLATFORM` and never invoked.
 
 ---
 
@@ -75,7 +75,7 @@ dotnet publish src/D365FO.Cli -c Release -r osx-arm64 --self-contained \
   -p:PublishSingleFile=true -p:PublishTrimmed=true
 ```
 
-Supported RIDs: `win-x64`, `linux-x64`, `osx-x64`, `osx-arm64`. Output lands in `src/D365FO.Cli/bin/Release/net10.0/<rid>/publish/`. Rename to `d365fo` (`d365fo.exe` on Windows) and put it on `PATH`. Drop `--self-contained` if .NET 10 is already installed — output shrinks from ~70 MB to a few MB.
+Supported RIDs: `win-x64`, `linux-x64`, `osx-x64`, `osx-arm64`. Output lands in `src/D365FO.Cli/bin/Release/net9.0/<rid>/publish/`. Rename to `d365fo` (`d365fo.exe` on Windows) and put it on `PATH`. Drop `--self-contained` if .NET 9 is already installed — output shrinks from ~70 MB to a few MB.
 
 ---
 

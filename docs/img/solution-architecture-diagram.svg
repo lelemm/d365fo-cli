@@ -54,7 +54,7 @@
   <!-- ===================== d365fo Core ===================== -->
   <rect x="320" y="104" width="600" height="600" rx="10" fill="#eef0fb" stroke="#b9bfe8"/>
   <text x="620" y="130" text-anchor="middle" font-size="14" font-weight="700" fill="#312e81" letter-spacing="1.5">d365fo BINARY</text>
-  <text x="620" y="148" text-anchor="middle" font-size="11" fill="#5b5fa8">.NET 10 · Spectre.Console.Cli · single shell tool · self-contained or dotnet run</text>
+  <text x="620" y="148" text-anchor="middle" font-size="11" fill="#5b5fa8">.NET 9 · Spectre.Console.Cli · single shell tool · self-contained or dotnet run</text>
 
   <!-- Adapters -->
   <rect x="340" y="162" width="270" height="84" rx="8" fill="#ffffff" stroke="#6366f1"/>

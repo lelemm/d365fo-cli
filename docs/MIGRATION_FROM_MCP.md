@@ -5,7 +5,7 @@ Both tools share an **identical purpose** — give GitHub Copilot access to real
 | | `d365fo-mcp-server` | `d365fo` CLI |
 |---|---|---|
 | Protocol | MCP tools (JSON-RPC over stdio / HTTP) | Shell commands |
-| Implementation | TypeScript + Node.js | C# / .NET 10 |
+| Implementation | TypeScript + Node.js | C# / .NET 9 |
 | Data layer | SQLite index + C# Bridge | **Shared** — same index, schema v5 is a superset |
 | Deployment | Local or Azure App Service (shared team instance) | Local |
 | Copilot integration | MCP tool calls | Shell tool |
