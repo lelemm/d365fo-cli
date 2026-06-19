@@ -164,4 +164,82 @@ public class TablePatternScaffoldingTests
         var doc = XppScaffolder.Table("FmEmpty");
         Assert.Null(doc.Root!.Element("Indexes"));
     }
+
+    // --- issue #91: AxTableField is abstract — every field needs a concrete
+    //     i:type discriminator or the metadata reader rejects the whole table.
+
+    private static readonly System.Xml.Linq.XNamespace Xsi =
+        "http://www.w3.org/2001/XMLSchema-instance";
+
+    [Fact]
+    public void Root_declares_the_XMLSchema_instance_namespace()
+    {
+        var doc = XppScaffolder.Table("FmThing", pattern: TablePattern.Main);
+        var decl = doc.Root!.Attribute(System.Xml.Linq.XNamespace.Xmlns + "i");
+        Assert.NotNull(decl);
+        Assert.Equal(Xsi.NamespaceName, decl!.Value);
+    }
+
+    [Fact]
+    public void Every_field_carries_a_concrete_AxTableField_itype()
+    {
+        var doc = XppScaffolder.Table("FmThing", pattern: TablePattern.Main);
+        var fields = doc.Root!.Element("Fields")!.Elements("AxTableField").ToList();
+        Assert.NotEmpty(fields);
+        foreach (var f in fields)
+        {
+            var t = f.Attribute(Xsi + "type")?.Value;
+            Assert.False(string.IsNullOrEmpty(t), "field missing i:type");
+            Assert.StartsWith("AxTableField", t);
+            Assert.NotEqual("AxTableField", t); // never the abstract base
+        }
+    }
+
+    [Theory]
+    [InlineData("String",      "AxTableFieldString")]
+    [InlineData("Int",         "AxTableFieldInt")]
+    [InlineData("Int64",       "AxTableFieldInt64")]
+    [InlineData("Real",        "AxTableFieldReal")]
+    [InlineData("Enum",        "AxTableFieldEnum")]
+    [InlineData("Date",        "AxTableFieldDate")]
+    [InlineData("UtcDateTime", "AxTableFieldUtcDateTime")]
+    [InlineData("Guid",        "AxTableFieldGuid")]
+    [InlineData("Container",   "AxTableFieldContainer")]
+    public void Resolver_base_type_maps_to_concrete_field_subtype(string baseType, string expected)
+    {
+        var custom = new[] { new TableFieldSpec("Foo", "SomeEdt", null, false) };
+        var doc = XppScaffolder.Table("FmThing", fields: custom, edtBaseTypeResolver: _ => baseType);
+        var field = doc.Root!.Element("Fields")!.Element("AxTableField")!;
+        Assert.Equal(expected, field.Attribute(Xsi + "type")!.Value);
+    }
+
+    [Fact]
+    public void Unknown_edt_without_resolver_falls_back_to_string()
+    {
+        var custom = new[] { new TableFieldSpec("Foo", "TotallyUnknownEdtXyz", null, false) };
+        var doc = XppScaffolder.Table("FmThing", fields: custom);
+        var field = doc.Root!.Element("Fields")!.Element("AxTableField")!;
+        Assert.Equal("AxTableFieldString", field.Attribute(Xsi + "type")!.Value);
+    }
+
+    [Fact]
+    public void Well_known_edt_name_heuristic_applies_without_resolver()
+    {
+        // AmountMST is a real-typed system EDT — the name heuristic should pick Real.
+        var custom = new[] { new TableFieldSpec("Amount", "AmountMST", null, false) };
+        var doc = XppScaffolder.Table("FmThing", fields: custom);
+        var field = doc.Root!.Element("Fields")!.Element("AxTableField")!;
+        Assert.Equal("AxTableFieldReal", field.Attribute(Xsi + "type")!.Value);
+    }
+
+    [Fact]
+    public void Resolver_null_return_falls_back_to_name_heuristic()
+    {
+        // Resolver present but returns null (EDT not in index) → heuristic over
+        // the EDT name still applies (TransDate → Date).
+        var custom = new[] { new TableFieldSpec("Posted", "TransDate", null, false) };
+        var doc = XppScaffolder.Table("FmThing", fields: custom, edtBaseTypeResolver: _ => null);
+        var field = doc.Root!.Element("Fields")!.Element("AxTableField")!;
+        Assert.Equal("AxTableFieldDate", field.Attribute(Xsi + "type")!.Value);
+    }
 }

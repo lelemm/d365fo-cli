@@ -54,6 +54,146 @@ internal static class GenerateInstaller
         }
         return System.IO.Path.Combine(folder!, axSubfolder, name + ".xml");
     }
+
+    /// <summary>
+    /// Build an EDT → primitive-base-type resolver backed by the SQLite index.
+    /// Passed to <see cref="XppScaffolder.Table"/> so each field gets its
+    /// concrete <c>i:type="AxTableField{Suffix}"</c> discriminator (issue #91).
+    /// Returns null when the index is unavailable — the scaffolder then falls
+    /// back to a name heuristic.
+    /// </summary>
+    internal static Func<string, string?>? BuildEdtBaseTypeResolver()
+    {
+        try
+        {
+            var repo = RepoFactory.Create();
+            return edt =>
+            {
+                if (string.IsNullOrWhiteSpace(edt)) return null;
+                try { return repo.GetEdt(edt)?.BaseType; }
+                catch { return null; }
+            };
+        }
+        catch { return null; }
+    }
+
+    internal enum InstallOutcome { CreatedViaApi, WriteScaffold, Failed }
+
+    /// <summary>
+    /// Plan how to install a generated artefact into <paramref name="model"/>.
+    /// Prefers the live metadata provider (bridge <c>createObject</c>) so the
+    /// on-disk XML is provider-canonical and consistent with Visual Studio /
+    /// <c>d365fo-mcp-server</c>. When the provider is unavailable, falls back to
+    /// writing the (now valid) scaffold into the resolved model folder, with a
+    /// warning. When neither path is reachable, returns a rendered failure.
+    /// </summary>
+    internal static (InstallOutcome outcome, string? writePath, int? failure, List<string> warnings)
+        PlanInstall(OutputMode.Kind kind, string axKind, string axSubfolder, string name, string model, string xml)
+    {
+        var warnings = new List<string>();
+
+        // 1) Metadata-API path — canonical, consistent output.
+        var (ok, err) = BridgeGate.TrySaveObject(axKind, name, model, xml);
+        if (ok) return (InstallOutcome.CreatedViaApi, null, null, warnings);
+
+        // 2) Fallback — write the scaffold into the model folder if resolvable.
+        var folder = BridgeGate.TryGetModelFolder(model);
+        if (!string.IsNullOrEmpty(folder))
+        {
+            warnings.Add(
+                $"Metadata API unavailable or rejected the object ({err}); wrote the raw scaffold instead. " +
+                "The file is structurally valid but not provider-canonicalised — open it in Visual Studio to verify.");
+            return (InstallOutcome.WriteScaffold,
+                System.IO.Path.Combine(folder!, axSubfolder, name + ".xml"), null, warnings);
+        }
+
+        // 3) Neither path worked.
+        var failure = RenderHelpers.Render(kind, ToolResult<object>.Fail(
+            "INSTALL_FAILED",
+            $"Could not install '{name}' into model '{model}'. Metadata API: {err}. " +
+            "Could not resolve the model folder either — set D365FO_BRIDGE_ENABLED=1 and point " +
+            "D365FO_PACKAGES_PATH (and D365FO_CUSTOM_PACKAGES_PATH for custom-model roots) at the " +
+            "directories that contain the model, on a D365FO VM."));
+        return (InstallOutcome.Failed, null, failure, warnings);
+    }
+
+    /// <summary>Inputs handed to a command's payload factory after the artefact is written.</summary>
+    internal readonly record struct EmitResult(string Source, string? Path, long? Bytes, string? Backup);
+
+    /// <summary>
+    /// Emit a generated artefact (<see cref="System.Xml.Linq.XDocument"/> form),
+    /// preferring the live metadata provider for <c>--install-to</c> and falling
+    /// back to the scaffold. <paramref name="axKind"/> must be one of the bridge
+    /// collection kinds: <c>class | table | edt | enum | form</c>.
+    /// </summary>
+    internal static int Emit(
+        OutputMode.Kind kind, string axKind, string axSubfolder, string name,
+        string? installTo, string? outPath, bool overwrite,
+        System.Xml.Linq.XDocument doc,
+        Func<EmitResult, object> buildPayload,
+        List<string>? warnings = null)
+        => EmitCore(kind, axKind, axSubfolder, name, installTo, outPath, doc.ToString(),
+            path => ScaffoldFileWriter.Write(doc, path, overwrite), buildPayload, warnings);
+
+    /// <summary>String-rendered counterpart of <see cref="Emit"/> (used for forms).</summary>
+    internal static int EmitString(
+        OutputMode.Kind kind, string axKind, string axSubfolder, string name,
+        string? installTo, string? outPath, bool overwrite,
+        string xml,
+        Func<EmitResult, object> buildPayload,
+        List<string>? warnings = null)
+        => EmitCore(kind, axKind, axSubfolder, name, installTo, outPath, xml,
+            path => ScaffoldFileWriter.Write(xml, path, overwrite), buildPayload, warnings);
+
+    private static int EmitCore(
+        OutputMode.Kind kind, string axKind, string axSubfolder, string name,
+        string? installTo, string? outPath, string xml,
+        Func<string, ScaffoldFileWriter.WriteResult> write,
+        Func<EmitResult, object> buildPayload,
+        List<string>? warnings)
+    {
+        warnings ??= new List<string>();
+        var hasInstall = !string.IsNullOrWhiteSpace(installTo);
+        var hasOut     = !string.IsNullOrWhiteSpace(outPath);
+        if (!hasInstall && !hasOut)
+            return RenderHelpers.Render(kind, ToolResult<object>.Fail("BAD_INPUT", "--out or --install-to is required."));
+
+        if (hasInstall && !hasOut)
+        {
+            var plan = PlanInstall(kind, axKind, axSubfolder, name, installTo!, xml);
+            if (plan.failure.HasValue) return plan.failure.Value;
+            var all = warnings.Concat(plan.warnings).ToList();
+
+            if (plan.outcome == InstallOutcome.CreatedViaApi)
+                return RenderHelpers.Render(kind, ToolResult<object>.Success(
+                    buildPayload(new EmitResult("bridge", null, null, null)),
+                    all.Count > 0 ? all : null));
+
+            try
+            {
+                var res = write(plan.writePath!);
+                return RenderHelpers.Render(kind, ToolResult<object>.Success(
+                    buildPayload(new EmitResult("scaffold", res.Path, res.Bytes, res.BackupPath)),
+                    all.Count > 0 ? all : null));
+            }
+            catch (Exception ex)
+            {
+                return RenderHelpers.Render(kind, ToolResult<object>.Fail("WRITE_FAILED", ex.Message));
+            }
+        }
+
+        try
+        {
+            var res = write(outPath!);
+            return RenderHelpers.Render(kind, ToolResult<object>.Success(
+                buildPayload(new EmitResult("scaffold", res.Path, res.Bytes, res.BackupPath)),
+                warnings.Count > 0 ? warnings : null));
+        }
+        catch (Exception ex)
+        {
+            return RenderHelpers.Render(kind, ToolResult<object>.Fail("WRITE_FAILED", ex.Message));
+        }
+    }
 }
 
 public sealed class GenerateTableCommand : Command<GenerateTableCommand.Settings>
@@ -94,18 +234,12 @@ public sealed class GenerateTableCommand : Command<GenerateTableCommand.Settings
             return RenderHelpers.Render(kind, ToolResult<object>.Fail("BAD_INPUT", serr!));
         if (!GenerateBackendResolver.TryResolve(settings.Backend, out var backend, out var backendError))
             return GenerateBridgeScaffolding.RenderBackendError(kind, backendError!);
-        var useBridge = GenerateBackendResolver.ShouldUseBridge(backend);
 
         var hasInstall = !string.IsNullOrWhiteSpace(settings.InstallTo);
         var hasOut     = !string.IsNullOrWhiteSpace(settings.Out);
         if (!hasInstall && !hasOut)
             return RenderHelpers.Render(kind, ToolResult<object>.Fail("BAD_INPUT", "--out or --install-to is required."));
         var outPath = settings.Out;
-        if (hasInstall && !hasOut && !useBridge)
-        {
-            outPath = GenerateInstaller.ResolveInstallPath(kind, "AxTable", settings.Name, settings.InstallTo!, out var fail);
-            if (fail.HasValue) return fail.Value;
-        }
 
         var fields2 = settings.Fields.Select(ParseField).ToList();
         var effectiveFields = EffectiveFields(fields2, pattern).ToList();
@@ -140,28 +274,35 @@ public sealed class GenerateTableCommand : Command<GenerateTableCommand.Settings
             });
         if (bridge.Handled) return bridge.ExitCode;
 
-        var doc = XppScaffolder.Table(settings.Name, settings.Label, fields2, pattern, storage, settings.PrimaryKey);
-        try
-        {
-            var res = ScaffoldFileWriter.Write(doc, outPath!, settings.Overwrite);
-            return RenderHelpers.Render(kind, ToolResult<object>.Success(new
+        // Resolve each field's EDT base type from the index so the scaffold
+        // stamps the concrete i:type discriminator on every <AxTableField>.
+        var edtResolver = GenerateInstaller.BuildEdtBaseTypeResolver();
+        var doc = XppScaffolder.Table(settings.Name, settings.Label, fields2, pattern, storage, settings.PrimaryKey, edtResolver);
+
+        var fieldCount = effectiveFields.Count;
+        var patternStr = pattern == TablePattern.None ? null : pattern.ToString();
+        var tableTypeStr = storage == TableStorage.RegularTable ? null : storage.ToString();
+        var usedDefaults = fields2.Count == 0 && pattern != TablePattern.None;
+
+        // Prefer the live metadata provider for --install-to (canonical output,
+        // consistent with VS / d365fo-mcp-server); fall back to the scaffold.
+        return GenerateInstaller.Emit(
+            kind, "table", "AxTable", settings.Name,
+            settings.InstallTo, settings.Out, settings.Overwrite, doc,
+            r => new
             {
                 kind = "AxTable",
                 name = settings.Name,
-                path = res.Path,
-                bytes = res.Bytes,
-                backup = res.BackupPath,
-                fieldCount = fields2.Count > 0 ? fields2.Count : TablePatternPresets.DefaultFieldsFor(pattern).Count,
-                pattern = pattern == TablePattern.None ? null : pattern.ToString(),
-                tableType = storage == TableStorage.RegularTable ? null : storage.ToString(),
-                usedPatternDefaults = fields2.Count == 0 && pattern != TablePattern.None,
+                source = r.Source,
+                path = r.Path,
+                bytes = r.Bytes,
+                backup = r.Backup,
+                fieldCount,
+                pattern = patternStr,
+                tableType = tableTypeStr,
+                usedPatternDefaults = usedDefaults,
                 model = settings.InstallTo,
-            }));
-        }
-        catch (Exception ex)
-        {
-            return RenderHelpers.Render(kind, ToolResult<object>.Fail("WRITE_FAILED", ex.Message));
-        }
+            });
     }
 
     private static TableFieldSpec ParseField(string raw)
@@ -273,17 +414,11 @@ public sealed class GenerateClassCommand : Command<GenerateClassCommand.Settings
             return RenderHelpers.Render(kind, ToolResult<object>.Fail("BAD_INPUT", "Class name required."));
         if (!GenerateBackendResolver.TryResolve(settings.Backend, out var backend, out var backendError))
             return GenerateBridgeScaffolding.RenderBackendError(kind, backendError!);
-        var useBridge = GenerateBackendResolver.ShouldUseBridge(backend);
         var hasInstall = !string.IsNullOrWhiteSpace(settings.InstallTo);
         var hasOut     = !string.IsNullOrWhiteSpace(settings.Out);
         if (!hasInstall && !hasOut)
             return RenderHelpers.Render(kind, ToolResult<object>.Fail("BAD_INPUT", "--out or --install-to is required."));
         var outPath = settings.Out;
-        if (hasInstall && !hasOut && !useBridge)
-        {
-            outPath = GenerateInstaller.ResolveInstallPath(kind, "AxClass", settings.Name, settings.InstallTo!, out var fail);
-            if (fail.HasValue) return fail.Value;
-        }
 
         var bridgeWarnings = new List<string>();
         if (!string.IsNullOrWhiteSpace(settings.Extends) || settings.NonFinal)
@@ -297,18 +432,14 @@ public sealed class GenerateClassCommand : Command<GenerateClassCommand.Settings
         if (bridge.Handled) return bridge.ExitCode;
 
         var doc = XppScaffolder.Class(settings.Name, settings.Extends, !settings.NonFinal);
-        try
-        {
-            var res = ScaffoldFileWriter.Write(doc, outPath!, settings.Overwrite);
-            return RenderHelpers.Render(kind, ToolResult<object>.Success(new
+        return GenerateInstaller.Emit(
+            kind, "class", "AxClass", settings.Name,
+            settings.InstallTo, settings.Out, settings.Overwrite, doc,
+            r => new
             {
-                kind = "AxClass", name = settings.Name, path = res.Path, bytes = res.Bytes, backup = res.BackupPath, model = settings.InstallTo,
-            }));
-        }
-        catch (Exception ex)
-        {
-            return RenderHelpers.Render(kind, ToolResult<object>.Fail("WRITE_FAILED", ex.Message));
-        }
+                kind = "AxClass", name = settings.Name, source = r.Source,
+                path = r.Path, bytes = r.Bytes, backup = r.Backup, model = settings.InstallTo,
+            });
     }
 }
 
@@ -332,16 +463,6 @@ public sealed class GenerateCocCommand : Command<GenerateCocCommand.Settings>
             return RenderHelpers.Render(kind, ToolResult<object>.Fail("BAD_INPUT", "Target class required."));
         if (settings.Methods.Length == 0)
             return RenderHelpers.Render(kind, ToolResult<object>.Fail("BAD_INPUT", "At least one --method required."));
-        var hasInstall = !string.IsNullOrWhiteSpace(settings.InstallTo);
-        var hasOut     = !string.IsNullOrWhiteSpace(settings.Out);
-        if (!hasInstall && !hasOut)
-            return RenderHelpers.Render(kind, ToolResult<object>.Fail("BAD_INPUT", "--out or --install-to is required."));
-        var outPath = settings.Out;
-        if (hasInstall && !hasOut)
-        {
-            outPath = GenerateInstaller.ResolveInstallPath(kind, "AxClass", settings.Target + "_Extension", settings.InstallTo!, out var fail);
-            if (fail.HasValue) return fail.Value;
-        }
 
         // Guardrail: warn if the target already has CoC wrappers, and resolve
         // the target's AOT kind so [ExtensionOf] uses the right intrinsic
@@ -371,25 +492,22 @@ public sealed class GenerateCocCommand : Command<GenerateCocCommand.Settings>
         if (gate.Failure is not null) return RenderHelpers.Render(kind, gate.Failure);
         warnings.AddRange(gate.Warnings);
 
-        try
-        {
-            var res = ScaffoldFileWriter.Write(doc, outPath!, settings.Overwrite);
-            return RenderHelpers.Render(kind, ToolResult<object>.Success(new
+        return GenerateInstaller.Emit(
+            kind, "class", "AxClass", settings.Target + "_Extension",
+            settings.InstallTo, settings.Out, settings.Overwrite, doc,
+            r => new
             {
                 kind = "AxClass",
                 name = settings.Target + "_Extension",
-                path = res.Path,
-                bytes = res.Bytes,
-                backup = res.BackupPath,
+                source = r.Source,
+                path = r.Path,
+                bytes = r.Bytes,
+                backup = r.Backup,
                 methodCount = settings.Methods.Length,
                 model = settings.InstallTo,
                 grounding = gate.Grounding,
-            }, warnings: warnings));
-        }
-        catch (Exception ex)
-        {
-            return RenderHelpers.Render(kind, ToolResult<object>.Fail("WRITE_FAILED", ex.Message));
-        }
+            },
+            warnings);
     }
 }
 
@@ -499,7 +617,6 @@ internal static class GenerateFormImpl
             return RenderHelpers.Render(kind, ToolResult<object>.Fail("BAD_INPUT", "Form name required."));
         if (!GenerateBackendResolver.TryResolve(backendRaw, out var backend, out var backendError))
             return GenerateBridgeScaffolding.RenderBackendError(kind, backendError!);
-        var useBridge = GenerateBackendResolver.ShouldUseBridge(backend);
 
         var pattern = FormPatternNormalizer.Normalize(patternRaw);
 
@@ -512,12 +629,6 @@ internal static class GenerateFormImpl
         var hasOut     = !string.IsNullOrWhiteSpace(outPath);
         if (!hasInstall && !hasOut)
             return RenderHelpers.Render(kind, ToolResult<object>.Fail("BAD_INPUT", "--out or --install-to is required."));
-
-        if (hasInstall && !hasOut && !useBridge)
-        {
-            outPath = GenerateInstaller.ResolveInstallPath(kind, "AxForm", formName, installTo!, out var fail);
-            if (fail.HasValue) return fail.Value;
-        }
 
         var sectionSpecs = ParseSections(sections);
         var formProperties = BuildFormProperties(pattern, caption);
@@ -581,17 +692,18 @@ internal static class GenerateFormImpl
                 "or set D365FO_FORM_PATTERN_ENFORCE=false to bypass the gate."));
         }
 
-        try
-        {
-            var res = ScaffoldFileWriter.Write(xml, outPath!, overwrite);
-            return RenderHelpers.Render(kind, ToolResult<object>.Success(new
+        return GenerateInstaller.EmitString(
+            kind, "form", "AxForm", formName,
+            installTo, outPath, overwrite, xml,
+            r => new
             {
                 kind         = "AxForm",
                 name         = formName,
                 pattern      = pattern.ToString(),
-                path         = res.Path,
-                bytes        = res.Bytes,
-                backup       = res.BackupPath,
+                source       = r.Source,
+                path         = r.Path,
+                bytes        = r.Bytes,
+                backup       = r.Backup,
                 model        = installTo,
                 fieldCount   = fields.Count,
                 sectionCount = sectionSpecs.Count,
@@ -601,12 +713,8 @@ internal static class GenerateFormImpl
                     errors   = patternReport.ErrorCount,
                     warnings = patternReport.WarningCount,
                 },
-            }, patternWarnings.Count > 0 ? patternWarnings : null));
-        }
-        catch (Exception ex)
-        {
-            return RenderHelpers.Render(kind, ToolResult<object>.Fail("WRITE_FAILED", ex.Message));
-        }
+            },
+            patternWarnings.Count > 0 ? patternWarnings : null);
     }
 
     internal static JsonObject BuildFormProperties(FormPattern pattern, string? caption)

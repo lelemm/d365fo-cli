@@ -174,15 +174,25 @@ public static class ToolCatalog
                    ("file", "string", false), ("language", "string", false), ("key", "string", false),
                    ("value", "string", false), ("overwrite", "boolean", false),
                    ("installTo", "string", false), ("lang", "string", false), ("labelFile", "string", false),
-                   ("oldKey", "string", false), ("newKey", "string", false)),
+                   ("oldKey", "string", false), ("newKey", "string", false),
+                   // create-input aliases tolerated for clients that guess the schema
+                   ("labelId", "string", false), ("text", "string", false), ("label", "string", false),
+                   ("model", "string", false), ("labelFileId", "string", false)),
             (h, p) => StrOr(p, "action", "search").ToLowerInvariant() switch
             {
                 "fts"    => h.SearchLabelsFts(Str(p, "query"), StrArray(p, "languages"), Int(p, "limit", 100), Bool(p, "raw")),
                 "info" or "resolve" => StrOrNull(p, "file") is not null
                             ? h.GetLabel(Str(p, "file"), Str(p, "language"), Str(p, "key"), Bool(p, "raw"))
                             : h.ResolveLabel(Str(p, "token"), StrArray(p, "languages"), Bool(p, "raw")),
-                "create" => h.CreateLabel(StrOrNull(p, "file"), Str(p, "key"), Str(p, "value"), Bool(p, "overwrite"),
-                                StrOrNull(p, "installTo"), StrOrNull(p, "lang"), StrOrNull(p, "labelFile")),
+                // Tolerate the param names MCP clients commonly guess: a scalar
+                // text/label for value, model for installTo, language for lang,
+                // labelFileId for labelFile. Canonical names still win when both
+                // are present.
+                "create" => h.CreateLabel(StrOrNull(p, "file"),
+                                StrAlias(p, "key", "labelId"), StrAlias(p, "value", "text", "label"),
+                                Bool(p, "overwrite"),
+                                StrAliasOrNull(p, "installTo", "model"), StrAliasOrNull(p, "lang", "language"),
+                                StrAliasOrNull(p, "labelFile", "labelFileId")),
                 "rename" => h.RenameLabel(Str(p, "file"), Str(p, "oldKey"), Str(p, "newKey"), Bool(p, "overwrite")),
                 "delete" => h.DeleteLabel(Str(p, "file"), Str(p, "key")),
                 _        => h.SearchLabels(Str(p, "query"), StrArray(p, "languages"), Int(p, "limit", 100), Bool(p, "raw")),
@@ -215,7 +225,8 @@ public static class ToolCatalog
             "table-merge (all TableExtensions targeting `target` table + effective merged schema) · " +
             "points (Table/Form/Enum/EDT _Extension objects targeting `target`; filter with `kind`) · " +
             "strategy (enumerate existing extensions/handlers/CoC on `target` and recommend the least-invasive change). " +
-            "Use before writing any extension to check for conflicts and pick the right mechanism.",
+            "Use before writing any extension to check for conflicts and pick the right mechanism. " +
+            "`target` may be the base object (CustTable) or the full extension name (CustTable.Extension) — both resolve to the base.",
             Schema(("mode", "string", true), ("target", "string", true),
                    ("method", "string", false), ("objectType", "string", false), ("kind", "string", false)),
             (h, p) => StrOr(p, "mode", "").ToLowerInvariant() switch
@@ -424,6 +435,27 @@ public static class ToolCatalog
     private static string? StrOrNull(JsonElement p, string name)
     {
         var s = Str(p, name);
+        return string.IsNullOrEmpty(s) ? null : s;
+    }
+
+    /// <summary>
+    /// Read the first non-empty value among <paramref name="names"/>. Lets MCP
+    /// clients that guess alias param names (e.g. <c>text</c> for <c>value</c>)
+    /// still reach the handler; the canonical name (listed first) wins.
+    /// </summary>
+    private static string StrAlias(JsonElement p, params string[] names)
+    {
+        foreach (var n in names)
+        {
+            var s = Str(p, n);
+            if (!string.IsNullOrEmpty(s)) return s;
+        }
+        return "";
+    }
+
+    private static string? StrAliasOrNull(JsonElement p, params string[] names)
+    {
+        var s = StrAlias(p, names);
         return string.IsNullOrEmpty(s) ? null : s;
     }
 

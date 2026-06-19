@@ -353,16 +353,6 @@ public sealed class GenerateEventHandlerCommand : Command<GenerateEventHandlerCo
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "Class name required."));
         if (string.IsNullOrWhiteSpace(settings.SourceObject))
             return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "--source-object required."));
-        var hasInstall = !string.IsNullOrWhiteSpace(settings.InstallTo);
-        var hasOut = !string.IsNullOrWhiteSpace(settings.Out);
-        if (!hasInstall && !hasOut)
-            return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "--out or --install-to is required."));
-        var outPath = settings.Out;
-        if (hasInstall && !hasOut)
-        {
-            outPath = GenerateInstaller.ResolveInstallPath(kind, "AxClass", settings.ClassName, settings.InstallTo!, out var fail);
-            if (fail.HasValue) return fail.Value;
-        }
 
         var doc = XppScaffolder.EventHandler(settings.ClassName, settings.SourceKind, settings.SourceObject!, settings.Event, settings.HandlerMethod);
 
@@ -372,10 +362,10 @@ public sealed class GenerateEventHandlerCommand : Command<GenerateEventHandlerCo
             requiredSymbols: new[] { settings.SourceObject! });
         if (gate.Failure is not null) return RenderHelpers.Render(kind, gate.Failure);
 
-        try
-        {
-            var res = ScaffoldFileWriter.Write(doc, outPath!, settings.Overwrite);
-            return RenderHelpers.Render(kind, ToolResult<object>.Success(new
+        return GenerateInstaller.Emit(
+            kind, "class", "AxClass", settings.ClassName,
+            settings.InstallTo, settings.Out, settings.Overwrite, doc,
+            r => new
             {
                 kind = "AxClass",
                 role = "EventHandler",
@@ -384,17 +374,14 @@ public sealed class GenerateEventHandlerCommand : Command<GenerateEventHandlerCo
                 sourceObject = settings.SourceObject,
                 @event = settings.Event,
                 method = settings.HandlerMethod,
-                path = res.Path,
-                bytes = res.Bytes,
-                backup = res.BackupPath,
+                source = r.Source,
+                path = r.Path,
+                bytes = r.Bytes,
+                backup = r.Backup,
                 model = settings.InstallTo,
                 grounding = gate.Grounding,
-            }, warnings: gate.Warnings.Count > 0 ? gate.Warnings : null));
-        }
-        catch (Exception ex)
-        {
-            return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.WriteFailed, ex.Message));
-        }
+            },
+            gate.Warnings.Count > 0 ? gate.Warnings.ToList() : null);
     }
 }
 

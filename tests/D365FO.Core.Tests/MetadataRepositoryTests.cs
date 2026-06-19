@@ -66,6 +66,30 @@ public class MetadataRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void FindExtensions_accepts_full_extension_name_for_base_target()
+    {
+        var repo = new MetadataRepository(_dbPath);
+        repo.EnsureSchema();
+
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection(repo.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+            INSERT INTO Models(Name,IsCustom) VALUES('Contoso',1);
+            INSERT INTO ObjectExtensions(Kind,TargetName,ExtensionName,ModelId,SourcePath)
+              VALUES('Table','CustTable','CustTable.Extension',1,'/x');";
+        cmd.ExecuteNonQuery();
+
+        // Both the base table name and the full extension name resolve to the
+        // same indexed row (a dot marks an extension suffix; AOT names have none).
+        var byBase = repo.FindExtensions("CustTable", "Table");
+        var byFull = repo.FindExtensions("CustTable.Extension", "Table");
+        Assert.Single(byBase);
+        Assert.Single(byFull);
+        Assert.Equal("CustTable.Extension", byFull[0].ExtensionName);
+    }
+
+    [Fact]
     public void RecordExtractionRun_roundtrips_via_GetExtractionRuns()
     {
         var repo = new MetadataRepository(_dbPath);

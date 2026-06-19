@@ -13,13 +13,26 @@ namespace D365FO.Core.Scaffolding;
 /// </summary>
 public static class XppScaffolder
 {
+    /// <param name="edtBaseTypeResolver">
+    /// Optional callback resolving an EDT name to its primitive base type
+    /// (<c>String</c>, <c>Int</c>, <c>Enum</c>, …) — typically backed by the
+    /// SQLite index (<c>MetadataRepository.GetEdt(name)?.BaseType</c>). Used to
+    /// stamp each <c>&lt;AxTableField&gt;</c> with the concrete
+    /// <c>i:type="AxTableField{Suffix}"</c> discriminator. <c>AxTableField</c>
+    /// is an abstract base in <c>Microsoft.Dynamics.AX.Metadata.MetaModel</c>;
+    /// without the discriminator the metadata reader throws "Cannot create an
+    /// abstract class" and the table is invalid (issue #91). When the resolver
+    /// is null or returns null, a heuristic over well-known system EDTs is used,
+    /// defaulting to <c>AxTableFieldString</c>.
+    /// </param>
     public static XDocument Table(
         string name,
         string? label = null,
         IEnumerable<TableFieldSpec>? fields = null,
         TablePattern pattern = TablePattern.None,
         TableStorage storage = TableStorage.RegularTable,
-        IEnumerable<string>? primaryKeyFields = null)
+        IEnumerable<string>? primaryKeyFields = null,
+        Func<string, string?>? edtBaseTypeResolver = null)
     {
         // Resolve effective field list: caller-supplied wins; otherwise use the
         // pattern preset (if any). When neither is supplied, emit nothing —
@@ -30,11 +43,18 @@ public static class XppScaffolder
             ? supplied
             : TablePatternPresets.DefaultFieldsFor(pattern).ToList();
 
+        // Microsoft's metadata reader requires the XMLSchema-instance namespace
+        // and a concrete i:type on every polymorphic AxTableField (abstract base).
+        XNamespace xsi = "http://www.w3.org/2001/XMLSchema-instance";
+
         var fieldEls = effectiveFields.Select(f =>
         {
+            var edtName = f.Edt ?? "Name";
+            var suffix  = TableFieldConcreteSuffix(edtName, edtBaseTypeResolver);
             var el = new XElement("AxTableField",
+                new XAttribute(XName.Get("type", xsi.NamespaceName), $"AxTableField{suffix}"),
                 new XElement("Name", f.Name),
-                new XElement("ExtendedDataType", f.Edt ?? "Name"));
+                new XElement("ExtendedDataType", edtName));
             if (!string.IsNullOrEmpty(f.Label)) el.Add(new XElement("Label", f.Label));
             if (f.Mandatory) el.Add(new XElement("Mandatory", "Yes"));
             return el;
@@ -78,6 +98,9 @@ public static class XppScaffolder
 
         return new XDocument(
             new XElement("AxTable",
+                // Declare the i: prefix once on the root so every field's
+                // i:type discriminator resolves without re-declaring per element.
+                new XAttribute(XNamespace.Xmlns + "i", xsi.NamespaceName),
                 new XElement("Name", name),
                 string.IsNullOrEmpty(label) ? null : new XElement("Label", label),
                 tableGroup is null ? null : new XElement("TableGroup", tableGroup),
@@ -732,6 +755,43 @@ public static class XppScaffolder
             "boolean"              => "NoYes",
             _                      => null,
         };
+
+    /// <summary>
+    /// Resolve the concrete <c>AxTableField{Suffix}</c> discriminator for a
+    /// field's EDT. Prefers the index-backed base type; falls back to a
+    /// heuristic over well-known system EDTs (defaulting to <c>String</c>).
+    /// </summary>
+    private static string TableFieldConcreteSuffix(string edtName, Func<string, string?>? resolver)
+    {
+        var baseType = resolver?.Invoke(edtName);
+        var fromIndex = SuffixFromBaseType(baseType);
+        if (fromIndex is not null) return fromIndex;
+        return InferConcreteTypeSuffixFromExtends(edtName);
+    }
+
+    /// <summary>
+    /// Map an EDT primitive base type (as stored in the index — the concrete
+    /// <c>AxEdt*</c> root element name minus the prefix) to the matching
+    /// <c>AxTableField</c> subtype suffix. Returns null for unknown/empty input
+    /// so the caller can fall back to the name heuristic.
+    /// </summary>
+    private static string? SuffixFromBaseType(string? baseType) =>
+        string.IsNullOrWhiteSpace(baseType)
+            ? null
+            : baseType.ToLowerInvariant() switch
+            {
+                "string"              => "String",
+                "int" or "integer"    => "Int",
+                "int64"               => "Int64",
+                "real"                => "Real",
+                "date"                => "Date",
+                "time"                => "Time",
+                "utcdatetime"         => "UtcDateTime",
+                "enum"                => "Enum",
+                "guid"                => "Guid",
+                "container"           => "Container",
+                _                     => null,
+            };
 
     private static string InferConcreteTypeSuffixFromExtends(string? extends) =>
         extends?.ToLowerInvariant() switch
