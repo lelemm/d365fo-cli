@@ -75,19 +75,19 @@ Before scaffolding a new extension, inspect the existing result from
 
 ```sh
 # Add fields to the resolved target table in the resolved target model
-d365fo generate extension Table <TableName> <Suffix> --install-to <Model>
+d365fo generate extension Table {TableName} {Suffix} --install-to {Model}
 
 # Form extension targeting the resolved target form
-d365fo generate extension Form <FormName> <Suffix> --install-to <Model>
+d365fo generate extension Form {FormName} {Suffix} --install-to {Model}
 
 # Tighten the resolved target EDT
-d365fo generate extension Edt <EdtName> <Suffix> --install-to <Model>
+d365fo generate extension Edt {EdtName} {Suffix} --install-to {Model}
 
 # Add enum members to the resolved target enum
-d365fo generate extension Enum <EnumName> <Suffix> --install-to <Model>
+d365fo generate extension Enum {EnumName} {Suffix} --install-to {Model}
 ```
 
-Substitute `<Model>`, `<Suffix>`, and target object names from pre-flight
+Substitute `{Model}`, `{Suffix}`, and target object names from pre-flight
 results, existing related extensions, or explicit user input. Do not use demo
 model names, customer names, ticket names, or feature names as defaults.
 
@@ -105,26 +105,27 @@ When you need a standalone EDT or enum (not an extension of an existing one), us
 # New string EDT — check for an existing one first
 d365fo search edt <NamePart> --output json
 
-d365fo generate edt <NewEdtName> \
-  --base-type String --size <Length> --label "@<LabelFile>:<LabelKey>" \
-  --out "<ModelRoot>/AxEdt/<NewEdtName>.xml"
+d365fo generate edt {NewEdtName} \
+  --base-type String --size {Length} --label "{LabelReference}" \
+  --out "{ModelRoot}/AxEdt/{NewEdtName}.xml"
 
 # Derive from an existing EDT (inherits base type and format)
-d365fo generate edt <NewEdtName> \
-  --extends <BaseEdtName> \
-  --label "@<LabelFile>:<LabelKey>" \
-  --out "<ModelRoot>/AxEdt/<NewEdtName>.xml"
+d365fo generate edt {NewEdtName} \
+  --extends {BaseEdtName} \
+  --label "{LabelReference}" \
+  --out "{ModelRoot}/AxEdt/{NewEdtName}.xml"
 
 # New extensible enum — check for existing first
 d365fo search enum <NamePart> --output json
 
-d365fo generate enum <NewEnumName> \
-  --value "<ValueName>:<Ordinal>:@<LabelFile>:<LabelKey>" \
-  --out "<ModelRoot>/AxEnum/<NewEnumName>.xml"
+d365fo generate enum {NewEnumName} \
+  --value "{ValueName}:{Ordinal}:{LabelReference}" \
+  --out "{ModelRoot}/AxEnum/{NewEnumName}.xml"
 ```
 
-Resolve `<ModelRoot>` from the actual package/model folder. Reuse the model's
+Resolve `{ModelRoot}` from the actual package/model folder. Reuse the model's
 label file and label-key conventions; create labels before referencing them.
+Use a concrete `{LabelReference}` accepted by the CLI, commonly `@File:Key`.
 
 `--base-type` accepts `String`, `Integer`, `Real`, `Int64`, `Date`, `UtcDateTime`, `Enum`, `Guid`. Enums are `IsExtensible=Yes` by default — pass `--no-extensible` to opt out.
 
@@ -136,19 +137,19 @@ When adding row-level security via Extensible Data Security (XDS):
 # Check for existing policies on the same table first
 d365fo search security-policy <ConstrainedTableName> --output json
 
-d365fo generate security-policy <SecurityPolicyName> \
-  --constrained-table <ConstrainedTableName> \
-  --policy-query <PolicyQueryName> \
+d365fo generate security-policy {SecurityPolicyName} \
+  --constrained-table {ConstrainedTableName} \
+  --policy-query {PolicyQueryName} \
   --operation Select \
-  --context-type RoleName --context-value <SecurityRoleName> \
-  --out "<ModelRoot>/AxSecurityPolicy/<SecurityPolicyName>.xml"
+  --context-type RoleName --context-value {SecurityRoleName} \
+  --out "{ModelRoot}/AxSecurityPolicy/{SecurityPolicyName}.xml"
 ```
 
 `--operation` accepts `All`, `Select`, `Insert`, `Update`, `Delete`. The policy query (`--policy-query`) is a separate `AxQuery` AOT object that must already exist or be scaffolded with `d365fo generate query`.
 
 After scaffolding, verify with:
 ```sh
-d365fo get security-policy <SecurityPolicyName> --output json
+d365fo get security-policy {SecurityPolicyName} --output json
 ```
 
 ## Hard rules
